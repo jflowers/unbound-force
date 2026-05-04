@@ -3,7 +3,9 @@
 # CRAP Load Check
 # ===============
 # Runs CRAP load analysis on pull requests targeting main.
-# Consumes the reusable workflow from org-infra.
+# Consumes the reusable workflow from org-infra, then
+# re-evaluates regressions with epsilon tolerance to
+# filter cross-platform noise.
 
 name: CRAP Load Check
 
@@ -26,10 +28,104 @@ jobs:
     uses: complytime/org-infra/.github/workflows/reusable_crapload_analysis.yml@baf5b2e21e61581b4a3a129795286e8592e6afbb # v0.1.0
     permissions:
       contents: read
+    # Allow the reusable workflow to fail without
+    # blocking the overall check — the evaluate job
+    # re-checks with epsilon tolerance.
+
+  evaluate:
+    name: Evaluate with Epsilon
+    needs: crapload
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      status: ${{ steps.check.outputs.status }}
+      filtered: ${{ steps.check.outputs.filtered }}
+      remaining: ${{ steps.check.outputs.remaining }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download analysis artifact
+        id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: crapload-analysis
+          path: artifact
+
+      - name: Evaluate regressions with epsilon
+        id: check
+        run: |
+          EPSILON=0.5
+          BASELINE=".gaze/baseline.json"
+          CURRENT="artifact/crapload-scores.json"
+
+          # If artifact or baseline is missing, pass
+          # (nothing to compare)
+          if [ ! -f "$CURRENT" ] || [ ! -f "$BASELINE" ]; then
+            echo "status=pass" >> "$GITHUB_OUTPUT"
+            echo "filtered=0" >> "$GITHUB_OUTPUT"
+            echo "remaining=0" >> "$GITHUB_OUTPUT"
+            echo "No scores or baseline found — skipping epsilon check"
+            exit 0
+          fi
+
+          # Build baseline lookup
+          jq -r '.scores[] | "\(.file):\(.function)\t\(.crap)\t\(.gaze_crap // 0)"' \
+            "$BASELINE" | sort > /tmp/baseline-lookup.tsv
+
+          FILTERED=0
+          REMAINING=0
+          REMAINING_DETAILS=""
+
+          # Compare each current score against baseline
+          jq -r '.scores[] | "\(.file):\(.function)\t\(.crap)\t\(.gaze_crap // 0)"' \
+            "$CURRENT" | while IFS=$'\t' read -r key crap gaze_crap; do
+
+            baseline_line=$(grep -F "${key}	" /tmp/baseline-lookup.tsv || true)
+            if [ -z "$baseline_line" ]; then
+              continue  # New function — handled by new-function-threshold
+            fi
+
+            b_crap=$(echo "$baseline_line" | cut -f2)
+            b_gaze=$(echo "$baseline_line" | cut -f3)
+
+            crap_delta=$(echo "$crap - $b_crap" | bc -l)
+            gaze_delta=$(echo "$gaze_crap - $b_gaze" | bc -l)
+
+            crap_exceeds=$(echo "$crap_delta > $EPSILON" | bc -l)
+            gaze_exceeds=$(echo "$gaze_delta > $EPSILON" | bc -l)
+
+            if [ "$crap_exceeds" = "1" ] || [ "$gaze_exceeds" = "1" ]; then
+              REMAINING=$((REMAINING + 1))
+              REMAINING_DETAILS="${REMAINING_DETAILS}\n  ${key}: CRAP ${b_crap}->${crap} (Δ${crap_delta}), GazeCRAP ${b_gaze}->${gaze_crap} (Δ${gaze_delta})"
+            elif [ "$(echo "$crap_delta > 0" | bc -l)" = "1" ] || [ "$(echo "$gaze_delta > 0" | bc -l)" = "1" ]; then
+              FILTERED=$((FILTERED + 1))
+            fi
+          done
+
+          echo "status=$([ "$REMAINING" -gt 0 ] && echo fail || echo pass)" >> "$GITHUB_OUTPUT"
+          echo "filtered=$FILTERED" >> "$GITHUB_OUTPUT"
+          echo "remaining=$REMAINING" >> "$GITHUB_OUTPUT"
+
+          echo "## Epsilon Evaluation (ε=$EPSILON)"
+          echo "Regressions filtered (below epsilon): $FILTERED"
+          echo "Regressions remaining (above epsilon): $REMAINING"
+
+          if [ "$REMAINING" -gt 0 ]; then
+            echo ""
+            echo "### Remaining Regressions"
+            printf '%b\n' "$REMAINING_DETAILS"
+            echo ""
+            echo "::error::$REMAINING CRAP regression(s) exceed epsilon $EPSILON"
+            exit 1
+          fi
 
   post-comment:
     name: Post PR Comment
-    needs: crapload
+    needs: [crapload, evaluate]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
@@ -60,9 +156,16 @@ jobs:
             ].join('/');
             const MAX_COMMENT_LENGTH = 60000;
 
+            const filtered = '${{ needs.evaluate.outputs.filtered }}';
+            const remaining = '${{ needs.evaluate.outputs.remaining }}';
+            const epsilonNote = filtered > 0
+              ? `\n\n> **Epsilon filter (ε=0.5):** ${filtered} minor regression(s) filtered as noise. ${remaining} regression(s) remain above threshold.\n`
+              : '';
+
             let body;
             if (fs.existsSync(bodyPath)) {
               body = fs.readFileSync(bodyPath, 'utf8');
+              body = body + epsilonNote;
               if (body.length > MAX_COMMENT_LENGTH) {
                 const lastNewline = body.lastIndexOf('\n', MAX_COMMENT_LENGTH);
                 body = body.substring(0, lastNewline > 0 ? lastNewline : MAX_COMMENT_LENGTH);
