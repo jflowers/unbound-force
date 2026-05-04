@@ -334,6 +334,8 @@ type proxyServer struct {
 	opts             Options
 	gatewayAvailable bool
 	startTime        time.Time
+	region           string
+	projectID        string
 }
 
 // newMux creates the HTTP handler with health, embed,
@@ -433,8 +435,33 @@ func Start(opts Options) error {
 		}
 	}
 
-	// Region is resolved per-request in embed.go using
-	// the same env var chain (per design.md D9).
+	// Resolve region using the same priority chain as the
+	// gateway (per design.md D9, gateway provider.go):
+	//   1. ANTHROPIC_VERTEX_REGION (Claude Code convention)
+	//   2. VERTEX_LOCATION (Google Cloud convention)
+	//   3. CLOUD_ML_REGION (legacy)
+	//   4. Default: us-east5
+	// "global" is rejected — Vertex AI predict requires a
+	// specific regional endpoint.
+	region := opts.Getenv("ANTHROPIC_VERTEX_REGION")
+	if region == "" {
+		region = opts.Getenv("VERTEX_LOCATION")
+	}
+	if region == "" {
+		region = opts.Getenv("CLOUD_ML_REGION")
+	}
+	if region == "global" {
+		return fmt.Errorf(
+			"vertex region %q is not supported for "+
+				"embedding predict. This endpoint requires a "+
+				"specific region (e.g., us-east5, europe-west1). "+
+				"Set ANTHROPIC_VERTEX_REGION to override "+
+				"VERTEX_LOCATION and CLOUD_ML_REGION",
+			region)
+	}
+	if region == "" {
+		region = "us-east5"
+	}
 
 	projectID := opts.Getenv("ANTHROPIC_VERTEX_PROJECT_ID")
 	if projectID == "" {
@@ -486,6 +513,8 @@ func Start(opts Options) error {
 		opts:             opts,
 		gatewayAvailable: gatewayAvailable,
 		startTime:        time.Now(),
+		region:           region,
+		projectID:        projectID,
 	}
 
 	// Build the HTTP handler.

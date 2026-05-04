@@ -264,6 +264,8 @@ func TestHealthEndpoint_ResponseFields(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 	mux := newMux(ps)
 
@@ -339,6 +341,8 @@ func TestHandleEmbed_SingleInput(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	// Build request.
@@ -433,6 +437,8 @@ func TestHandleEmbed_BatchInput(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "granite-embedding:30m", "input": ["a", "b"]}`
@@ -548,6 +554,8 @@ func TestHandleEmbed_StringInput(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	// Send request with bare string input (not array).
@@ -619,6 +627,8 @@ func TestHandleEmbed_VertexError(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "granite-embedding:30m", "input": ["hello"]}`
@@ -655,6 +665,8 @@ func TestHandleEmbed_UnknownModel(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "unknown-model", "input": ["hello"]}`
@@ -692,6 +704,8 @@ func TestHandleEmbed_ModelPathTraversal(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "../../evil", "input": ["hello"]}`
@@ -724,6 +738,8 @@ func TestHandleEmbed_OversizedBody(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	// Create a body larger than 10MB.
@@ -772,6 +788,8 @@ func TestHandleGenerate_Success(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "llama3.2:3b", "prompt": "Hello", "stream": false}`
@@ -826,6 +844,8 @@ func TestHandleGenerate_GatewayDown(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: false,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "llama3.2:3b", "prompt": "Hello", "stream": false}`
@@ -871,6 +891,8 @@ func TestHandleGenerate_GatewayError(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "llama3.2:3b", "prompt": "Hello", "stream": false}`
@@ -915,6 +937,8 @@ func TestHandleGenerate_EmptyContent(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "llama3.2:3b", "prompt": "Hello", "stream": false}`
@@ -964,6 +988,8 @@ func TestHandleGenerate_MaxTokensSet(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	reqBody := `{"model": "llama3.2:3b", "prompt": "Hello", "stream": false}`
@@ -1000,6 +1026,8 @@ func TestHandleTags_ReturnsModels(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: true,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tags", nil)
@@ -1140,6 +1168,8 @@ func TestStart_GatewayWarning(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: false,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 	mux := newMux(ps)
 
@@ -1242,6 +1272,107 @@ func TestStart_NonLoopbackGatewayURL(t *testing.T) {
 }
 
 // ============================================================
+// TestStart_GlobalRegionError — verify startup fails when
+// region resolves to "global" (Vertex predict requires a
+// specific regional endpoint).
+// ============================================================
+
+func TestStart_GlobalRegionError(t *testing.T) {
+	opts := testOpts(t)
+	opts.Getenv = func(key string) string {
+		switch key {
+		case "ANTHROPIC_VERTEX_PROJECT_ID":
+			return "test-project"
+		case "CLOUD_ML_REGION":
+			return "global"
+		}
+		return ""
+	}
+
+	err := Start(opts)
+	if err == nil {
+		t.Fatal("expected error for global region")
+	}
+	if !strings.Contains(err.Error(), "global") {
+		t.Errorf("expected 'global' in error, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ANTHROPIC_VERTEX_REGION") {
+		t.Errorf("expected override hint, got: %s", err.Error())
+	}
+}
+
+// ============================================================
+// TestStart_CloudMLRegionGlobal_OverriddenBySpecific —
+// verify that ANTHROPIC_VERTEX_REGION overrides
+// CLOUD_ML_REGION=global so that "global" rejection does
+// not trigger when a specific region is set.
+// ============================================================
+
+func TestStart_CloudMLRegionGlobal_OverriddenBySpecific(t *testing.T) {
+	// Verify indirectly: Start() with global + override
+	// should NOT return the global-rejection error. We
+	// make it fail at a later stage (gcloud LookPath) to
+	// prove it passed region validation.
+	opts := testOpts(t)
+	opts.LookPath = func(name string) (string, error) {
+		return "", fmt.Errorf("not found")
+	}
+	opts.Getenv = func(key string) string {
+		switch key {
+		case "ANTHROPIC_VERTEX_PROJECT_ID":
+			return "test-project"
+		case "ANTHROPIC_VERTEX_REGION":
+			return "us-east5"
+		case "CLOUD_ML_REGION":
+			return "global"
+		}
+		return ""
+	}
+
+	err := Start(opts)
+	if err == nil {
+		t.Fatal("expected error (gcloud missing), got nil")
+	}
+	// The error should be about gcloud, NOT about global
+	// region — proving the region validation passed.
+	if strings.Contains(err.Error(), "global") {
+		t.Errorf("expected gcloud error, got global region "+
+			"error: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "gcloud") {
+		t.Errorf("expected gcloud error, got: %s", err.Error())
+	}
+}
+
+// ============================================================
+// TestStart_MissingProjectID — verify startup fails with
+// a clear error when no project ID env var is set.
+// ============================================================
+
+func TestStart_MissingProjectID(t *testing.T) {
+	opts := testOpts(t)
+	opts.Getenv = func(key string) string {
+		switch key {
+		case "VERTEX_LOCATION":
+			return "us-east5"
+		}
+		// No project ID env vars set.
+		return ""
+	}
+
+	err := Start(opts)
+	if err == nil {
+		t.Fatal("expected error for missing project ID")
+	}
+	if !strings.Contains(err.Error(), "project ID not set") {
+		t.Errorf("expected project ID error, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ANTHROPIC_VERTEX_PROJECT_ID") {
+		t.Errorf("expected env var hint, got: %s", err.Error())
+	}
+}
+
+// ============================================================
 // Task 9.7: TestStop_Running
 // ============================================================
 
@@ -1339,6 +1470,8 @@ func TestHealthEndpoint_ResponseFields_AllFields(t *testing.T) {
 		opts:             opts,
 		gatewayAvailable: false,
 		startTime:        time.Now(),
+		region:           "us-east5",
+		projectID:        "test-project",
 	}
 	mux := newMux(ps)
 

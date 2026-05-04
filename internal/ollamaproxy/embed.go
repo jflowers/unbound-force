@@ -156,29 +156,13 @@ func (ps *proxyServer) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Construct Vertex AI predict URL (per design.md D9).
-	region := ps.opts.Getenv("ANTHROPIC_VERTEX_REGION")
-	if region == "" {
-		region = ps.opts.Getenv("VERTEX_LOCATION")
-	}
-	if region == "" {
-		region = ps.opts.Getenv("CLOUD_ML_REGION")
-	}
-	if region == "" {
-		region = "us-east5"
-	}
-
-	projectID := ps.opts.Getenv("ANTHROPIC_VERTEX_PROJECT_ID")
-	if projectID == "" {
-		projectID = ps.opts.Getenv("GOOGLE_CLOUD_PROJECT")
-	}
-
-	// URL construction uses fmt.Sprintf with validated
-	// model name (safe characters only, per D5).
+	// Construct Vertex AI predict URL using region and
+	// project ID resolved at startup (per design.md D9).
+	// Model name is validated above (safe characters, D5).
 	vertexURL := fmt.Sprintf(
 		"https://%s-aiplatform.googleapis.com/v1/projects/%s/"+
 			"locations/%s/publishers/google/models/%s:predict",
-		region, projectID, region, cloudModel)
+		ps.region, ps.projectID, ps.region, cloudModel)
 
 	// Get OAuth token from TokenManager.
 	token, err := ps.tokenMgr.Token()
