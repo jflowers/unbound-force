@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/charmbracelet/log"
 )
@@ -125,7 +126,9 @@ func (ps *proxyServer) handleEmbed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Map Ollama model name to Vertex model (D5).
-	cloudModel, ok := mapModelName(req.Model)
+	// Uses ps.mapModelName so embedding models resolve
+	// to the configured EmbedModel (--embed-model).
+	cloudModel, ok := ps.mapModelName(req.Model)
 	if !ok {
 		writeOllamaError(w, http.StatusBadRequest,
 			fmt.Sprintf("unknown model %q: not in model mapping table. "+
@@ -206,10 +209,25 @@ func (ps *proxyServer) handleEmbed(w http.ResponseWriter, r *http.Request) {
 		redacted := redactToken(string(respBody))
 		log.Error("vertex AI embedding error",
 			"status", resp.StatusCode,
+			"model", cloudModel,
 			"body_length", len(respBody))
+
+		// Add actionable hint for org policy violations.
+		hint := ""
+		if strings.Contains(redacted, "allowedModels") ||
+			strings.Contains(redacted, "disallowed") {
+			hint = fmt.Sprintf(
+				"\n\nHint: model %q is blocked by your "+
+					"org policy. Try a different model "+
+					"with: uf ollama-proxy --embed-model "+
+					"<allowed-model> or set "+
+					"UF_OLLAMA_PROXY_EMBED_MODEL",
+				cloudModel)
+		}
+
 		writeOllamaError(w, http.StatusBadGateway,
-			fmt.Sprintf("Vertex AI error (HTTP %d): %s",
-				resp.StatusCode, redacted))
+			fmt.Sprintf("Vertex AI error (HTTP %d): %s%s",
+				resp.StatusCode, redacted, hint))
 		return
 	}
 

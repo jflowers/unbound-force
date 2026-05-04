@@ -29,10 +29,14 @@ type ollamaTagsResponse struct {
 // supports mapped models (unknown models are rejected
 // per D5).
 func (ps *proxyServer) handleTags(w http.ResponseWriter, _ *http.Request) {
-	// Collect model names from the mapping table and
-	// sort for deterministic output.
-	names := make([]string, 0, len(defaultModelMap))
-	for name := range defaultModelMap {
+	// Collect model names from both maps and sort for
+	// deterministic output.
+	names := make([]string, 0,
+		len(embeddingModelNames)+len(defaultGenerateModelMap))
+	for name := range embeddingModelNames {
+		names = append(names, name)
+	}
+	for name := range defaultGenerateModelMap {
 		names = append(names, name)
 	}
 	sort.Strings(names)

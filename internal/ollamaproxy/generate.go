@@ -93,7 +93,7 @@ func (ps *proxyServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Map Ollama model name to Claude model (D5).
-	cloudModel, ok := mapModelName(req.Model)
+	cloudModel, ok := ps.mapModelName(req.Model)
 	if !ok {
 		writeOllamaError(w, http.StatusBadRequest,
 			fmt.Sprintf("unknown model %q: not in model mapping table. "+

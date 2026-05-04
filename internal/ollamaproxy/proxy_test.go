@@ -1051,16 +1051,24 @@ func TestHandleTags_ReturnsModels(t *testing.T) {
 		modelNames[m.Name] = true
 	}
 
-	for name := range defaultModelMap {
+	// Check all embedding model names are present.
+	for name := range embeddingModelNames {
 		if !modelNames[name] {
-			t.Errorf("model %q not found in tags response", name)
+			t.Errorf("embedding model %q not found in tags response", name)
+		}
+	}
+	// Check all generate model names are present.
+	for name := range defaultGenerateModelMap {
+		if !modelNames[name] {
+			t.Errorf("generate model %q not found in tags response", name)
 		}
 	}
 
-	// Verify count matches the model map.
-	if len(resp.Models) != len(defaultModelMap) {
+	// Verify total count.
+	expectedCount := len(embeddingModelNames) + len(defaultGenerateModelMap)
+	if len(resp.Models) != expectedCount {
 		t.Errorf("model count = %d, want %d",
-			len(resp.Models), len(defaultModelMap))
+			len(resp.Models), expectedCount)
 	}
 }
 

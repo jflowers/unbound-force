@@ -216,21 +216,41 @@ func defaultHTTPGet(url string) (int, error) {
 	return resp.StatusCode, nil
 }
 
-// defaultModelMap maps Ollama model names to cloud model
-// names. Unknown model names are rejected — passthrough
-// is not allowed because model names are interpolated
-// into Vertex AI URLs, and unvalidated strings could
-// contain path traversal characters (per design.md D5).
-var defaultModelMap = map[string]string{
-	"granite-embedding:30m":              "text-embedding-005",
-	"granite-embedding-small-english-r2": "text-embedding-005",
-	"llama3.2:3b":                        "claude-sonnet-4-20250514",
+// defaultGenerateModelMap maps Ollama generation model
+// names to Claude model names for the /api/generate
+// endpoint. Embedding models are mapped dynamically via
+// the configured EmbedModel (--embed-model flag).
+var defaultGenerateModelMap = map[string]string{
+	"llama3.2:3b": "claude-sonnet-4-20250514",
+}
+
+// embeddingModelNames lists the Ollama model names that
+// map to the configured Vertex AI embedding model.
+var embeddingModelNames = map[string]bool{
+	"granite-embedding:30m":              true,
+	"granite-embedding-small-english-r2": true,
 }
 
 // mapModelName returns the cloud model name for the given
-// Ollama model name. Returns ("", false) for unknown models.
+// Ollama model name. Embedding model names map to
+// ps.opts.EmbedModel (configurable via --embed-model).
+// Returns ("", false) for unknown models.
+func (ps *proxyServer) mapModelName(name string) (string, bool) {
+	if embeddingModelNames[name] {
+		return ps.opts.EmbedModel, true
+	}
+	cloud, ok := defaultGenerateModelMap[name]
+	return cloud, ok
+}
+
+// mapModelNameStatic is the package-level version for use
+// in tests and contexts without a proxyServer. It uses
+// DefaultEmbedModel for embedding model mapping.
 func mapModelName(name string) (string, bool) {
-	cloud, ok := defaultModelMap[name]
+	if embeddingModelNames[name] {
+		return DefaultEmbedModel, true
+	}
+	cloud, ok := defaultGenerateModelMap[name]
 	return cloud, ok
 }
 
@@ -548,13 +568,14 @@ func Start(opts Options) error {
 	go func() {
 		log.Info("ollama-proxy started",
 			"port", opts.Port,
-			"embed_model", opts.EmbedModel,
+			"vertex_embed_model", opts.EmbedModel,
+			"region", region,
 			"gateway_url", opts.GatewayURL,
 			"pid", os.Getpid())
 		fmt.Fprintf(opts.Stderr,
 			"Ollama proxy listening on port %d "+
-				"(embed model: %s)\n",
-			opts.Port, opts.EmbedModel)
+				"(Vertex embed model: %s, region: %s)\n",
+			opts.Port, opts.EmbedModel, region)
 		serverErr <- srv.ListenAndServe()
 	}()
 
