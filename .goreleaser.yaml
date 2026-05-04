@@ -20,25 +20,6 @@ builds:
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
       - -X main.date={{.CommitDate}}
-  - id: mxf
-    main: ./cmd/mxf
-    binary: mxf
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - darwin
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    ignore:
-      - goos: darwin
-        goarch: amd64
-    ldflags:
-      - -s -w
-      - -X main.version={{.Version}}
-      - -X main.commit={{.Commit}}
-      - -X main.date={{.CommitDate}}
 
 archives:
   - formats:
@@ -80,8 +61,6 @@ nfpms:
       - src: /usr/bin/unbound-force
         dst: /usr/bin/uf
         type: symlink
-      - src: ./mxf
-        dst: /usr/bin/mxf
 
 brews:
   - name: unbound-force
@@ -95,7 +74,6 @@ brews:
     skip_upload: true
     install: |
       bin.install "unbound-force"
-      bin.install "mxf"
       bin.install_symlink "unbound-force" => "uf"
     repository:
       owner: unbound-force
