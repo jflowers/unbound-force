@@ -147,7 +147,7 @@ if [[ -d "$REPO_PATH/.opencode/commands/" ]]; then
   check_required ".opencode/commands/ exists" "pass"
 elif [[ -d "$REPO_PATH/.opencode/command/" ]]; then
   check_required ".opencode/commands/ exists" "pass"
-  printf "  ${YELLOW}WARNING${NC}: Found legacy .opencode/command/ directory. Run 'uf init' to migrate to .opencode/commands/.\n"
+  printf "  ${YELLOW}[WARN]${NC} %s\n" "Found legacy .opencode/command/ directory. Run 'uf init' to migrate to .opencode/commands/."
 else
   check_required ".opencode/commands/ exists" "fail"
 fi
