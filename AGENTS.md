@@ -152,6 +152,13 @@ These rules are non-negotiable. Violations are CRITICAL severity.
   refactoring, test-only, CI-only, spec artifacts.
 - **Zero-waste**: No orphaned specs, unused standards, or
   aspirational documents that do not map to actionable work.
+- **Commit scope**: Only commit files directly related to the
+  active spec or change. Tooling scaffolds (`uf init`,
+  convention pack updates, command directory renames, schema
+  template updates) MUST be committed on a separate branch
+  (e.g., `chore/uf-init-sync`), not mixed into feature
+  branches. Never use `git add -A` or `git add .` on feature
+  branches — stage files explicitly.
 
 ### PR Review Commands
 
