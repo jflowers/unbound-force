@@ -6,5 +6,6 @@
     "ANTHROPIC_BASE_URL": "http://host.containers.internal:53147",
     "ANTHROPIC_API_KEY": "gateway"
   },
+  "postStartCommand": "nohup opencode server --port 4096 > /tmp/opencode-server.log 2>&1 &",
   "remoteUser": "dev"
 }
