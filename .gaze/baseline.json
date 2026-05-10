@@ -522,7 +522,7 @@
       "package": "main",
       "function": "newSandboxCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 18,
+      "line": 19,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -531,17 +531,17 @@
       "package": "main",
       "function": "applySandboxConfig",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 57,
-      "complexity": 17,
-      "line_coverage": 83.33333333333333,
-      "crap": 18.337962962962965,
+      "line": 58,
+      "complexity": 19,
+      "line_coverage": 85,
+      "crap": 20.218375,
       "fix_strategy": "decompose"
     },
     {
       "package": "main",
       "function": "runSandboxInit",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 100,
+      "line": 104,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -550,7 +550,7 @@
       "package": "main",
       "function": "newSandboxInitCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 116,
+      "line": 120,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -559,7 +559,7 @@
       "package": "main",
       "function": "runSandboxCreate",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 176,
+      "line": 181,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -568,7 +568,7 @@
       "package": "main",
       "function": "newSandboxCreateCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 194,
+      "line": 200,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -577,17 +577,16 @@
       "package": "main",
       "function": "runSandboxDestroy",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 265,
+      "line": 275,
       "complexity": 5,
-      "line_coverage": 0,
-      "crap": 30,
-      "fix_strategy": "add_tests"
+      "line_coverage": 92.3076923076923,
+      "crap": 5.011379153390988
     },
     {
       "package": "main",
       "function": "newSandboxDestroyCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 291,
+      "line": 304,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -596,7 +595,7 @@
       "package": "main",
       "function": "runSandboxStart",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 343,
+      "line": 357,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -605,7 +604,7 @@
       "package": "main",
       "function": "newSandboxStartCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 361,
+      "line": 376,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -614,7 +613,7 @@
       "package": "main",
       "function": "runSandboxStop",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 431,
+      "line": 450,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -623,7 +622,7 @@
       "package": "main",
       "function": "newSandboxStopCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 438,
+      "line": 457,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -632,7 +631,7 @@
       "package": "main",
       "function": "runSandboxAttach",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 465,
+      "line": 484,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -641,7 +640,7 @@
       "package": "main",
       "function": "newSandboxAttachCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 471,
+      "line": 490,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -650,7 +649,7 @@
       "package": "main",
       "function": "runSandboxExtract",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 495,
+      "line": 514,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -659,7 +658,7 @@
       "package": "main",
       "function": "newSandboxExtractCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 504,
+      "line": 523,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -668,7 +667,7 @@
       "package": "main",
       "function": "runSandboxStatus",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 537,
+      "line": 556,
       "complexity": 4,
       "line_coverage": 0,
       "crap": 20,
@@ -678,7 +677,7 @@
       "package": "main",
       "function": "newSandboxStatusCmd",
       "file": "cmd/unbound-force/sandbox.go",
-      "line": 562,
+      "line": 581,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -966,7 +965,7 @@
       "package": "config",
       "function": "(*LoadOptions).defaults",
       "file": "internal/config/config.go",
-      "line": 111,
+      "line": 112,
       "complexity": 4,
       "line_coverage": 66.66666666666667,
       "crap": 4.592592592592593
@@ -975,7 +974,7 @@
       "package": "config",
       "function": "Load",
       "file": "internal/config/config.go",
-      "line": 129,
+      "line": 130,
       "complexity": 6,
       "line_coverage": 88.88888888888889,
       "crap": 6.049382716049383,
@@ -987,26 +986,27 @@
       "package": "config",
       "function": "merge",
       "file": "internal/config/config.go",
-      "line": 178,
-      "complexity": 29,
-      "line_coverage": 67.27272727272727,
-      "crap": 58.47986175807666,
+      "line": 179,
+      "complexity": 30,
+      "line_coverage": 66.66666666666667,
+      "crap": 63.333333333333314,
       "fix_strategy": "decompose"
     },
     {
       "package": "config",
       "function": "applyEnvOverrides",
       "file": "internal/config/config.go",
-      "line": 282,
-      "complexity": 14,
-      "line_coverage": 100,
-      "crap": 14
+      "line": 286,
+      "complexity": 15,
+      "line_coverage": 96,
+      "crap": 15.0144,
+      "fix_strategy": "decompose"
     },
     {
       "package": "config",
       "function": "Defaults",
       "file": "internal/config/config.go",
-      "line": 323,
+      "line": 330,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1,
@@ -1018,16 +1018,16 @@
       "package": "config",
       "function": "(SandboxConfig).IsEmpty",
       "file": "internal/config/config.go",
-      "line": 368,
-      "complexity": 7,
+      "line": 376,
+      "complexity": 8,
       "line_coverage": 100,
-      "crap": 7
+      "crap": 8
     },
     {
       "package": "config",
       "function": "RepoConfigPath",
       "file": "internal/config/config.go",
-      "line": 380,
+      "line": 389,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1,
@@ -1039,7 +1039,7 @@
       "package": "config",
       "function": "UserConfigPath",
       "file": "internal/config/config.go",
-      "line": 386,
+      "line": 395,
       "complexity": 3,
       "line_coverage": 83.33333333333333,
       "crap": 3.0416666666666665,
@@ -1171,8 +1171,8 @@
       "file": "internal/config/validate.go",
       "line": 97,
       "complexity": 3,
-      "line_coverage": 71.42857142857143,
-      "crap": 3.2099125364431487
+      "line_coverage": 100,
+      "crap": 3
     },
     {
       "package": "config",
@@ -1180,8 +1180,8 @@
       "file": "internal/config/validate.go",
       "line": 115,
       "complexity": 3,
-      "line_coverage": 66.66666666666667,
-      "crap": 3.333333333333333
+      "line_coverage": 100,
+      "crap": 3
     },
     {
       "package": "dashboard",
@@ -1280,61 +1280,25 @@
       "package": "doctor",
       "function": "checkCoreTools",
       "file": "internal/doctor/checks.go",
-      "line": 143,
-      "complexity": 9,
-      "line_coverage": 92.3076923076923,
-      "crap": 9.0368684569868
+      "line": 135,
+      "complexity": 5,
+      "line_coverage": 100,
+      "crap": 5
     },
     {
       "package": "doctor",
       "function": "checkOllamaModel",
       "file": "internal/doctor/checks.go",
-      "line": 182,
+      "line": 160,
       "complexity": 3,
       "line_coverage": 81.81818181818181,
       "crap": 3.0540946656649135
     },
     {
       "package": "doctor",
-      "function": "checkPodmanRuntime",
-      "file": "internal/doctor/checks.go",
-      "line": 207,
-      "complexity": 2,
-      "line_coverage": 100,
-      "crap": 2
-    },
-    {
-      "package": "doctor",
-      "function": "checkPodmanRuntimeDarwin",
-      "file": "internal/doctor/checks.go",
-      "line": 216,
-      "complexity": 4,
-      "line_coverage": 100,
-      "crap": 4
-    },
-    {
-      "package": "doctor",
-      "function": "checkPodmanRuntimeLinux",
-      "file": "internal/doctor/checks.go",
-      "line": 248,
-      "complexity": 2,
-      "line_coverage": 100,
-      "crap": 2
-    },
-    {
-      "package": "doctor",
-      "function": "checkDockerPodmanShim",
-      "file": "internal/doctor/checks.go",
-      "line": 272,
-      "complexity": 4,
-      "line_coverage": 100,
-      "crap": 4
-    },
-    {
-      "package": "doctor",
       "function": "checkOneTool",
       "file": "internal/doctor/checks.go",
-      "line": 302,
+      "line": 181,
       "complexity": 17,
       "line_coverage": 91.17647058823529,
       "crap": 17.198529411764707,
@@ -1344,7 +1308,7 @@
       "package": "doctor",
       "function": "parseGoVersion",
       "file": "internal/doctor/checks.go",
-      "line": 404,
+      "line": 283,
       "complexity": 7,
       "line_coverage": 100,
       "crap": 7
@@ -1353,7 +1317,7 @@
       "package": "doctor",
       "function": "checkGoVersion",
       "file": "internal/doctor/checks.go",
-      "line": 419,
+      "line": 298,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -1362,7 +1326,7 @@
       "package": "doctor",
       "function": "parseVersionParts",
       "file": "internal/doctor/checks.go",
-      "line": 432,
+      "line": 311,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3
@@ -1371,7 +1335,7 @@
       "package": "doctor",
       "function": "extractLeadingDigits",
       "file": "internal/doctor/checks.go",
-      "line": 447,
+      "line": 326,
       "complexity": 4,
       "line_coverage": 100,
       "crap": 4
@@ -1380,7 +1344,7 @@
       "package": "doctor",
       "function": "parseNodeVersion",
       "file": "internal/doctor/checks.go",
-      "line": 458,
+      "line": 337,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -1389,34 +1353,16 @@
       "package": "doctor",
       "function": "checkNodeVersion",
       "file": "internal/doctor/checks.go",
-      "line": 467,
+      "line": 346,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
     },
     {
       "package": "doctor",
-      "function": "parsePodmanVersion",
-      "file": "internal/doctor/checks.go",
-      "line": 477,
-      "complexity": 5,
-      "line_coverage": 100,
-      "crap": 5
-    },
-    {
-      "package": "doctor",
-      "function": "checkPodmanVersion",
-      "file": "internal/doctor/checks.go",
-      "line": 492,
-      "complexity": 2,
-      "line_coverage": 100,
-      "crap": 2
-    },
-    {
-      "package": "doctor",
       "function": "checkReplicator",
       "file": "internal/doctor/checks.go",
-      "line": 503,
+      "line": 354,
       "complexity": 13,
       "line_coverage": 94.28571428571429,
       "crap": 13.031533527696793
@@ -1425,7 +1371,7 @@
       "package": "doctor",
       "function": "checkConfiguration",
       "file": "internal/doctor/checks.go",
-      "line": 622,
+      "line": 473,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3
@@ -1434,7 +1380,7 @@
       "package": "doctor",
       "function": "checkScaffoldedFiles",
       "file": "internal/doctor/checks.go",
-      "line": 660,
+      "line": 511,
       "complexity": 5,
       "line_coverage": 100,
       "crap": 5
@@ -1443,7 +1389,7 @@
       "package": "doctor",
       "function": "checkDirWithCount",
       "file": "internal/doctor/checks.go",
-      "line": 711,
+      "line": 562,
       "complexity": 6,
       "line_coverage": 90,
       "crap": 6.036
@@ -1452,7 +1398,7 @@
       "package": "doctor",
       "function": "checkHeroAvailability",
       "file": "internal/doctor/checks.go",
-      "line": 747,
+      "line": 598,
       "complexity": 8,
       "line_coverage": 86.36363636363636,
       "crap": 8.162283996994741
@@ -1461,7 +1407,7 @@
       "package": "doctor",
       "function": "countDivisorPersonas",
       "file": "internal/doctor/checks.go",
-      "line": 810,
+      "line": 661,
       "complexity": 6,
       "line_coverage": 87.5,
       "crap": 6.0703125
@@ -1470,7 +1416,7 @@
       "package": "doctor",
       "function": "checkMCPConfig",
       "file": "internal/doctor/checks.go",
-      "line": 826,
+      "line": 677,
       "complexity": 9,
       "line_coverage": 88.88888888888889,
       "crap": 9.11111111111111
@@ -1479,7 +1425,7 @@
       "package": "doctor",
       "function": "extractMCPBinary",
       "file": "internal/doctor/checks.go",
-      "line": 909,
+      "line": 760,
       "complexity": 5,
       "line_coverage": 85.71428571428571,
       "crap": 5.072886297376093
@@ -1488,7 +1434,7 @@
       "package": "doctor",
       "function": "checkAgentSkillIntegrity",
       "file": "internal/doctor/checks.go",
-      "line": 931,
+      "line": 782,
       "complexity": 4,
       "line_coverage": 100,
       "crap": 4
@@ -1497,7 +1443,7 @@
       "package": "doctor",
       "function": "validateAgents",
       "file": "internal/doctor/checks.go",
-      "line": 956,
+      "line": 807,
       "complexity": 10,
       "line_coverage": 86.20689655172414,
       "crap": 10.262413383082537
@@ -1506,7 +1452,7 @@
       "package": "doctor",
       "function": "validateSkills",
       "file": "internal/doctor/checks.go",
-      "line": 1028,
+      "line": 879,
       "complexity": 11,
       "line_coverage": 93.54838709677419,
       "crap": 11.032493034809171
@@ -1515,25 +1461,25 @@
       "package": "doctor",
       "function": "defaultEmbedCheck",
       "file": "internal/doctor/checks.go",
-      "line": 1106,
+      "line": 957,
       "complexity": 8,
-      "line_coverage": 100,
-      "crap": 8
+      "line_coverage": 95.65217391304348,
+      "crap": 8.005260129859456
     },
     {
       "package": "doctor",
       "function": "checkEmbeddingCapability",
       "file": "internal/doctor/checks.go",
-      "line": 1153,
+      "line": 1004,
       "complexity": 4,
-      "line_coverage": 90,
-      "crap": 4.016
+      "line_coverage": 100,
+      "crap": 4
     },
     {
       "package": "doctor",
       "function": "checkDewey",
       "file": "internal/doctor/checks.go",
-      "line": 1199,
+      "line": 1050,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
@@ -1542,52 +1488,25 @@
       "package": "doctor",
       "function": "isDevPodDetected",
       "file": "internal/doctor/checks.go",
-      "line": 1295,
+      "line": 1146,
       "complexity": 4,
       "line_coverage": 85.71428571428571,
       "crap": 4.0466472303206995
     },
     {
       "package": "doctor",
-      "function": "parseDevPodVersion",
-      "file": "internal/doctor/checks.go",
-      "line": 1317,
-      "complexity": 6,
-      "line_coverage": 100,
-      "crap": 6
-    },
-    {
-      "package": "doctor",
-      "function": "checkDevPodVersionMin",
-      "file": "internal/doctor/checks.go",
-      "line": 1338,
-      "complexity": 2,
-      "line_coverage": 100,
-      "crap": 2
-    },
-    {
-      "package": "doctor",
-      "function": "hasDevPodProvider",
-      "file": "internal/doctor/checks.go",
-      "line": 1351,
-      "complexity": 5,
-      "line_coverage": 100,
-      "crap": 5
-    },
-    {
-      "package": "doctor",
       "function": "checkDevPod",
       "file": "internal/doctor/checks.go",
-      "line": 1371,
-      "complexity": 9,
-      "line_coverage": 85.18518518518519,
-      "crap": 9.263374485596708
+      "line": 1167,
+      "complexity": 4,
+      "line_coverage": 90.9090909090909,
+      "crap": 4.012021036814425
     },
     {
       "package": "doctor",
       "function": "parseFrontmatter",
       "file": "internal/doctor/checks.go",
-      "line": 1478,
+      "line": 1216,
       "complexity": 9,
       "line_coverage": 87.5,
       "crap": 9.158203125
@@ -1596,7 +1515,7 @@
       "package": "doctor",
       "function": "detectAGENTSmdSections",
       "file": "internal/doctor/checks.go",
-      "line": 1583,
+      "line": 1321,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
@@ -1605,7 +1524,7 @@
       "package": "doctor",
       "function": "hasBuildCodeBlocks",
       "file": "internal/doctor/checks.go",
-      "line": 1606,
+      "line": 1344,
       "complexity": 7,
       "line_coverage": 100,
       "crap": 7
@@ -1614,7 +1533,7 @@
       "package": "doctor",
       "function": "hasSpecNumberedDirs",
       "file": "internal/doctor/checks.go",
-      "line": 1635,
+      "line": 1373,
       "complexity": 5,
       "line_coverage": 87.5,
       "crap": 5.048828125
@@ -1623,7 +1542,7 @@
       "package": "doctor",
       "function": "checkBridgeFile",
       "file": "internal/doctor/checks.go",
-      "line": 1653,
+      "line": 1391,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3
@@ -1632,25 +1551,16 @@
       "package": "doctor",
       "function": "checkAgentContext",
       "file": "internal/doctor/checks.go",
-      "line": 1685,
+      "line": 1423,
       "complexity": 13,
       "line_coverage": 100,
       "crap": 13
     },
     {
       "package": "doctor",
-      "function": "(*Options).goos",
-      "file": "internal/doctor/doctor.go",
-      "line": 84,
-      "complexity": 2,
-      "line_coverage": 100,
-      "crap": 2
-    },
-    {
-      "package": "doctor",
       "function": "(*Options).defaults",
       "file": "internal/doctor/doctor.go",
-      "line": 92,
+      "line": 75,
       "complexity": 11,
       "line_coverage": 100,
       "crap": 11
@@ -1659,7 +1569,7 @@
       "package": "doctor",
       "function": "defaultExecCmd",
       "file": "internal/doctor/doctor.go",
-      "line": 126,
+      "line": 109,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -1668,7 +1578,7 @@
       "package": "doctor",
       "function": "defaultExecCmdTimeout",
       "file": "internal/doctor/doctor.go",
-      "line": 132,
+      "line": 115,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -1677,7 +1587,7 @@
       "package": "doctor",
       "function": "Run",
       "file": "internal/doctor/doctor.go",
-      "line": 141,
+      "line": 124,
       "complexity": 4,
       "line_coverage": 84.61538461538461,
       "crap": 4.058261265361857,
@@ -1689,7 +1599,7 @@
       "package": "doctor",
       "function": "filterSkippedChecks",
       "file": "internal/doctor/doctor.go",
-      "line": 192,
+      "line": 175,
       "complexity": 8,
       "line_coverage": 100,
       "crap": 8
@@ -1698,7 +1608,7 @@
       "package": "doctor",
       "function": "computeSummary",
       "file": "internal/doctor/doctor.go",
-      "line": 225,
+      "line": 208,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
@@ -1760,24 +1670,24 @@
       "function": "homebrewInstallCmd",
       "file": "internal/doctor/environ.go",
       "line": 259,
-      "complexity": 12,
-      "line_coverage": 92.85714285714286,
-      "crap": 12.052478134110787
+      "complexity": 10,
+      "line_coverage": 91.66666666666667,
+      "crap": 10.05787037037037
     },
     {
       "package": "doctor",
       "function": "genericInstallCmd",
       "file": "internal/doctor/environ.go",
-      "line": 292,
-      "complexity": 10,
+      "line": 288,
+      "complexity": 8,
       "line_coverage": 100,
-      "crap": 10
+      "crap": 8
     },
     {
       "package": "doctor",
       "function": "HasManager",
       "file": "internal/doctor/environ.go",
-      "line": 319,
+      "line": 311,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3,
@@ -1789,10 +1699,10 @@
       "package": "doctor",
       "function": "installURL",
       "file": "internal/doctor/environ.go",
-      "line": 329,
-      "complexity": 11,
-      "line_coverage": 91.66666666666667,
-      "crap": 11.070023148148149
+      "line": 321,
+      "complexity": 9,
+      "line_coverage": 90,
+      "crap": 9.081
     },
     {
       "package": "doctor",
@@ -2803,7 +2713,7 @@
       "package": "metrics",
       "function": "(*Query).Velocity",
       "file": "internal/metrics/query.go",
-      "line": 55,
+      "line": 51,
       "complexity": 5,
       "line_coverage": 77.77777777777777,
       "crap": 5.274348422496571,
@@ -2820,7 +2730,7 @@
       "package": "metrics",
       "function": "(*Query).CycleTime",
       "file": "internal/metrics/query.go",
-      "line": 73,
+      "line": 69,
       "complexity": 5,
       "line_coverage": 83.33333333333333,
       "crap": 5.1157407407407405,
@@ -2832,7 +2742,7 @@
       "package": "metrics",
       "function": "(*Query).Bottlenecks",
       "file": "internal/metrics/query.go",
-      "line": 96,
+      "line": 92,
       "complexity": 3,
       "line_coverage": 80,
       "crap": 3.072,
@@ -2844,7 +2754,7 @@
       "package": "metrics",
       "function": "(*Query).Health",
       "file": "internal/metrics/query.go",
-      "line": 125,
+      "line": 121,
       "complexity": 3,
       "line_coverage": 71.42857142857143,
       "crap": 3.2099125364431487,
@@ -3367,7 +3277,7 @@
       "package": "sandbox",
       "function": "gatewayEnvVars",
       "file": "internal/sandbox/config.go",
-      "line": 76,
+      "line": 80,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -3376,19 +3286,19 @@
       "package": "sandbox",
       "function": "DefaultConfig",
       "file": "internal/sandbox/config.go",
-      "line": 86,
-      "complexity": 6,
-      "line_coverage": 90.9090909090909,
-      "crap": 6.027047332832457,
+      "line": 90,
+      "complexity": 8,
+      "line_coverage": 93.33333333333333,
+      "crap": 8.018962962962963,
       "contract_coverage": 100,
-      "gaze_crap": 6,
+      "gaze_crap": 8,
       "quadrant": "Q1_Safe"
     },
     {
       "package": "sandbox",
       "function": "forwardedEnvVars",
       "file": "internal/sandbox/config.go",
-      "line": 118,
+      "line": 129,
       "complexity": 5,
       "line_coverage": 100,
       "crap": 5
@@ -3397,7 +3307,7 @@
       "package": "sandbox",
       "function": "useParentMount",
       "file": "internal/sandbox/config.go",
-      "line": 139,
+      "line": 150,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3
@@ -3406,7 +3316,7 @@
       "package": "sandbox",
       "function": "buildVolumeMounts",
       "file": "internal/sandbox/config.go",
-      "line": 155,
+      "line": 166,
       "complexity": 4,
       "line_coverage": 100,
       "crap": 4
@@ -3415,7 +3325,7 @@
       "package": "sandbox",
       "function": "uidMappingArgs",
       "file": "internal/sandbox/config.go",
-      "line": 178,
+      "line": 189,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3424,7 +3334,7 @@
       "package": "sandbox",
       "function": "buildRunArgs",
       "file": "internal/sandbox/config.go",
-      "line": 200,
+      "line": 211,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3
@@ -3471,9 +3381,18 @@
     },
     {
       "package": "sandbox",
+      "function": "validateIDE",
+      "file": "internal/sandbox/devpod.go",
+      "line": 23,
+      "complexity": 3,
+      "line_coverage": 100,
+      "crap": 3
+    },
+    {
+      "package": "sandbox",
       "function": "(*DevPodBackend).Name",
       "file": "internal/sandbox/devpod.go",
-      "line": 18,
+      "line": 41,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -3482,7 +3401,7 @@
       "package": "sandbox",
       "function": "devpodWorkspaceName",
       "file": "internal/sandbox/devpod.go",
-      "line": 23,
+      "line": 46,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -3491,28 +3410,31 @@
       "package": "sandbox",
       "function": "(*DevPodBackend).Create",
       "file": "internal/sandbox/devpod.go",
-      "line": 37,
-      "complexity": 6,
-      "line_coverage": 100,
-      "crap": 6,
+      "line": 60,
+      "complexity": 11,
+      "line_coverage": 83.33333333333333,
+      "crap": 11.560185185185185,
       "contract_coverage": 100,
-      "gaze_crap": 6,
+      "gaze_crap": 11,
       "quadrant": "Q1_Safe"
     },
     {
       "package": "sandbox",
       "function": "(*DevPodBackend).Start",
       "file": "internal/sandbox/devpod.go",
-      "line": 98,
-      "complexity": 3,
-      "line_coverage": 0,
-      "crap": 12
+      "line": 160,
+      "complexity": 7,
+      "line_coverage": 95,
+      "crap": 7.006125,
+      "contract_coverage": 100,
+      "gaze_crap": 7,
+      "quadrant": "Q1_Safe"
     },
     {
       "package": "sandbox",
       "function": "(*DevPodBackend).Stop",
       "file": "internal/sandbox/devpod.go",
-      "line": 127,
+      "line": 216,
       "complexity": 2,
       "line_coverage": 85.71428571428571,
       "crap": 2.011661807580175,
@@ -3524,7 +3446,7 @@
       "package": "sandbox",
       "function": "(*DevPodBackend).Destroy",
       "file": "internal/sandbox/devpod.go",
-      "line": 143,
+      "line": 232,
       "complexity": 2,
       "line_coverage": 85.71428571428571,
       "crap": 2.011661807580175,
@@ -3534,9 +3456,36 @@
     },
     {
       "package": "sandbox",
+      "function": "(*DevPodBackend).isWorkspaceRunning",
+      "file": "internal/sandbox/devpod.go",
+      "line": 252,
+      "complexity": 3,
+      "line_coverage": 100,
+      "crap": 3
+    },
+    {
+      "package": "sandbox",
+      "function": "(*DevPodBackend).startServerViaSSH",
+      "file": "internal/sandbox/devpod.go",
+      "line": 278,
+      "complexity": 1,
+      "line_coverage": 100,
+      "crap": 1
+    },
+    {
+      "package": "sandbox",
+      "function": "(*DevPodBackend).attachOrDetach",
+      "file": "internal/sandbox/devpod.go",
+      "line": 293,
+      "complexity": 2,
+      "line_coverage": 66.66666666666667,
+      "crap": 2.148148148148148
+    },
+    {
+      "package": "sandbox",
       "function": "(*DevPodBackend).Status",
       "file": "internal/sandbox/devpod.go",
-      "line": 169,
+      "line": 315,
       "complexity": 3,
       "line_coverage": 80,
       "crap": 3.072,
@@ -3548,7 +3497,7 @@
       "package": "sandbox",
       "function": "(*DevPodBackend).Attach",
       "file": "internal/sandbox/devpod.go",
-      "line": 204,
+      "line": 350,
       "complexity": 2,
       "line_coverage": 80,
       "crap": 2.032,
@@ -3560,7 +3509,7 @@
       "package": "sandbox",
       "function": "parseDevPodVersion",
       "file": "internal/sandbox/devpod.go",
-      "line": 219,
+      "line": 365,
       "complexity": 7,
       "line_coverage": 76.19047619047619,
       "crap": 7.661375661375661
@@ -3569,7 +3518,7 @@
       "package": "sandbox",
       "function": "checkDevPodVersion",
       "file": "internal/sandbox/devpod.go",
-      "line": 262,
+      "line": 408,
       "complexity": 4,
       "line_coverage": 83.33333333333333,
       "crap": 4.074074074074074
@@ -3578,7 +3527,7 @@
       "package": "sandbox",
       "function": "isDevPodWorkspace",
       "file": "internal/sandbox/devpod.go",
-      "line": 284,
+      "line": 430,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3658,8 +3607,8 @@
       "file": "internal/sandbox/podman.go",
       "line": 253,
       "complexity": 2,
-      "line_coverage": 0,
-      "crap": 6,
+      "line_coverage": 80,
+      "crap": 2.032,
       "contract_coverage": 100,
       "gaze_crap": 2,
       "quadrant": "Q1_Safe"
@@ -3686,16 +3635,17 @@
       "package": "sandbox",
       "function": "(*Options).defaults",
       "file": "internal/sandbox/sandbox.go",
-      "line": 185,
-      "complexity": 13,
-      "line_coverage": 100,
-      "crap": 13
+      "line": 198,
+      "complexity": 14,
+      "line_coverage": 57.69230769230769,
+      "crap": 28.84274010013654,
+      "fix_strategy": "add_tests"
     },
     {
       "package": "sandbox",
       "function": "defaultExecCmd",
       "file": "internal/sandbox/sandbox.go",
-      "line": 225,
+      "line": 241,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -3704,7 +3654,7 @@
       "package": "sandbox",
       "function": "defaultExecInteractive",
       "file": "internal/sandbox/sandbox.go",
-      "line": 231,
+      "line": 247,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -3713,7 +3663,7 @@
       "package": "sandbox",
       "function": "defaultHTTPGet",
       "file": "internal/sandbox/sandbox.go",
-      "line": 240,
+      "line": 256,
       "complexity": 2,
       "line_coverage": 0,
       "crap": 6
@@ -3722,7 +3672,7 @@
       "package": "sandbox",
       "function": "gatewayHealthCheck",
       "file": "internal/sandbox/sandbox.go",
-      "line": 257,
+      "line": 273,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3731,7 +3681,7 @@
       "package": "sandbox",
       "function": "autoStartGateway",
       "file": "internal/sandbox/sandbox.go",
-      "line": 276,
+      "line": 292,
       "complexity": 11,
       "line_coverage": 69.56521739130434,
       "crap": 14.411112024328101
@@ -3740,7 +3690,7 @@
       "package": "sandbox",
       "function": "isContainerRunning",
       "file": "internal/sandbox/sandbox.go",
-      "line": 327,
+      "line": 343,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3749,7 +3699,7 @@
       "package": "sandbox",
       "function": "isContainerExists",
       "file": "internal/sandbox/sandbox.go",
-      "line": 339,
+      "line": 355,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -3758,7 +3708,7 @@
       "package": "sandbox",
       "function": "waitForHealth",
       "file": "internal/sandbox/sandbox.go",
-      "line": 348,
+      "line": 364,
       "complexity": 6,
       "line_coverage": 92.85714285714286,
       "crap": 6.013119533527696
@@ -3767,7 +3717,7 @@
       "package": "sandbox",
       "function": "Create",
       "file": "internal/sandbox/sandbox.go",
-      "line": 377,
+      "line": 393,
       "complexity": 10,
       "line_coverage": 69.23076923076923,
       "crap": 12.913063268092854,
@@ -3779,19 +3729,19 @@
       "package": "sandbox",
       "function": "Destroy",
       "file": "internal/sandbox/sandbox.go",
-      "line": 431,
-      "complexity": 2,
-      "line_coverage": 80,
-      "crap": 2.032,
+      "line": 449,
+      "complexity": 4,
+      "line_coverage": 69.23076923076923,
+      "crap": 4.466090122894856,
       "contract_coverage": 100,
-      "gaze_crap": 2,
+      "gaze_crap": 4,
       "quadrant": "Q1_Safe"
     },
     {
       "package": "sandbox",
       "function": "isPersistentWorkspace",
       "file": "internal/sandbox/sandbox.go",
-      "line": 445,
+      "line": 479,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3800,7 +3750,7 @@
       "package": "sandbox",
       "function": "Start",
       "file": "internal/sandbox/sandbox.go",
-      "line": 465,
+      "line": 499,
       "complexity": 31,
       "line_coverage": 81.81818181818181,
       "crap": 36.77610818933134,
@@ -3813,7 +3763,7 @@
       "package": "sandbox",
       "function": "Stop",
       "file": "internal/sandbox/sandbox.go",
-      "line": 642,
+      "line": 676,
       "complexity": 5,
       "line_coverage": 64.28571428571429,
       "crap": 6.138848396501457,
@@ -3825,19 +3775,19 @@
       "package": "sandbox",
       "function": "Attach",
       "file": "internal/sandbox/sandbox.go",
-      "line": 677,
-      "complexity": 4,
-      "line_coverage": 90,
-      "crap": 4.016,
+      "line": 715,
+      "complexity": 6,
+      "line_coverage": 73.33333333333333,
+      "crap": 6.682666666666667,
       "contract_coverage": 100,
-      "gaze_crap": 4,
+      "gaze_crap": 6,
       "quadrant": "Q1_Safe"
     },
     {
       "package": "sandbox",
       "function": "Extract",
       "file": "internal/sandbox/sandbox.go",
-      "line": 705,
+      "line": 755,
       "complexity": 15,
       "line_coverage": 86.95652173913044,
       "crap": 15.49930138900304,
@@ -3850,7 +3800,7 @@
       "package": "sandbox",
       "function": "WorkspaceStatusCheck",
       "file": "internal/sandbox/sandbox.go",
-      "line": 795,
+      "line": 845,
       "complexity": 3,
       "line_coverage": 85.71428571428571,
       "crap": 3.0262390670553936,
@@ -3862,7 +3812,7 @@
       "package": "sandbox",
       "function": "Status",
       "file": "internal/sandbox/sandbox.go",
-      "line": 813,
+      "line": 863,
       "complexity": 9,
       "line_coverage": 92,
       "crap": 9.041472,
@@ -3874,7 +3824,7 @@
       "package": "sandbox",
       "function": "FormatStatus",
       "file": "internal/sandbox/sandbox.go",
-      "line": 871,
+      "line": 921,
       "complexity": 3,
       "line_coverage": 100,
       "crap": 3,
@@ -3887,7 +3837,7 @@
       "package": "sandbox",
       "function": "InitDevcontainer",
       "file": "internal/sandbox/sandbox.go",
-      "line": 919,
+      "line": 969,
       "complexity": 14,
       "line_coverage": 71.42857142857143,
       "crap": 18.57142857142857,
@@ -3900,7 +3850,7 @@
       "package": "sandbox",
       "function": "isYes",
       "file": "internal/sandbox/sandbox.go",
-      "line": 988,
+      "line": 1038,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3909,7 +3859,7 @@
       "package": "sandbox",
       "function": "ProjectNameFromDir",
       "file": "internal/sandbox/workspace.go",
-      "line": 115,
+      "line": 120,
       "complexity": 1,
       "line_coverage": 0,
       "crap": 2
@@ -3918,7 +3868,7 @@
       "package": "sandbox",
       "function": "projectName",
       "file": "internal/sandbox/workspace.go",
-      "line": 124,
+      "line": 129,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -3927,7 +3877,7 @@
       "package": "sandbox",
       "function": "containerNameForProject",
       "file": "internal/sandbox/workspace.go",
-      "line": 138,
+      "line": 143,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -3936,7 +3886,7 @@
       "package": "sandbox",
       "function": "volumeNameForProject",
       "file": "internal/sandbox/workspace.go",
-      "line": 145,
+      "line": 150,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -3945,7 +3895,7 @@
       "package": "sandbox",
       "function": "LoadConfig",
       "file": "internal/sandbox/workspace.go",
-      "line": 154,
+      "line": 159,
       "complexity": 6,
       "line_coverage": 92.3076923076923,
       "crap": 6.0163859808830225,
@@ -3957,7 +3907,7 @@
       "package": "sandbox",
       "function": "FormatWorkspaceStatus",
       "file": "internal/sandbox/workspace.go",
-      "line": 182,
+      "line": 187,
       "complexity": 10,
       "line_coverage": 100,
       "crap": 10,
@@ -3970,7 +3920,7 @@
       "package": "sandbox",
       "function": "setupGitSync",
       "file": "internal/sandbox/workspace.go",
-      "line": 226,
+      "line": 231,
       "complexity": 5,
       "line_coverage": 78.57142857142857,
       "crap": 5.2459912536443145
@@ -3979,7 +3929,7 @@
       "package": "sandbox",
       "function": "checkGitSync",
       "file": "internal/sandbox/workspace.go",
-      "line": 266,
+      "line": 271,
       "complexity": 4,
       "line_coverage": 77.77777777777777,
       "crap": 4.175582990397806
@@ -4470,55 +4420,20 @@
       "package": "setup",
       "function": "Run",
       "file": "internal/setup/setup.go",
-      "line": 229,
-      "complexity": 2,
-      "line_coverage": 92.3076923076923,
-      "crap": 2.0018206645425582,
+      "line": 200,
+      "complexity": 30,
+      "line_coverage": 90.09009009009009,
+      "crap": 30.875894155660408,
       "contract_coverage": 100,
-      "gaze_crap": 2,
-      "quadrant": "Q1_Safe"
-    },
-    {
-      "package": "setup",
-      "function": "buildSteps",
-      "file": "internal/setup/setup.go",
-      "line": 274,
-      "complexity": 5,
-      "line_coverage": 100,
-      "crap": 5
-    },
-    {
-      "package": "setup",
-      "function": "executeSteps",
-      "file": "internal/setup/setup.go",
-      "line": 334,
-      "complexity": 9,
-      "line_coverage": 95.23809523809524,
-      "crap": 9.008746355685131
-    },
-    {
-      "package": "setup",
-      "function": "printHeader",
-      "file": "internal/setup/setup.go",
-      "line": 373,
-      "complexity": 4,
-      "line_coverage": 100,
-      "crap": 4
-    },
-    {
-      "package": "setup",
-      "function": "printSummary",
-      "file": "internal/setup/setup.go",
-      "line": 400,
-      "complexity": 5,
-      "line_coverage": 100,
-      "crap": 5
+      "gaze_crap": 30,
+      "quadrant": "Q4_Dangerous",
+      "fix_strategy": "decompose"
     },
     {
       "package": "setup",
       "function": "installOpenCode",
       "file": "internal/setup/setup.go",
-      "line": 432,
+      "line": 410,
       "complexity": 9,
       "line_coverage": 93.33333333333333,
       "crap": 9.024000000000001
@@ -4527,7 +4442,7 @@
       "package": "setup",
       "function": "installGH",
       "file": "internal/setup/setup.go",
-      "line": 470,
+      "line": 448,
       "complexity": 6,
       "line_coverage": 90.9090909090909,
       "crap": 6.027047332832457
@@ -4536,7 +4451,7 @@
       "package": "setup",
       "function": "installOpenSpec",
       "file": "internal/setup/setup.go",
-      "line": 498,
+      "line": 476,
       "complexity": 4,
       "line_coverage": 100,
       "crap": 4
@@ -4545,16 +4460,17 @@
       "package": "setup",
       "function": "installGaze",
       "file": "internal/setup/setup.go",
-      "line": 519,
+      "line": 497,
       "complexity": 10,
-      "line_coverage": 89.47368421052632,
-      "crap": 10.116635077999709
+      "line_coverage": 63.1578947368421,
+      "crap": 15.0007289692375,
+      "fix_strategy": "add_tests"
     },
     {
       "package": "setup",
       "function": "ensureNodeJS",
       "file": "internal/setup/setup.go",
-      "line": 563,
+      "line": 541,
       "complexity": 5,
       "line_coverage": 88.88888888888889,
       "crap": 5.034293552812072
@@ -4563,7 +4479,7 @@
       "package": "setup",
       "function": "parseNodeMajor",
       "file": "internal/setup/setup.go",
-      "line": 586,
+      "line": 564,
       "complexity": 2,
       "line_coverage": 75,
       "crap": 2.0625
@@ -4572,7 +4488,7 @@
       "package": "setup",
       "function": "installNodeJS",
       "file": "internal/setup/setup.go",
-      "line": 596,
+      "line": 574,
       "complexity": 11,
       "line_coverage": 92,
       "crap": 11.061952
@@ -4581,7 +4497,7 @@
       "package": "setup",
       "function": "installUV",
       "file": "internal/setup/setup.go",
-      "line": 650,
+      "line": 628,
       "complexity": 9,
       "line_coverage": 86.66666666666667,
       "crap": 9.192
@@ -4590,7 +4506,7 @@
       "package": "setup",
       "function": "installSpecify",
       "file": "internal/setup/setup.go",
-      "line": 689,
+      "line": 667,
       "complexity": 5,
       "line_coverage": 100,
       "crap": 5
@@ -4599,7 +4515,7 @@
       "package": "setup",
       "function": "installReplicator",
       "file": "internal/setup/setup.go",
-      "line": 721,
+      "line": 699,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
@@ -4608,7 +4524,7 @@
       "package": "setup",
       "function": "runReplicatorSetup",
       "file": "internal/setup/setup.go",
-      "line": 749,
+      "line": 727,
       "complexity": 5,
       "line_coverage": 100,
       "crap": 5
@@ -4617,7 +4533,7 @@
       "package": "setup",
       "function": "installGolangciLint",
       "file": "internal/setup/setup.go",
-      "line": 770,
+      "line": 748,
       "complexity": 6,
       "line_coverage": 54.54545454545455,
       "crap": 9.3809166040571
@@ -4626,7 +4542,7 @@
       "package": "setup",
       "function": "installGovulncheck",
       "file": "internal/setup/setup.go",
-      "line": 802,
+      "line": 780,
       "complexity": 4,
       "line_coverage": 85.71428571428571,
       "crap": 4.0466472303206995
@@ -4635,7 +4551,7 @@
       "package": "setup",
       "function": "rpmURL",
       "file": "internal/setup/setup.go",
-      "line": 819,
+      "line": 797,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1
@@ -4644,7 +4560,7 @@
       "package": "setup",
       "function": "repoName",
       "file": "internal/setup/setup.go",
-      "line": 831,
+      "line": 809,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -4653,7 +4569,7 @@
       "package": "setup",
       "function": "rpmArch",
       "file": "internal/setup/setup.go",
-      "line": 841,
+      "line": 819,
       "complexity": 2,
       "line_coverage": 66.66666666666667,
       "crap": 2.148148148148148
@@ -4662,7 +4578,7 @@
       "package": "setup",
       "function": "installViaRpm",
       "file": "internal/setup/setup.go",
-      "line": 852,
+      "line": 830,
       "complexity": 4,
       "line_coverage": 100,
       "crap": 4
@@ -4671,7 +4587,7 @@
       "package": "setup",
       "function": "ollamaBrew",
       "file": "internal/setup/setup.go",
-      "line": 886,
+      "line": 864,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2
@@ -4680,61 +4596,16 @@
       "package": "setup",
       "function": "installOllama",
       "file": "internal/setup/setup.go",
-      "line": 897,
+      "line": 875,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
     },
     {
       "package": "setup",
-      "function": "installPodman",
-      "file": "internal/setup/setup.go",
-      "line": 940,
-      "complexity": 9,
-      "line_coverage": 94.73684210526316,
-      "crap": 9.011809301647471
-    },
-    {
-      "package": "setup",
-      "function": "podmanMachineInit",
-      "file": "internal/setup/setup.go",
-      "line": 989,
-      "complexity": 5,
-      "line_coverage": 100,
-      "crap": 5
-    },
-    {
-      "package": "setup",
-      "function": "installDevPod",
-      "file": "internal/setup/setup.go",
-      "line": 1015,
-      "complexity": 7,
-      "line_coverage": 92.3076923076923,
-      "crap": 7.022303140646336
-    },
-    {
-      "package": "setup",
-      "function": "configureDevPodProvider",
-      "file": "internal/setup/setup.go",
-      "line": 1051,
-      "complexity": 7,
-      "line_coverage": 100,
-      "crap": 7
-    },
-    {
-      "package": "setup",
-      "function": "hasProvider",
-      "file": "internal/setup/setup.go",
-      "line": 1101,
-      "complexity": 4,
-      "line_coverage": 100,
-      "crap": 4
-    },
-    {
-      "package": "setup",
       "function": "installDewey",
       "file": "internal/setup/setup.go",
-      "line": 1118,
+      "line": 913,
       "complexity": 7,
       "line_coverage": 85.71428571428571,
       "crap": 7.142857142857143
@@ -4743,7 +4614,7 @@
       "package": "setup",
       "function": "pullEmbeddingModel",
       "file": "internal/setup/setup.go",
-      "line": 1155,
+      "line": 950,
       "complexity": 6,
       "line_coverage": 80,
       "crap": 6.287999999999999
@@ -4752,7 +4623,7 @@
       "package": "setup",
       "function": "printStepResult",
       "file": "internal/setup/setup.go",
-      "line": 1183,
+      "line": 978,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
@@ -4761,7 +4632,7 @@
       "package": "setup",
       "function": "FormatSetupText",
       "file": "internal/setup/setup.go",
-      "line": 1208,
+      "line": 1003,
       "complexity": 2,
       "line_coverage": 100,
       "crap": 2,
@@ -4774,7 +4645,7 @@
       "package": "setup",
       "function": "atomicWriteFile",
       "file": "internal/setup/setup.go",
-      "line": 1216,
+      "line": 1011,
       "complexity": 7,
       "line_coverage": 61.111111111111114,
       "crap": 9.881858710562414
@@ -4804,7 +4675,7 @@
       "package": "sprint",
       "function": "NewSprintStore",
       "file": "internal/sprint/sprint.go",
-      "line": 22,
+      "line": 21,
       "complexity": 1,
       "line_coverage": 100,
       "crap": 1,
@@ -4821,7 +4692,7 @@
       "package": "sprint",
       "function": "(*SprintStore).Plan",
       "file": "internal/sprint/sprint.go",
-      "line": 27,
+      "line": 26,
       "complexity": 5,
       "line_coverage": 86.66666666666667,
       "crap": 5.059259259259259,
@@ -4833,7 +4704,7 @@
       "package": "sprint",
       "function": "(*SprintStore).Review",
       "file": "internal/sprint/sprint.go",
-      "line": 62,
+      "line": 61,
       "complexity": 2,
       "line_coverage": 83.33333333333333,
       "crap": 2.0185185185185186,
@@ -4845,7 +4716,7 @@
       "package": "sprint",
       "function": "(*SprintStore).Save",
       "file": "internal/sprint/sprint.go",
-      "line": 75,
+      "line": 74,
       "complexity": 3,
       "line_coverage": 71.42857142857143,
       "crap": 3.2099125364431487,
@@ -4857,7 +4728,7 @@
       "package": "sprint",
       "function": "(*SprintStore).Load",
       "file": "internal/sprint/sprint.go",
-      "line": 90,
+      "line": 89,
       "complexity": 3,
       "line_coverage": 87.5,
       "crap": 3.017578125,
@@ -4869,7 +4740,7 @@
       "package": "sprint",
       "function": "(*SprintStore).Latest",
       "file": "internal/sprint/sprint.go",
-      "line": 105,
+      "line": 104,
       "complexity": 8,
       "line_coverage": 78.57142857142857,
       "crap": 8.629737609329446,
@@ -4881,7 +4752,7 @@
       "package": "sprint",
       "function": "Standup",
       "file": "internal/sprint/sprint.go",
-      "line": 131,
+      "line": 130,
       "complexity": 6,
       "line_coverage": 75,
       "crap": 6.5625,
@@ -4981,35 +4852,35 @@
     }
   ],
   "summary": {
-    "total_functions": 496,
-    "avg_complexity": 5.002016129032258,
-    "avg_line_coverage": 81.00708452452662,
-    "avg_crap": 5.8282343479985474,
-    "crapload": 26,
+    "total_functions": 481,
+    "avg_complexity": 5.0623700623700625,
+    "avg_line_coverage": 80.86042174687877,
+    "avg_crap": 5.888015052500889,
+    "crapload": 29,
     "crap_threshold": 15,
-    "gaze_crapload": 14,
+    "gaze_crapload": 15,
     "gaze_crap_threshold": 15,
-    "avg_gaze_crap": 7.245815527065527,
-    "avg_contract_coverage": 83.01282051282051,
+    "avg_gaze_crap": 7.492657466383581,
+    "avg_contract_coverage": 83.12101910828025,
     "quadrant_counts": {
       "Q1_Safe": 140,
       "Q2_ComplexButTested": 2,
       "Q3_SimpleButUnderspecified": 5,
-      "Q4_Dangerous": 9
+      "Q4_Dangerous": 10
     },
     "fix_strategy_counts": {
-      "add_tests": 8,
-      "decompose": 18
+      "add_tests": 9,
+      "decompose": 20
     },
     "worst_crap": [
       {
         "package": "config",
         "function": "merge",
         "file": "internal/config/config.go",
-        "line": 178,
-        "complexity": 29,
-        "line_coverage": 67.27272727272727,
-        "crap": 58.47986175807666,
+        "line": 179,
+        "complexity": 30,
+        "line_coverage": 66.66666666666667,
+        "crap": 63.333333333333314,
         "fix_strategy": "decompose"
       },
       {
@@ -5061,7 +4932,7 @@
         "package": "sandbox",
         "function": "FormatWorkspaceStatus",
         "file": "internal/sandbox/workspace.go",
-        "line": 182,
+        "line": 187,
         "complexity": 10,
         "line_coverage": 100,
         "crap": 10,
@@ -5112,7 +4983,7 @@
         "package": "sandbox",
         "function": "Start",
         "file": "internal/sandbox/sandbox.go",
-        "line": 465,
+        "line": 499,
         "complexity": 31,
         "line_coverage": 81.81818181818181,
         "crap": 36.77610818933134,
@@ -5142,19 +5013,19 @@
         "complexity": 6
       },
       {
-        "function": "runSandboxDestroy",
-        "package": "main",
-        "file": "cmd/unbound-force/sandbox.go",
-        "line": 265,
+        "function": "(*Options).defaults",
+        "package": "sandbox",
+        "file": "internal/sandbox/sandbox.go",
+        "line": 198,
         "fix_strategy": "add_tests",
-        "crap": 30,
-        "complexity": 5
+        "crap": 28.84274010013654,
+        "complexity": 14
       },
       {
         "function": "runSandboxStatus",
         "package": "main",
         "file": "cmd/unbound-force/sandbox.go",
-        "line": 537,
+        "line": 556,
         "fix_strategy": "add_tests",
         "crap": 20,
         "complexity": 4
@@ -5172,7 +5043,7 @@
         "function": "InitDevcontainer",
         "package": "sandbox",
         "file": "internal/sandbox/sandbox.go",
-        "line": 919,
+        "line": 969,
         "fix_strategy": "add_tests",
         "crap": 18.57142857142857,
         "gaze_crap": 14,
@@ -5200,13 +5071,22 @@
         "complexity": 14
       },
       {
+        "function": "installGaze",
+        "package": "setup",
+        "file": "internal/setup/setup.go",
+        "line": 497,
+        "fix_strategy": "add_tests",
+        "crap": 15.0007289692375,
+        "complexity": 10
+      },
+      {
         "function": "merge",
         "package": "config",
         "file": "internal/config/config.go",
-        "line": 178,
+        "line": 179,
         "fix_strategy": "decompose",
-        "crap": 58.47986175807666,
-        "complexity": 29
+        "crap": 63.333333333333314,
+        "complexity": 30
       },
       {
         "function": "configureOpencodeJSON",
@@ -5232,7 +5112,7 @@
         "function": "Start",
         "package": "sandbox",
         "file": "internal/sandbox/sandbox.go",
-        "line": 465,
+        "line": 499,
         "fix_strategy": "decompose",
         "crap": 36.77610818933134,
         "gaze_crap": 31,
@@ -5248,6 +5128,17 @@
         "crap": 34.552782903802246,
         "gaze_crap": 32,
         "complexity": 32,
+        "quadrant": "Q4_Dangerous"
+      },
+      {
+        "function": "Run",
+        "package": "setup",
+        "file": "internal/setup/setup.go",
+        "line": 200,
+        "fix_strategy": "decompose",
+        "crap": 30.875894155660408,
+        "gaze_crap": 30,
+        "complexity": 30,
         "quadrant": "Q4_Dangerous"
       },
       {
@@ -5289,33 +5180,13 @@
         "complexity": 25
       },
       {
-        "function": "runRetro",
-        "package": "main",
-        "file": "cmd/mxf/main.go",
-        "line": 564,
-        "fix_strategy": "decompose",
-        "crap": 19.029232443678183,
-        "complexity": 17
-      },
-      {
         "function": "applySandboxConfig",
         "package": "main",
         "file": "cmd/unbound-force/sandbox.go",
-        "line": 57,
+        "line": 58,
         "fix_strategy": "decompose",
-        "crap": 18.337962962962965,
-        "complexity": 17
-      },
-      {
-        "function": "Detect",
-        "package": "impediment",
-        "file": "internal/impediment/detect.go",
-        "line": 11,
-        "fix_strategy": "decompose",
-        "crap": 18.279883381924197,
-        "gaze_crap": 18,
-        "complexity": 18,
-        "quadrant": "Q4_Dangerous"
+        "crap": 20.218375,
+        "complexity": 19
       }
     ]
   }

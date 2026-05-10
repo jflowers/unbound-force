@@ -8,13 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 // --- Test helpers ---
@@ -107,6 +105,81 @@ func createFile(t *testing.T, dir, name, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// --- Options.defaults tests ---
+
+func TestOptions_Defaults_FillsZeroFields(t *testing.T) {
+	var opts Options
+	opts.defaults()
+
+	if opts.TargetDir == "" {
+		t.Error("defaults() should set TargetDir when empty")
+	}
+	if opts.Format != "text" {
+		t.Errorf("Format = %q, want %q", opts.Format, "text")
+	}
+	if opts.Stdout == nil {
+		t.Error("defaults() should set Stdout when nil")
+	}
+	if opts.LookPath == nil {
+		t.Error("defaults() should set LookPath when nil")
+	}
+	if opts.ExecCmd == nil {
+		t.Error("defaults() should set ExecCmd when nil")
+	}
+	if opts.ExecCmdTimeout == nil {
+		t.Error("defaults() should set ExecCmdTimeout when nil")
+	}
+	if opts.EvalSymlinks == nil {
+		t.Error("defaults() should set EvalSymlinks when nil")
+	}
+	if opts.Getenv == nil {
+		t.Error("defaults() should set Getenv when nil")
+	}
+	if opts.ReadFile == nil {
+		t.Error("defaults() should set ReadFile when nil")
+	}
+	if opts.EmbedCheck == nil {
+		t.Error("defaults() should set EmbedCheck when nil")
+	}
+}
+
+func TestOptions_Defaults_PreservesNonZeroFields(t *testing.T) {
+	customDir := "/custom/dir"
+	customFormat := "json"
+	var customBuf bytes.Buffer
+	customLookPath := func(string) (string, error) { return "custom", nil }
+
+	opts := Options{
+		TargetDir: customDir,
+		Format:    customFormat,
+		Stdout:    &customBuf,
+		LookPath:  customLookPath,
+	}
+	opts.defaults()
+
+	if opts.TargetDir != customDir {
+		t.Errorf("TargetDir = %q, want %q (should preserve)", opts.TargetDir, customDir)
+	}
+	if opts.Format != customFormat {
+		t.Errorf("Format = %q, want %q (should preserve)", opts.Format, customFormat)
+	}
+	if opts.Stdout != &customBuf {
+		t.Error("Stdout should be preserved when non-nil")
+	}
+	// LookPath is a function; test it returns the custom value.
+	path, _ := opts.LookPath("anything")
+	if path != "custom" {
+		t.Error("LookPath should be preserved when non-nil")
+	}
+	// Other fields should still be populated.
+	if opts.ExecCmd == nil {
+		t.Error("ExecCmd should be set even when LookPath is pre-set")
+	}
+	if opts.EmbedCheck == nil {
+		t.Error("EmbedCheck should be set by defaults()")
 	}
 }
 
@@ -942,15 +1015,11 @@ func TestDoctorRun_AllPass(t *testing.T) {
 			"opencode":   "/usr/local/bin/opencode",
 			"gaze":       "/usr/local/bin/gaze",
 			"replicator": "/usr/local/bin/replicator",
-			"podman":     "/usr/local/bin/podman",
 		}),
 		ExecCmd: stubExecCmd(
 			map[string]string{
-				"go version":                             "go version go1.24.3 darwin/arm64",
-				"replicator doctor":                      replicatorOut,
-				"podman --version":                       "podman version 5.3.1",
-				"podman info":                            "host info",
-				"podman machine list --format {{.Name}}": "podman-machine-default",
+				"go version":        "go version go1.24.3 darwin/arm64",
+				"replicator doctor": replicatorOut,
 			},
 			nil,
 		),
@@ -1639,6 +1708,46 @@ func TestFormatIndicator_AllCases(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("formatIndicator(%v, false) = %q, want %q", tt.result.Severity, got, tt.want)
 		}
+	}
+}
+
+func TestFormatIndicator_NoColor_UnknownSeverity(t *testing.T) {
+	r := CheckResult{Severity: Severity(99)}
+	got := formatIndicator(r, false, lipgloss.Style{}, lipgloss.Style{}, lipgloss.Style{}, lipgloss.Style{})
+	if got != "[????]" {
+		t.Errorf("formatIndicator(unknown, false) = %q, want %q", got, "[????]")
+	}
+}
+
+func TestFormatIndicator_Color_AllCases(t *testing.T) {
+	// With hasColor=true, lipgloss renders styled strings.
+	// We verify the output is non-empty and contains the expected symbols.
+	var buf bytes.Buffer
+	renderer := lipgloss.NewRenderer(&buf)
+	pass := renderer.NewStyle()
+	warn := renderer.NewStyle()
+	fail := renderer.NewStyle()
+	dim := renderer.NewStyle()
+
+	tests := []struct {
+		name   string
+		result CheckResult
+		want   string // expected substring
+	}{
+		{"pass", CheckResult{Severity: Pass}, "✅"},
+		{"pass-optional", CheckResult{Severity: Pass, InstallHint: "hint"}, "⊘"},
+		{"warn", CheckResult{Severity: Warn}, "⚠"},
+		{"fail", CheckResult{Severity: Fail}, "❌"},
+		{"unknown", CheckResult{Severity: Severity(99)}, "?"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatIndicator(tc.result, true, pass, warn, fail, dim)
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("formatIndicator(%v, true) = %q, want to contain %q", tc.result.Severity, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -3592,14 +3701,7 @@ func TestDevPodChecks_AllPresent(t *testing.T) {
 	opts := &Options{
 		TargetDir: dir,
 		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.6.15",
-				"devpod provider list": "podman   docker   true\n",
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
+		ReadFile:  os.ReadFile,
 	}
 
 	group := checkDevPod(opts)
@@ -3609,13 +3711,11 @@ func TestDevPodChecks_AllPresent(t *testing.T) {
 	if group.Name != "DevPod" {
 		t.Errorf("group name = %q, want DevPod", group.Name)
 	}
-	// 4 checks: devpod binary, devpod version, podman provider,
-	// devcontainer config.
-	if len(group.Results) != 4 {
-		t.Fatalf("expected 4 checks, got %d", len(group.Results))
+	if len(group.Results) != 2 {
+		t.Fatalf("expected 2 checks, got %d", len(group.Results))
 	}
 
-	// All checks should pass.
+	// Both checks should pass.
 	for _, r := range group.Results {
 		if r.Severity != Pass {
 			t.Errorf("check %q: severity = %v, want Pass", r.Name, r.Severity)
@@ -3645,14 +3745,7 @@ func TestDevPodChecks_MissingDevcontainer(t *testing.T) {
 	opts := &Options{
 		TargetDir: dir,
 		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.6.15",
-				"devpod provider list": "podman   docker   true\n",
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
+		ReadFile:  os.ReadFile,
 	}
 
 	group := checkDevPod(opts)
@@ -3736,924 +3829,6 @@ func TestCheckAgentContext_BranchProtection(t *testing.T) {
 	})
 }
 
-// --- Task Group 1: Install Hints tests ---
-
-func TestHomebrewInstallCmd_PodmanAndDevPod(t *testing.T) {
-	tests := []struct {
-		tool string
-		want string
-	}{
-		{"podman", "brew install podman"},
-		{"devpod", "brew install devpod"},
-	}
-	for _, tt := range tests {
-		got := homebrewInstallCmd(tt.tool)
-		if got != tt.want {
-			t.Errorf("homebrewInstallCmd(%q) = %q, want %q", tt.tool, got, tt.want)
-		}
-	}
-}
-
-func TestGenericInstallCmd_PodmanAndDevPod(t *testing.T) {
-	podmanHint := genericInstallCmd("podman")
-	if !strings.Contains(podmanHint, "podman.io") {
-		t.Errorf("genericInstallCmd(podman) = %q, want URL containing podman.io", podmanHint)
-	}
-	devpodHint := genericInstallCmd("devpod")
-	if !strings.Contains(devpodHint, "devpod.sh") {
-		t.Errorf("genericInstallCmd(devpod) = %q, want URL containing devpod.sh", devpodHint)
-	}
-}
-
-func TestInstallURL_PodmanAndDevPod(t *testing.T) {
-	tests := []struct {
-		tool string
-		want string
-	}{
-		{"podman", "https://podman.io"},
-		{"devpod", "https://devpod.sh"},
-	}
-	for _, tt := range tests {
-		got := installURL(tt.tool)
-		if got != tt.want {
-			t.Errorf("installURL(%q) = %q, want %q", tt.tool, got, tt.want)
-		}
-	}
-}
-
-// --- Task Group 2: Podman Core Tool Check tests ---
-
-func TestParsePodmanVersion(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
-	}{
-		{"standard", "podman version 5.3.1", "5.3.1", false},
-		{"minimum", "podman version 4.3.0", "4.3.0", false},
-		{"old", "podman version 4.2.9", "4.2.9", false},
-		{"with newline", "podman version 5.3.1\n", "5.3.1", false},
-		{"too few fields", "podman", "", true},
-		{"empty", "", "", true},
-		{"non-version", "podman version abc", "", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parsePodmanVersion(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parsePodmanVersion(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("parsePodmanVersion(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestCheckPodmanVersion(t *testing.T) {
-	tests := []struct {
-		version string
-		min     string
-		want    bool
-	}{
-		{"5.3.1", "4.3", true},
-		{"4.3.0", "4.3", true},
-		{"4.2.9", "4.3", false},
-		{"4.4.0", "4.3", true},
-		{"3.9.0", "4.3", false},
-		{"5.0.0", "4.3", true},
-	}
-	for _, tt := range tests {
-		got := checkPodmanVersion(tt.version, tt.min)
-		if got != tt.want {
-			t.Errorf("checkPodmanVersion(%q, %q) = %v, want %v", tt.version, tt.min, got, tt.want)
-		}
-	}
-}
-
-func TestCheckCoreTools_PodmanInSpecs(t *testing.T) {
-	t.Run("podman missing", func(t *testing.T) {
-		opts := &Options{
-			TargetDir:    t.TempDir(),
-			LookPath:     stubLookPathSimple(map[string]bool{}),
-			ExecCmd:      stubExecCmd(nil, nil),
-			EvalSymlinks: stubEvalSymlinks(nil),
-			Getenv:       stubGetenv(map[string]string{}),
-			ReadFile:     stubReadFile(nil),
-		}
-		env := DetectedEnvironment{Managers: []ManagerInfo{}}
-		group := checkCoreTools(opts, env)
-
-		results := make(map[string]CheckResult)
-		for _, r := range group.Results {
-			results[r.Name] = r
-		}
-
-		r, ok := results["podman"]
-		if !ok {
-			t.Fatal("podman check not found in Core Tools")
-		}
-		if r.Severity != Fail {
-			t.Errorf("podman missing severity = %v, want Fail (required)", r.Severity)
-		}
-		if r.InstallHint == "" {
-			t.Error("podman should have install hint when missing")
-		}
-	})
-
-	t.Run("podman present version sufficient", func(t *testing.T) {
-		opts := &Options{
-			TargetDir: t.TempDir(),
-			LookPath:  stubLookPath(map[string]string{"podman": "/usr/local/bin/podman"}),
-			ExecCmd: stubExecCmd(
-				map[string]string{
-					"podman --version": "podman version 5.3.1",
-					"podman info":      "host info",
-				},
-				nil,
-			),
-			EvalSymlinks: stubEvalSymlinks(nil),
-			Getenv:       stubGetenv(map[string]string{}),
-			ReadFile:     stubReadFile(nil),
-		}
-		env := DetectedEnvironment{Managers: []ManagerInfo{}}
-		group := checkCoreTools(opts, env)
-
-		results := make(map[string]CheckResult)
-		for _, r := range group.Results {
-			results[r.Name] = r
-		}
-
-		r, ok := results["podman"]
-		if !ok {
-			t.Fatal("podman check not found in Core Tools")
-		}
-		if r.Severity != Pass {
-			t.Errorf("podman severity = %v, want Pass", r.Severity)
-		}
-		if !strings.Contains(r.Message, "5.3.1") {
-			t.Errorf("podman message = %q, want version 5.3.1", r.Message)
-		}
-	})
-
-	t.Run("podman present version too old", func(t *testing.T) {
-		opts := &Options{
-			TargetDir: t.TempDir(),
-			LookPath:  stubLookPath(map[string]string{"podman": "/usr/local/bin/podman"}),
-			ExecCmd: stubExecCmd(
-				map[string]string{
-					"podman --version": "podman version 4.2.9",
-				},
-				nil,
-			),
-			EvalSymlinks: stubEvalSymlinks(nil),
-			Getenv:       stubGetenv(map[string]string{}),
-			ReadFile:     stubReadFile(nil),
-		}
-		env := DetectedEnvironment{Managers: []ManagerInfo{}}
-		group := checkCoreTools(opts, env)
-
-		results := make(map[string]CheckResult)
-		for _, r := range group.Results {
-			results[r.Name] = r
-		}
-
-		r, ok := results["podman"]
-		if !ok {
-			t.Fatal("podman check not found in Core Tools")
-		}
-		if r.Severity != Fail {
-			t.Errorf("podman version too old severity = %v, want Fail", r.Severity)
-		}
-		if !strings.Contains(r.Message, "requires >= 4.3") {
-			t.Errorf("podman message = %q, want 'requires >= 4.3'", r.Message)
-		}
-	})
-}
-
-func TestOptionsGOOS(t *testing.T) {
-	t.Run("default uses runtime.GOOS", func(t *testing.T) {
-		opts := &Options{}
-		got := opts.goos()
-		if got != runtime.GOOS {
-			t.Errorf("goos() = %q, want %q", got, runtime.GOOS)
-		}
-	})
-
-	t.Run("override", func(t *testing.T) {
-		opts := &Options{GOOS: "darwin"}
-		got := opts.goos()
-		if got != "darwin" {
-			t.Errorf("goos() = %q, want darwin", got)
-		}
-	})
-
-	t.Run("linux override", func(t *testing.T) {
-		opts := &Options{GOOS: "linux"}
-		got := opts.goos()
-		if got != "linux" {
-			t.Errorf("goos() = %q, want linux", got)
-		}
-	})
-}
-
-func TestCheckPodmanRuntime_DarwinMachineRunning(t *testing.T) {
-	opts := &Options{
-		GOOS: "darwin",
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"podman machine list --format {{.Name}}": "podman-machine-default",
-				"podman info": "host info",
-			},
-			nil,
-		),
-	}
-
-	result := checkPodmanRuntime(opts)
-	if result.Severity != Pass {
-		t.Errorf("severity = %v, want Pass", result.Severity)
-	}
-	if result.Message != "running" {
-		t.Errorf("message = %q, want running", result.Message)
-	}
-}
-
-func TestCheckPodmanRuntime_DarwinNoMachine(t *testing.T) {
-	opts := &Options{
-		GOOS: "darwin",
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"podman machine list --format {{.Name}}": "",
-			},
-			nil,
-		),
-	}
-
-	result := checkPodmanRuntime(opts)
-	if result.Severity != Fail {
-		t.Errorf("severity = %v, want Fail", result.Severity)
-	}
-	if !strings.Contains(result.Message, "no Podman machine") {
-		t.Errorf("message = %q, want 'no Podman machine'", result.Message)
-	}
-	if !strings.Contains(result.InstallHint, "podman machine init") {
-		t.Errorf("hint = %q, want 'podman machine init'", result.InstallHint)
-	}
-}
-
-func TestCheckPodmanRuntime_DarwinMachineExistsInfoFails(t *testing.T) {
-	opts := &Options{
-		GOOS: "darwin",
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"podman machine list --format {{.Name}}": "podman-machine-default",
-			},
-			map[string]error{
-				"podman info": fmt.Errorf("cannot connect"),
-			},
-		),
-	}
-
-	result := checkPodmanRuntime(opts)
-	if result.Severity != Fail {
-		t.Errorf("severity = %v, want Fail", result.Severity)
-	}
-	if !strings.Contains(result.Message, "may not be running") {
-		t.Errorf("message = %q, want 'may not be running'", result.Message)
-	}
-	if result.InstallHint != "podman machine start" {
-		t.Errorf("hint = %q, want 'podman machine start'", result.InstallHint)
-	}
-}
-
-func TestCheckPodmanRuntime_LinuxInfoSucceeds(t *testing.T) {
-	opts := &Options{
-		GOOS: "linux",
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"podman info": "host info",
-			},
-			nil,
-		),
-	}
-
-	result := checkPodmanRuntime(opts)
-	if result.Severity != Pass {
-		t.Errorf("severity = %v, want Pass", result.Severity)
-	}
-	if result.Message != "running" {
-		t.Errorf("message = %q, want running", result.Message)
-	}
-}
-
-func TestCheckPodmanRuntime_LinuxInfoFails(t *testing.T) {
-	opts := &Options{
-		GOOS: "linux",
-		ExecCmd: stubExecCmd(
-			nil,
-			map[string]error{
-				"podman info": fmt.Errorf("cannot connect"),
-			},
-		),
-	}
-
-	result := checkPodmanRuntime(opts)
-	if result.Severity != Fail {
-		t.Errorf("severity = %v, want Fail", result.Severity)
-	}
-	if !strings.Contains(result.Message, "not responding") {
-		t.Errorf("message = %q, want 'not responding'", result.Message)
-	}
-	if !strings.Contains(result.InstallHint, "systemctl") {
-		t.Errorf("hint = %q, want systemctl reference", result.InstallHint)
-	}
-}
-
-func TestCheckPodmanRuntime_VersionTooOldSkipsRuntime(t *testing.T) {
-	// When version is too old, the tool check returns Fail and
-	// the post-check is not triggered. Verify by checking that
-	// no "podman runtime" result appears.
-	opts := &Options{
-		TargetDir: t.TempDir(),
-		GOOS:      "darwin",
-		LookPath:  stubLookPath(map[string]string{"podman": "/usr/local/bin/podman"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"podman --version": "podman version 4.2.9",
-			},
-			nil,
-		),
-		EvalSymlinks: stubEvalSymlinks(nil),
-		Getenv:       stubGetenv(map[string]string{}),
-		ReadFile:     stubReadFile(nil),
-	}
-	env := DetectedEnvironment{Managers: []ManagerInfo{}}
-	group := checkCoreTools(opts, env)
-
-	for _, r := range group.Results {
-		if r.Name == "podman runtime" {
-			t.Error("podman runtime check should be skipped when version is too old")
-		}
-	}
-}
-
-func TestCheckPodmanRuntime_DarwinMachineListFails(t *testing.T) {
-	opts := &Options{
-		GOOS: "darwin",
-		ExecCmd: stubExecCmd(
-			nil,
-			map[string]error{
-				"podman machine list --format {{.Name}}": fmt.Errorf("command failed"),
-			},
-		),
-	}
-
-	result := checkPodmanRuntime(opts)
-	if result.Severity != Fail {
-		t.Errorf("severity = %v, want Fail", result.Severity)
-	}
-	if !strings.Contains(result.InstallHint, "podman machine init") {
-		t.Errorf("hint = %q, want 'podman machine init'", result.InstallHint)
-	}
-}
-
-// --- Docker-to-Podman shim detection tests (D8a) ---
-
-func TestCheckDockerPodmanShim_DockerIsPodmanSymlink(t *testing.T) {
-	opts := &Options{
-		LookPath: stubLookPath(map[string]string{
-			"docker": "/usr/local/bin/docker",
-		}),
-		EvalSymlinks: func(path string) (string, error) {
-			if path == "/usr/local/bin/docker" {
-				return "/opt/podman/bin/podman", nil
-			}
-			return path, nil
-		},
-	}
-
-	result := checkDockerPodmanShim(opts)
-	if result == nil {
-		t.Fatal("expected non-nil result for docker symlink")
-	}
-	if result.Severity != Pass {
-		t.Errorf("severity = %v, want Pass", result.Severity)
-	}
-	if !strings.Contains(result.Message, "Podman shim") {
-		t.Errorf("message = %q, want to contain 'Podman shim'", result.Message)
-	}
-	if !strings.Contains(result.Message, "/opt/podman/bin/podman") {
-		t.Errorf("message = %q, want to contain resolved path", result.Message)
-	}
-}
-
-func TestCheckDockerPodmanShim_RealDocker(t *testing.T) {
-	opts := &Options{
-		LookPath: stubLookPath(map[string]string{
-			"docker": "/usr/bin/docker",
-		}),
-		EvalSymlinks: func(path string) (string, error) {
-			return "/usr/bin/docker", nil
-		},
-	}
-
-	result := checkDockerPodmanShim(opts)
-	if result == nil {
-		t.Fatal("expected non-nil result for real Docker")
-	}
-	if result.Severity != Pass {
-		t.Errorf("severity = %v, want Pass", result.Severity)
-	}
-	if !strings.Contains(result.Message, "Docker detected") {
-		t.Errorf("message = %q, want to contain 'Docker detected'", result.Message)
-	}
-	if !strings.Contains(result.Detail, "Sandbox uses Podman") {
-		t.Errorf("detail = %q, want to contain 'Sandbox uses Podman'", result.Detail)
-	}
-}
-
-func TestCheckDockerPodmanShim_DockerNotInPath(t *testing.T) {
-	opts := &Options{
-		LookPath: stubLookPath(map[string]string{
-			// docker not in the found map
-		}),
-	}
-
-	result := checkDockerPodmanShim(opts)
-	if result != nil {
-		t.Errorf("expected nil result when docker not in PATH, got %+v", result)
-	}
-}
-
-func TestCheckDockerPodmanShim_EvalSymlinksFails(t *testing.T) {
-	opts := &Options{
-		LookPath: stubLookPath(map[string]string{
-			"docker": "/usr/local/bin/docker",
-		}),
-		EvalSymlinks: func(path string) (string, error) {
-			return "", fmt.Errorf("permission denied")
-		},
-	}
-
-	result := checkDockerPodmanShim(opts)
-	if result != nil {
-		t.Errorf("expected nil result when EvalSymlinks fails, got %+v", result)
-	}
-}
-
-// --- Task Group 3: Enhanced DevPod Check tests ---
-
-func TestParseDevPodVersion(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
-	}{
-		{"standard", "v0.6.15", "0.6.15", false},
-		{"no prefix", "0.5.0", "0.5.0", false},
-		{"beta suffix", "v0.4.2-beta", "0.4.2", false},
-		{"with newline", "v0.6.15\n", "0.6.15", false},
-		{"empty", "", "", true},
-		{"non-version", "abc", "", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseDevPodVersion(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("parseDevPodVersion(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("parseDevPodVersion(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestCheckDevPodVersionMin(t *testing.T) {
-	tests := []struct {
-		version string
-		min     string
-		want    bool
-	}{
-		{"0.6.15", "0.5", true},
-		{"0.5.0", "0.5", true},
-		{"0.4.2", "0.5", false},
-		{"1.0.0", "0.5", true},
-		{"0.3.9", "0.5", false},
-	}
-	for _, tt := range tests {
-		got := checkDevPodVersionMin(tt.version, tt.min)
-		if got != tt.want {
-			t.Errorf("checkDevPodVersionMin(%q, %q) = %v, want %v", tt.version, tt.min, got, tt.want)
-		}
-	}
-}
-
-func TestCheckDevPod_VersionSufficient(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.6.15",
-				"devpod provider list": "podman   docker   true\n",
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	if r := results["devpod version"]; r.Severity != Pass {
-		t.Errorf("devpod version severity = %v, want Pass", r.Severity)
-	}
-}
-
-func TestCheckDevPod_VersionTooOld(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.4.2",
-				"devpod provider list": "podman   docker   true\n",
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	r, ok := results["devpod version"]
-	if !ok {
-		t.Fatal("devpod version check not found")
-	}
-	if r.Severity != Warn {
-		t.Errorf("devpod version severity = %v, want Warn", r.Severity)
-	}
-	if !strings.Contains(r.Message, "requires >= 0.5.0") {
-		t.Errorf("message = %q, want 'requires >= 0.5.0'", r.Message)
-	}
-}
-
-func TestCheckDevPod_VersionBoundary(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.5.0",
-				"devpod provider list": "podman   docker   true\n",
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	if r := results["devpod version"]; r.Severity != Pass {
-		t.Errorf("devpod version boundary severity = %v, want Pass", r.Severity)
-	}
-}
-
-func TestCheckDevPod_ProviderPresent(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	providerListOutput := "NAME      TYPE     DEFAULT\npodman    docker   true\nkubernetes k8s    false\n"
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.6.15",
-				"devpod provider list": providerListOutput,
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	r, ok := results["podman provider"]
-	if !ok {
-		t.Fatal("podman provider check not found")
-	}
-	if r.Severity != Pass {
-		t.Errorf("podman provider severity = %v, want Pass", r.Severity)
-	}
-}
-
-func TestCheckDevPod_ProviderSubstringNotMatched(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	// "podman-custom" should NOT match "podman" (exact first-column match).
-	providerListOutput := "NAME            TYPE     DEFAULT\npodman-custom   docker   true\n"
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.6.15",
-				"devpod provider list": providerListOutput,
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	r, ok := results["podman provider"]
-	if !ok {
-		t.Fatal("podman provider check not found")
-	}
-	if r.Severity != Warn {
-		t.Errorf("podman provider severity = %v, want Warn (substring should not match)", r.Severity)
-	}
-	if !strings.Contains(r.InstallHint, "devpod provider add docker") {
-		t.Errorf("hint = %q, want provider add command", r.InstallHint)
-	}
-}
-
-func TestCheckDevPod_ProviderMissing(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	providerListOutput := "NAME         TYPE     DEFAULT\nkubernetes   k8s      false\n"
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version":       "v0.6.15",
-				"devpod provider list": providerListOutput,
-			},
-			nil,
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	r, ok := results["podman provider"]
-	if !ok {
-		t.Fatal("podman provider check not found")
-	}
-	if r.Severity != Warn {
-		t.Errorf("podman provider severity = %v, want Warn", r.Severity)
-	}
-	if !strings.Contains(r.InstallHint, "devpod provider add docker --name podman") {
-		t.Errorf("hint = %q, want provider add command", r.InstallHint)
-	}
-}
-
-func TestCheckDevPod_ProviderListFails(t *testing.T) {
-	dir := t.TempDir()
-	createFile(t, dir, ".devcontainer/devcontainer.json", `{"image":"test"}`)
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPath(map[string]string{"devpod": "/usr/local/bin/devpod"}),
-		ExecCmd: stubExecCmd(
-			map[string]string{
-				"devpod version": "v0.6.15",
-			},
-			map[string]error{
-				"devpod provider list": fmt.Errorf("command failed"),
-			},
-		),
-		ReadFile: os.ReadFile,
-	}
-
-	group := checkDevPod(opts)
-	if group == nil {
-		t.Fatal("expected non-nil DevPod group")
-	}
-
-	results := make(map[string]CheckResult)
-	for _, r := range group.Results {
-		results[r.Name] = r
-	}
-
-	r, ok := results["podman provider"]
-	if !ok {
-		t.Fatal("podman provider check not found")
-	}
-	if r.Severity != Warn {
-		t.Errorf("podman provider severity = %v, want Warn", r.Severity)
-	}
-	if !strings.Contains(r.Message, "could not check") {
-		t.Errorf("message = %q, want 'could not check'", r.Message)
-	}
-}
-
-// --- formatIndicator color branch tests ---
-
-func TestFormatIndicator_WithColor(t *testing.T) {
-	// Create a renderer targeting an output that supports color.
-	renderer := lipgloss.NewRenderer(os.Stdout, termenv.WithProfile(termenv.TrueColor))
-	pass := renderer.NewStyle().Foreground(lipgloss.Color("10"))
-	warn := renderer.NewStyle().Foreground(lipgloss.Color("11"))
-	fail := renderer.NewStyle().Foreground(lipgloss.Color("9"))
-	dim := renderer.NewStyle().Foreground(lipgloss.Color("241"))
-
-	tests := []struct {
-		name   string
-		result CheckResult
-		want   string // substring expected in the rendered output
-	}{
-		{
-			name:   "pass shows checkmark",
-			result: CheckResult{Severity: Pass},
-			want:   "✅",
-		},
-		{
-			name:   "pass with install hint shows dim circle",
-			result: CheckResult{Severity: Pass, InstallHint: "some hint"},
-			want:   "⊘",
-		},
-		{
-			name:   "warn shows warning symbol",
-			result: CheckResult{Severity: Warn},
-			want:   "⚠️",
-		},
-		{
-			name:   "fail shows X",
-			result: CheckResult{Severity: Fail},
-			want:   "❌",
-		},
-		{
-			name:   "unknown severity returns question mark",
-			result: CheckResult{Severity: Severity(99)},
-			want:   "?",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := formatIndicator(tc.result, true, pass, warn, fail, dim)
-			if !strings.Contains(got, tc.want) {
-				t.Errorf("formatIndicator(color=true) = %q, want substring %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFormatIndicator_NoColor_UnknownSeverity(t *testing.T) {
-	got := formatIndicator(
-		CheckResult{Severity: Severity(99)},
-		false,
-		lipgloss.Style{}, lipgloss.Style{}, lipgloss.Style{}, lipgloss.Style{},
-	)
-	if got != "[????]" {
-		t.Errorf("formatIndicator(unknown, no color) = %q, want %q", got, "[????]")
-	}
-}
-
-// --- Options.defaults tests ---
-
-func TestOptionsDefaults_FillsZeroFields(t *testing.T) {
-	opts := &Options{}
-	opts.defaults()
-
-	if opts.TargetDir == "" {
-		t.Error("defaults() should set TargetDir to cwd")
-	}
-	if opts.Format != "text" {
-		t.Errorf("Format = %q, want %q", opts.Format, "text")
-	}
-	if opts.Stdout == nil {
-		t.Error("defaults() should set Stdout")
-	}
-	if opts.LookPath == nil {
-		t.Error("defaults() should set LookPath")
-	}
-	if opts.ExecCmd == nil {
-		t.Error("defaults() should set ExecCmd")
-	}
-	if opts.ExecCmdTimeout == nil {
-		t.Error("defaults() should set ExecCmdTimeout")
-	}
-	if opts.EvalSymlinks == nil {
-		t.Error("defaults() should set EvalSymlinks")
-	}
-	if opts.Getenv == nil {
-		t.Error("defaults() should set Getenv")
-	}
-	if opts.ReadFile == nil {
-		t.Error("defaults() should set ReadFile")
-	}
-	if opts.EmbedCheck == nil {
-		t.Error("defaults() should set EmbedCheck")
-	}
-}
-
-func TestOptionsDefaults_PreservesExistingValues(t *testing.T) {
-	customDir := t.TempDir()
-	var buf bytes.Buffer
-	customLookPath := func(string) (string, error) { return "", nil }
-
-	opts := &Options{
-		TargetDir: customDir,
-		Format:    "json",
-		Stdout:    &buf,
-		LookPath:  customLookPath,
-	}
-	opts.defaults()
-
-	if opts.TargetDir != customDir {
-		t.Errorf("TargetDir = %q, want %q (should preserve)", opts.TargetDir, customDir)
-	}
-	if opts.Format != "json" {
-		t.Errorf("Format = %q, want %q (should preserve)", opts.Format, "json")
-	}
-	if opts.Stdout != &buf {
-		t.Error("Stdout should be preserved when already set")
-	}
-	// LookPath is a func; just verify it wasn't replaced by checking non-nil.
-	if opts.LookPath == nil {
-		t.Error("LookPath should be preserved when already set")
-	}
-
-	// Verify fields that were NOT set got filled.
-	if opts.ExecCmd == nil {
-		t.Error("ExecCmd should be set by defaults()")
-	}
-	if opts.Getenv == nil {
-		t.Error("Getenv should be set by defaults()")
-	}
-}
-
 // --- defaultEmbedCheck tests ---
 
 func TestDefaultEmbedCheck_Success(t *testing.T) {
@@ -4665,7 +3840,7 @@ func TestDefaultEmbedCheck_Success(t *testing.T) {
 			t.Errorf("unexpected method: %s", r.Method)
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, `{"embeddings":[[0.1,0.2,0.3]]}`)
+		_, _ = w.Write([]byte(`{"embeddings":[[0.1,0.2,0.3]]}`))
 	}))
 	defer ts.Close()
 
@@ -4677,127 +3852,199 @@ func TestDefaultEmbedCheck_Success(t *testing.T) {
 	}
 
 	check := defaultEmbedCheck(getenv)
-	if err := check("test-model"); err != nil {
-		t.Errorf("defaultEmbedCheck() returned error: %v", err)
+	err := check("test-model")
+	if err != nil {
+		t.Errorf("defaultEmbedCheck() error = %v, want nil", err)
+	}
+}
+
+func TestDefaultEmbedCheck_DefaultHost(t *testing.T) {
+	// When OLLAMA_HOST is empty, it defaults to http://localhost:11434.
+	// We verify the returned function uses the default by calling it
+	// with a nonexistent model. The error depends on whether Ollama
+	// is running locally:
+	// - Running: "model not found" or similar server error
+	// - Not running: "embed request failed: connection refused"
+	// Either way, we get a non-nil error for a bogus model name.
+	getenv := func(string) string { return "" }
+	check := defaultEmbedCheck(getenv)
+
+	err := check("__nonexistent_gaze_test_model__")
+	if err == nil {
+		t.Error("expected error for nonexistent model, got nil")
+	}
+}
+
+func TestDefaultEmbedCheck_NonOKStatus(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"model not found"}`))
+	}))
+	defer ts.Close()
+
+	getenv := func(key string) string {
+		if key == "OLLAMA_HOST" {
+			return ts.URL
+		}
+		return ""
+	}
+
+	check := defaultEmbedCheck(getenv)
+	err := check("nonexistent-model")
+	if err == nil {
+		t.Fatal("expected error for non-OK status")
+	}
+	if !strings.Contains(err.Error(), "model not found") {
+		t.Errorf("error = %v, want to contain 'model not found'", err)
+	}
+}
+
+func TestDefaultEmbedCheck_NonOKStatusNoBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer ts.Close()
+
+	getenv := func(key string) string {
+		if key == "OLLAMA_HOST" {
+			return ts.URL
+		}
+		return ""
+	}
+
+	check := defaultEmbedCheck(getenv)
+	err := check("test-model")
+	if err == nil {
+		t.Fatal("expected error for 500 status")
+	}
+	if !strings.Contains(err.Error(), "status 500") {
+		t.Errorf("error = %v, want to contain 'status 500'", err)
 	}
 }
 
 func TestDefaultEmbedCheck_EmptyEmbeddings(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, `{"embeddings":[]}`)
+		_, _ = w.Write([]byte(`{"embeddings":[]}`))
 	}))
 	defer ts.Close()
 
-	check := defaultEmbedCheck(func(key string) string {
+	getenv := func(key string) string {
 		if key == "OLLAMA_HOST" {
 			return ts.URL
 		}
 		return ""
-	})
+	}
 
+	check := defaultEmbedCheck(getenv)
 	err := check("test-model")
 	if err == nil {
 		t.Fatal("expected error for empty embeddings")
 	}
 	if !strings.Contains(err.Error(), "empty embeddings") {
-		t.Errorf("error = %q, want 'empty embeddings'", err)
+		t.Errorf("error = %v, want to contain 'empty embeddings'", err)
 	}
 }
 
-func TestDefaultEmbedCheck_ServerError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = fmt.Fprint(w, `{"error":"model not found"}`)
-	}))
-	defer ts.Close()
-
-	check := defaultEmbedCheck(func(key string) string {
-		if key == "OLLAMA_HOST" {
-			return ts.URL
-		}
-		return ""
-	})
-
-	err := check("missing-model")
-	if err == nil {
-		t.Fatal("expected error for server error response")
-	}
-	if !strings.Contains(err.Error(), "model not found") {
-		t.Errorf("error = %q, want 'model not found'", err)
-	}
-}
-
-func TestDefaultEmbedCheck_ServerErrorNoBody(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	defer ts.Close()
-
-	check := defaultEmbedCheck(func(key string) string {
-		if key == "OLLAMA_HOST" {
-			return ts.URL
-		}
-		return ""
-	})
-
-	err := check("test-model")
-	if err == nil {
-		t.Fatal("expected error for non-200 status")
-	}
-	if !strings.Contains(err.Error(), "502") {
-		t.Errorf("error = %q, want status code 502", err)
-	}
-}
-
-func TestDefaultEmbedCheck_ConnectionRefused(t *testing.T) {
-	check := defaultEmbedCheck(func(key string) string {
-		if key == "OLLAMA_HOST" {
-			return "http://127.0.0.1:1" // port 1 is unlikely to be open
-		}
-		return ""
-	})
-
-	err := check("test-model")
-	if err == nil {
-		t.Fatal("expected error for connection refused")
-	}
-	if !strings.Contains(err.Error(), "embed request failed") {
-		t.Errorf("error = %q, want 'embed request failed'", err)
-	}
-}
-
-func TestDefaultEmbedCheck_DefaultHost(t *testing.T) {
-	// When OLLAMA_HOST is empty, default to http://localhost:11434.
-	// We can't test the actual connection, but we can verify
-	// the function returns an error (connection refused on CI).
-	check := defaultEmbedCheck(func(string) string { return "" })
-	err := check("test-model")
-	// Should fail because localhost:11434 is not running in test.
-	if err == nil {
-		t.Log("defaultEmbedCheck succeeded (Ollama is running locally)")
-	}
-}
-
-func TestDefaultEmbedCheck_InvalidJSON(t *testing.T) {
+func TestDefaultEmbedCheck_MalformedResponse(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprint(w, `not json`)
+		_, _ = w.Write([]byte("not valid json at all"))
 	}))
 	defer ts.Close()
 
-	check := defaultEmbedCheck(func(key string) string {
+	getenv := func(key string) string {
 		if key == "OLLAMA_HOST" {
 			return ts.URL
 		}
 		return ""
-	})
+	}
 
+	check := defaultEmbedCheck(getenv)
 	err := check("test-model")
 	if err == nil {
-		t.Fatal("expected error for invalid JSON response")
+		t.Fatal("expected error for malformed response")
 	}
-	if !strings.Contains(err.Error(), "could not parse") {
-		t.Errorf("error = %q, want 'could not parse'", err)
+	if !strings.Contains(err.Error(), "could not parse embed response") {
+		t.Errorf("error = %v, want to contain 'could not parse embed response'", err)
+	}
+}
+
+// --- checkEmbeddingCapability tests ---
+
+func TestCheckEmbeddingCapability_Success(t *testing.T) {
+	opts := &Options{
+		EmbedCheck: func(model string) error {
+			return nil
+		},
+	}
+
+	result := checkEmbeddingCapability(opts)
+	if result.Severity != Pass {
+		t.Errorf("severity = %v, want Pass", result.Severity)
+	}
+	if !strings.Contains(result.Message, "generating embeddings") {
+		t.Errorf("message = %q, want to contain 'generating embeddings'", result.Message)
+	}
+}
+
+func TestCheckEmbeddingCapability_ConnectionRefused(t *testing.T) {
+	opts := &Options{
+		EmbedCheck: func(string) error {
+			return fmt.Errorf("embed request failed: connection refused")
+		},
+	}
+
+	result := checkEmbeddingCapability(opts)
+	if result.Severity != Warn {
+		t.Errorf("severity = %v, want Warn", result.Severity)
+	}
+	if !strings.Contains(result.Message, "Ollama not running") {
+		t.Errorf("message = %q, want to contain 'Ollama not running'", result.Message)
+	}
+	if !strings.Contains(result.InstallHint, "ollama serve") {
+		t.Errorf("install hint = %q, want 'ollama serve'", result.InstallHint)
+	}
+}
+
+func TestCheckEmbeddingCapability_ModelNotFound(t *testing.T) {
+	opts := &Options{
+		EmbedCheck: func(string) error {
+			return fmt.Errorf("model not found")
+		},
+	}
+
+	result := checkEmbeddingCapability(opts)
+	if result.Severity != Warn {
+		t.Errorf("severity = %v, want Warn", result.Severity)
+	}
+	if !strings.Contains(result.Message, "model not loaded") {
+		t.Errorf("message = %q, want to contain 'model not loaded'", result.Message)
+	}
+	if !strings.Contains(result.InstallHint, "ollama pull") {
+		t.Errorf("install hint = %q, want 'ollama pull'", result.InstallHint)
+	}
+}
+
+func TestCheckEmbeddingCapability_GenericError(t *testing.T) {
+	opts := &Options{
+		EmbedCheck: func(string) error {
+			return fmt.Errorf("timeout waiting for response")
+		},
+	}
+
+	result := checkEmbeddingCapability(opts)
+	if result.Severity != Warn {
+		t.Errorf("severity = %v, want Warn", result.Severity)
+	}
+	if !strings.Contains(result.Message, "cannot generate embeddings") {
+		t.Errorf("message = %q, want to contain 'cannot generate embeddings'", result.Message)
+	}
+	if !strings.Contains(result.InstallHint, "ollama serve") {
+		t.Errorf("install hint = %q, want combined hint with 'ollama serve'", result.InstallHint)
+	}
+	if !strings.Contains(result.InstallHint, "ollama pull") {
+		t.Errorf("install hint = %q, want combined hint with 'ollama pull'", result.InstallHint)
 	}
 }
