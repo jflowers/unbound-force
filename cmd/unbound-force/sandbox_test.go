@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/unbound-force/unbound-force/internal/sandbox"
@@ -65,5 +66,61 @@ func TestApplySandboxConfig_UIDMap(t *testing.T) {
 	applySandboxConfig(&opts3, &stderr)
 	if !opts3.UIDMap {
 		t.Error("expected UIDMap=true preserved when config has uid_map: false")
+	}
+}
+
+// --- Destroy confirmation tests (Task 6.4/D14) ---
+
+func TestRunSandboxDestroy_EmptyInputCancels(t *testing.T) {
+	var stdout bytes.Buffer
+	p := sandboxDestroyParams{
+		projectDir: "/tmp/test",
+		yes:        false,
+		stdout:     &stdout,
+		stderr:     &bytes.Buffer{},
+		stdin:      strings.NewReader("\n"),
+	}
+	err := runSandboxDestroy(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Cancelled.") {
+		t.Errorf("expected 'Cancelled.' in output, got: %s", stdout.String())
+	}
+}
+
+func TestRunSandboxDestroy_EOFCancels(t *testing.T) {
+	var stdout bytes.Buffer
+	p := sandboxDestroyParams{
+		projectDir: "/tmp/test",
+		yes:        false,
+		stdout:     &stdout,
+		stderr:     &bytes.Buffer{},
+		stdin:      strings.NewReader(""),
+	}
+	err := runSandboxDestroy(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Cancelled.") {
+		t.Errorf("expected 'Cancelled.' on EOF, got: %s", stdout.String())
+	}
+}
+
+func TestRunSandboxDestroy_NoCancels(t *testing.T) {
+	var stdout bytes.Buffer
+	p := sandboxDestroyParams{
+		projectDir: "/tmp/test",
+		yes:        false,
+		stdout:     &stdout,
+		stderr:     &bytes.Buffer{},
+		stdin:      strings.NewReader("n\n"),
+	}
+	err := runSandboxDestroy(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Cancelled.") {
+		t.Errorf("expected 'Cancelled.' on 'n', got: %s", stdout.String())
 	}
 }

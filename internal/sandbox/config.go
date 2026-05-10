@@ -29,10 +29,6 @@ const (
 	// DefaultServerPort is the OpenCode server port.
 	DefaultServerPort = 4096
 
-	// HealthTimeout is the maximum time to wait for the
-	// OpenCode server health check (FR-005).
-	HealthTimeout = 60 * time.Second
-
 	// ModeIsolated mounts the project directory read-only.
 	ModeIsolated = "isolated"
 
@@ -42,6 +38,10 @@ const (
 	// DefaultIDE is the default IDE value for DevPod
 	// workspaces. "none" means no IDE is opened.
 	DefaultIDE = "none"
+
+	// HealthTimeout is the maximum time to wait for the
+	// OpenCode server health check (FR-005).
+	HealthTimeout = 60 * time.Second
 )
 
 // forwardedAPIKeys lists environment variable names that are
