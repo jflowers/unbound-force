@@ -100,18 +100,56 @@
   return gracefully on timeout.
 - [x] 5.4 Add `postStartCommand` to devcontainer.json
   template in `internal/scaffold/assets/devcontainer/`:
-  `nohup opencode server --port 4096 > /tmp/opencode-server.log 2>&1 &`
+  `nohup opencode serve --port 4096 > /tmp/opencode-server.log 2>&1 &`
 - [x] 5.5 Add tests for Attach persistent workspace
   detection and Destroy ephemeral handling in
   `internal/sandbox/sandbox_test.go`.
 
-## 6. Verification
+## 6. Manual Testing Bug Fixes
 
-- [x] 6.1 Run `go test -race -count=1 ./internal/sandbox/`
+- [x] 6.1 Add `waitForHealth()` call to
+  `DevPodBackend.Create()` in
+  `internal/sandbox/devpod.go` after `devpod up`
+  returns. Match the pattern in `Start()`: print
+  warning on timeout, return without error (D11).
+- [x] 6.2 Add DevPod stderr suppression in
+  `DevPodBackend.Create()`: when `devpod up` returns
+  non-zero, call `devpod status <ws> --output json`.
+  If workspace is `Running`, suppress raw stderr and
+  print friendly warning. If not, report the full
+  error (D12).
+- [x] 6.3 Add SSH fallback to `DevPodBackend.Start()`
+  in `internal/sandbox/devpod.go`: when
+  `waitForHealth()` times out, run
+  `devpod ssh <ws> -- nohup opencode serve --port
+  4096 > /tmp/opencode-server.log 2>&1 &` and call
+  `waitForHealth()` again. Print warning with
+  remediation if both fail (D13).
+- [x] 6.4 Replace `fmt.Fscanln` with `bufio.Scanner` in
+  `runSandboxDestroy()` confirmation in
+  `cmd/unbound-force/sandbox.go`. Use
+  `bufio.NewScanner(p.stdin)` + `scanner.Scan()` +
+  `scanner.Text()` for line-oriented reading. Treat
+  any non-"y"/"yes" input (empty, "n", EOF, bare
+  `\r`) as cancellation with "Cancelled." output
+  (D14).
+- [x] 6.5 Add tests for Create health check, stderr
+  suppression (tunnel error vs real failure), Start
+  SSH fallback (success and failure paths), and
+  Destroy empty-input confirmation feedback.
+
+## 7. Verification
+
+- [x] 7.1 Run `go test -race -count=1 ./internal/sandbox/`
   and `go test -race -count=1 ./cmd/unbound-force/`
-- [x] 6.2 Run `go vet ./...` and `golangci-lint run`
-- [x] 6.3 Verify constitution alignment: IDE field uses
+- [x] 7.2 Run `go vet ./...` and `golangci-lint run`
+- [x] 7.3 Verify constitution alignment: IDE field uses
   Options DI pattern (Principle IV), feature is opt-in
   with backward-compatible default (Principle II).
+- [ ] 7.4 Manual test: `uf sandbox create --backend
+  devpod --ide vscode --detach` then
+  `uf sandbox attach` (verify OpenCode server running).
+- [ ] 7.5 Manual test: `uf sandbox destroy` with
+  empty Enter, "n", and "y" inputs (verify feedback).
 <!-- spec-review: passed -->
-<!-- code-review: passed -->
+<!-- code-review: pending -->

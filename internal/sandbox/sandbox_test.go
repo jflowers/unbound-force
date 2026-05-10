@@ -4808,3 +4808,243 @@ func TestStart_EphemeralIgnoresIDE(t *testing.T) {
 	}
 }
 
+// --- DevPod Create health check tests (Task 6.1) ---
+
+func TestDevPodCreate_WaitsForHealth(t *testing.T) {
+	healthCalled := false
+	opts := testOpts()
+	opts.IDE = "none"
+	opts.LookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
+	opts.ReadFile = func(path string) ([]byte, error) {
+		if strings.Contains(path, "devcontainer.json") {
+			return []byte(`{}`), nil
+		}
+		return nil, fmt.Errorf("not found")
+	}
+	opts.Detach = true
+	opts.ExecCmd = func(name string, args ...string) ([]byte, error) {
+		if name == "devpod" && len(args) > 0 {
+			if args[0] == "up" {
+				return []byte("ok"), nil
+			}
+			if args[0] == "version" {
+				return []byte("v0.6.0\n"), nil
+			}
+		}
+		return []byte(""), nil
+	}
+	opts.HTTPGet = func(url string) (int, error) {
+		healthCalled = true
+		return 200, nil
+	}
+
+	b := &DevPodBackend{}
+	err := b.Create(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !healthCalled {
+		t.Error("expected waitForHealth to be called after Create")
+	}
+}
+
+// --- DevPod Create stderr suppression tests (Task 6.2) ---
+
+func TestDevPodCreate_TunnelErrorSuppressed(t *testing.T) {
+	opts := testOpts()
+	opts.IDE = "none"
+	opts.Detach = true
+	opts.LookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
+	opts.ReadFile = func(path string) ([]byte, error) {
+		if strings.Contains(path, "devcontainer.json") {
+			return []byte(`{}`), nil
+		}
+		return nil, fmt.Errorf("not found")
+	}
+	opts.ExecCmd = func(name string, args ...string) ([]byte, error) {
+		if name == "devpod" && len(args) > 0 {
+			if args[0] == "up" {
+				// Simulate Bun tunnel error.
+				return []byte("fetch() error"), fmt.Errorf("exit 1")
+			}
+			if args[0] == "status" {
+				// Workspace is Running despite the error.
+				return []byte(`{"id":"test","state":"Running","provider":"podman"}`), nil
+			}
+			if args[0] == "version" {
+				return []byte("v0.6.0\n"), nil
+			}
+		}
+		return []byte(""), nil
+	}
+
+	b := &DevPodBackend{}
+	err := b.Create(opts)
+	if err != nil {
+		t.Fatalf("expected no error (tunnel error suppressed), got: %v", err)
+	}
+	stderrOut := opts.Stderr.(*bytes.Buffer).String()
+	if !strings.Contains(stderrOut, "non-fatal error") {
+		t.Errorf("expected 'non-fatal error' in stderr, got: %s", stderrOut)
+	}
+}
+
+func TestDevPodCreate_RealFailure(t *testing.T) {
+	opts := testOpts()
+	opts.IDE = "none"
+	opts.Detach = true
+	opts.LookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
+	opts.ReadFile = func(path string) ([]byte, error) {
+		if strings.Contains(path, "devcontainer.json") {
+			return []byte(`{}`), nil
+		}
+		return nil, fmt.Errorf("not found")
+	}
+	opts.ExecCmd = func(name string, args ...string) ([]byte, error) {
+		if name == "devpod" && len(args) > 0 {
+			if args[0] == "up" {
+				return []byte("provider not found"), fmt.Errorf("exit 1")
+			}
+			if args[0] == "status" {
+				// Workspace does not exist.
+				return nil, fmt.Errorf("workspace not found")
+			}
+			if args[0] == "version" {
+				return []byte("v0.6.0\n"), nil
+			}
+		}
+		return []byte(""), nil
+	}
+
+	b := &DevPodBackend{}
+	err := b.Create(opts)
+	if err == nil {
+		t.Fatal("expected error for real failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "devpod up failed") {
+		t.Errorf("expected 'devpod up failed' in error, got: %s", err.Error())
+	}
+}
+
+// --- DevPod Start/Create SSH fallback tests (Task 6.3) ---
+
+func TestDevPodStart_SSHFallbackSuccess(t *testing.T) {
+	sshCalled := false
+	opts := testOpts()
+	opts.IDE = "none"
+	opts.Detach = true
+	opts.LookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
+	opts.ExecCmd = func(name string, args ...string) ([]byte, error) {
+		if name == "devpod" && len(args) > 0 {
+			if args[0] == "up" {
+				return []byte("ok"), nil
+			}
+			if args[0] == "ssh" {
+				sshCalled = true
+				return []byte(""), nil
+			}
+		}
+		return []byte(""), nil
+	}
+	// Health check fails until SSH starts the server.
+	// Use sshCalled as the gate — once SSH runs, the
+	// server is "up" and health checks pass.
+	opts.HTTPGet = func(url string) (int, error) {
+		if sshCalled {
+			return 200, nil
+		}
+		return 0, fmt.Errorf("connection refused")
+	}
+
+	// Inject short timeout for test speed — avoids
+	// mutating package-level HealthTimeout (TC-004).
+	opts.HealthCheckTimeout = 100 * time.Millisecond
+
+	b := &DevPodBackend{}
+	err := b.Start(opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sshCalled {
+		t.Error("expected SSH fallback to be called")
+	}
+}
+
+func TestDevPodStart_SSHFallbackFails(t *testing.T) {
+	opts := testOpts()
+	opts.IDE = "none"
+	opts.Detach = true
+	opts.LookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
+	opts.ExecCmd = func(name string, args ...string) ([]byte, error) {
+		if name == "devpod" && len(args) > 0 {
+			if args[0] == "up" {
+				return []byte("ok"), nil
+			}
+			if args[0] == "ssh" {
+				return nil, fmt.Errorf("opencode: command not found")
+			}
+		}
+		return []byte(""), nil
+	}
+	opts.HTTPGet = func(url string) (int, error) {
+		return 0, fmt.Errorf("connection refused")
+	}
+
+	// Inject short timeout for test speed — avoids
+	// mutating package-level HealthTimeout (TC-004).
+	opts.HealthCheckTimeout = 100 * time.Millisecond
+
+	b := &DevPodBackend{}
+	err := b.Start(opts)
+	// Should return nil (non-fatal warning).
+	if err != nil {
+		t.Fatalf("expected nil (warning), got error: %v", err)
+	}
+	stderrOut := opts.Stderr.(*bytes.Buffer).String()
+	if !strings.Contains(stderrOut, "not responding") {
+		t.Errorf("expected warning in stderr, got: %s", stderrOut)
+	}
+}
+
+// --- DevPod Start stderr suppression (Task 6.2) ---
+
+func TestDevPodStart_TunnelErrorSuppressed(t *testing.T) {
+	opts := testOpts()
+	opts.IDE = "none"
+	opts.Detach = true
+	opts.LookPath = func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	}
+	opts.ExecCmd = func(name string, args ...string) ([]byte, error) {
+		if name == "devpod" && len(args) > 0 {
+			if args[0] == "up" {
+				return []byte("fetch() error"), fmt.Errorf("exit 1")
+			}
+			if args[0] == "status" {
+				return []byte(`{"id":"test","state":"Running","provider":"podman"}`), nil
+			}
+		}
+		return []byte(""), nil
+	}
+
+	b := &DevPodBackend{}
+	err := b.Start(opts)
+	if err != nil {
+		t.Fatalf("expected no error (tunnel error suppressed), got: %v", err)
+	}
+	stderrOut := opts.Stderr.(*bytes.Buffer).String()
+	if !strings.Contains(stderrOut, "non-fatal error") {
+		t.Errorf("expected 'non-fatal error' in stderr, got: %s", stderrOut)
+	}
+}
+

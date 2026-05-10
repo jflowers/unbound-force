@@ -213,6 +213,135 @@ DevPod backend for ephemeral containers.
 - **THEN** `Destroy()` delegates to the resolved
   backend's `Destroy()` method
 
+### Requirement: DevPod Create waits for health
+
+`DevPodBackend.Create()` MUST call `waitForHealth()`
+after `devpod up` returns, matching the pattern in
+`DevPodBackend.Start()`. Without this, the OpenCode
+server may not be ready when the user tries to attach
+immediately after workspace creation.
+
+#### Scenario: Health check after create
+
+- **GIVEN** the user runs `uf sandbox create --backend devpod`
+- **WHEN** `devpod up` completes successfully
+- **THEN** `waitForHealth()` is called before returning
+- **AND** if the health check times out, a warning is
+  printed and the command returns without error
+
+### Requirement: DevPod Create suppresses tunnel errors
+
+When `devpod up` returns a non-zero exit code but the
+workspace was created successfully (verified via
+`devpod status`), `DevPodBackend.Create()` MUST
+suppress the raw DevPod stderr output and print a
+friendlier message. This handles the known DevPod Bun
+runtime bug where the IDE tunnel crashes after
+workspace creation.
+
+#### Scenario: Tunnel error after successful creation
+
+- **GIVEN** the user runs `uf sandbox create --backend devpod --ide vscode`
+- **AND** `devpod up` returns non-zero due to a tunnel
+  error
+- **WHEN** `devpod status` confirms the workspace is
+  Running
+- **THEN** a user-friendly warning is printed instead
+  of the raw Bun `fetch()` stack trace
+- **AND** the command returns without error
+
+#### Scenario: Real creation failure
+
+- **GIVEN** the user runs `uf sandbox create --backend devpod`
+- **AND** `devpod up` returns non-zero
+- **WHEN** `devpod status` confirms the workspace does
+  NOT exist or is not Running
+- **THEN** the full error output is reported to the user
+- **AND** the command returns an error
+
+#### Scenario: Status check fails after creation error
+
+- **GIVEN** `devpod up` returns non-zero
+- **AND** `devpod status` also returns an error
+- **WHEN** Create() handles the failure
+- **THEN** the original `devpod up` error is reported
+- **AND** the command returns an error
+
+### Requirement: Start falls back to SSH server start
+
+When `waitForHealth()` times out in
+`DevPodBackend.Start()`, the command MUST attempt to
+start the OpenCode server via
+`devpod ssh <ws> -- nohup opencode serve ...` before
+giving up. This handles workspaces created before the
+`postStartCommand` was added to the devcontainer
+template, and cases where `postStartCommand` failed.
+
+#### Scenario: Server not running, SSH fallback starts it
+
+- **GIVEN** a DevPod workspace is resumed
+- **AND** `postStartCommand` did not run (workspace
+  created before the template update)
+- **WHEN** `waitForHealth()` times out
+- **THEN** `DevPodBackend.Start()` runs
+  `devpod ssh <ws> -- nohup opencode serve --port 4096`
+- **AND** waits for the health check again
+- **AND** attaches normally if the server starts
+
+#### Scenario: SSH fallback also fails
+
+- **GIVEN** a DevPod workspace is resumed
+- **AND** the OpenCode binary is not available inside
+  the container
+- **WHEN** both `waitForHealth()` and the SSH fallback
+  fail
+- **THEN** a warning is printed with remediation steps
+- **AND** the command returns without error
+
+#### Scenario: Server already running when SSH fallback executes
+
+- **GIVEN** a DevPod workspace is resumed
+- **AND** the OpenCode server is already running on
+  port 4096 (postStartCommand succeeded but health
+  check timed out)
+- **WHEN** the SSH fallback attempts to start the
+  server
+- **THEN** the port-in-use error is non-fatal
+- **AND** the second `waitForHealth()` succeeds
+
+### Requirement: Destroy confirmation provides feedback
+
+The `uf sandbox destroy` confirmation prompt MUST
+replace `fmt.Fscanln` with `bufio.Scanner` for
+line-oriented input reading. The prompt MUST provide
+feedback for all inputs. Any input that is not "y" or
+"yes" (case-insensitive) — including empty Enter, "n",
+EOF, bare `\r`, and piped input — MUST print
+"Cancelled." and return without error.
+
+#### Scenario: User presses Enter without typing
+
+- **GIVEN** the user runs `uf sandbox destroy`
+- **AND** the confirmation prompt `[y/N]` is shown
+- **WHEN** the user presses Enter without typing
+- **THEN** the command prints "Cancelled."
+- **AND** returns without error
+
+#### Scenario: User types "n" or "no"
+
+- **GIVEN** the user runs `uf sandbox destroy`
+- **WHEN** the user types "n" at the confirmation prompt
+- **THEN** the command prints "Cancelled."
+- **AND** returns without error
+
+#### Scenario: EOF from piped input
+
+- **GIVEN** stdin is a pipe that closes immediately
+  (e.g., `echo "" | uf sandbox destroy`)
+- **WHEN** the scanner reads EOF
+- **THEN** the command prints "Cancelled."
+- **AND** returns without error
+
 ## MODIFIED Requirements
 
 ### Requirement: Options struct

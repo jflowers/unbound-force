@@ -35,16 +35,21 @@ Default remains `none` for backward compatibility.
 ### Modified Capabilities
 
 - `DevPodBackend.Create()`: Uses `opts.IDE` instead of
-  hardcoded `"none"` for the `--ide` argument.
+  hardcoded `"none"` for the `--ide` argument. Waits for
+  OpenCode server health check after creation. Suppresses
+  DevPod tunnel errors when workspace creation succeeds.
 - `DevPodBackend.Start()`: Passes `--ide` to `devpod up`
   when resuming a workspace. Waits for OpenCode server
-  health check before TUI attach.
+  health check before TUI attach. Falls back to starting
+  the server via SSH when `postStartCommand` didn't run
+  (workspaces created before template update).
 - `Attach()`: Now detects persistent workspaces (DevPod
   and Podman named volumes) before falling back to
   ephemeral container check.
 - `Destroy()`: Now handles ephemeral mode directly
   instead of incorrectly routing through
-  `ResolveBackend()`.
+  `ResolveBackend()`. Confirmation prompt now provides
+  feedback on empty input instead of silently exiting.
 
 ### Removed Capabilities
 
@@ -69,6 +74,35 @@ Default remains `none` for backward compatibility.
   ephemeral handling.
 - **CLI wiring**: Add `--ide` flag to `create` and `start`
   cobra commands.
+- **`cmd/unbound-force/sandbox.go`**: Fix destroy
+  confirmation empty-input handling.
+
+## Bugs Found During Manual Testing
+
+Four bugs discovered during hands-on testing:
+
+1. **DevPod Create missing health check**: `Create()`
+   returned immediately after `devpod up` without
+   waiting for the OpenCode server, unlike `Start()`.
+2. **DevPod Bun tunnel error shown to user**: DevPod
+   v0.6.x has a Bun runtime bug where the VS Code
+   tunnel crashes after successful workspace creation,
+   producing a raw `fetch()` stack trace. The workspace
+   works fine but the error is alarming.
+3. **postStartCommand not retroactive**: DevPod
+   snapshots devcontainer.json at creation time, so
+   workspaces created before the template update never
+   get the OpenCode server auto-start. `Start()` needs
+   an SSH fallback to start the server manually.
+4. **Destroy confirmation silently exits**: Pressing
+   Enter without typing at the `[y/N]` prompt causes
+   `fmt.Fscanln` to error, and the error path returns
+   `nil` without printing "Cancelled."
+
+Additionally, a DevPod upstream bug will be filed:
+DevPod's VS Code tunnel uses Bun internally and crashes
+with `The socket connection was closed unexpectedly`
+during IDE connector setup.
 
 ## Constitution Alignment
 

@@ -82,23 +82,6 @@ without modifying config files. Resolution order:
 `--ide` flag > `UF_SANDBOX_IDE` > `.uf/sandbox.yaml`
 ide field > `"none"`.
 
-## Risks / Trade-offs
-
-### R1: IDE availability not checked
-
-The sandbox does not verify that the selected IDE is
-installed on the host. If a user passes `--ide vscode`
-but VS Code is not installed, `devpod up` will fail
-with its own error message. This is acceptable because
-DevPod's error messages for missing IDEs are clear.
-
-### R2: IDE flag ignored for ephemeral Podman sandbox
-
-The `--ide` flag only affects the DevPod backend. If
-the user is on the ephemeral Podman path (no
-`uf sandbox create`), the flag is silently ignored.
-The `--ide` flag help text should note this.
-
 ### D7: Attach detects persistent workspaces
 
 `Attach()` now checks `isPersistentWorkspace()` before
@@ -139,18 +122,160 @@ with "workspace not found". For ephemeral containers,
 `Destroy()` now cleans up directly via
 `podman stop` + `podman rm`.
 
+### D11: DevPod Create health check parity
+
+`DevPodBackend.Create()` calls `waitForHealth()` after
+`devpod up` returns, matching the existing pattern in
+`Start()`. Without this, the OpenCode server inside the
+container may not be ready when the user tries to
+attach immediately after creation.
+
+### D12: DevPod stderr suppression for tunnel errors
+
+DevPod v0.6.x has a known Bun runtime bug where the
+VS Code tunnel crashes after successful workspace
+creation, producing a noisy `fetch()` stack trace on
+stderr. When `devpod up` returns non-zero, `Create()`
+checks `devpod status <ws> --output json` to determine
+if the workspace was actually created. If the workspace
+is `Running`, the error is treated as a non-fatal
+tunnel failure: the raw stderr is suppressed and a
+friendly warning is printed. If the workspace is NOT
+running, the full error is reported.
+
+This approach avoids string-matching on DevPod's
+internal error messages (which are unstable across
+versions) and instead uses the workspace status as the
+source of truth.
+
+### D13: Start SSH fallback for server start
+
+DevPod snapshots the `devcontainer.json` at workspace
+creation time. Workspaces created before the
+`postStartCommand` was added will never have the
+OpenCode server auto-start. When `waitForHealth()`
+times out in both `Create()` and `Start()`, the command
+attempts to start the server via SSH.
+
+**Injection safety**: The workspace name MUST be passed
+as a separate `exec.Command` argument, never
+interpolated into a shell string. The SSH command
+after `--` is a hardcoded literal with no
+user-controlled interpolation:
+
+```go
+opts.ExecCmd("devpod", "ssh", wsName, "--",
+    "sh", "-c",
+    "nohup opencode serve --port 4096 "+
+        "> /tmp/opencode-server.log 2>&1 &")
+```
+
+The workspace name (`wsName`) is already sanitized by
+`projectName()` which strips all characters except
+`[a-z0-9-]`. The command after `--` contains only
+hardcoded literals — no user input is interpolated.
+
+A second `waitForHealth()` call follows with a shorter
+timeout to verify the server started. If both attempts
+fail, the command prints a warning and returns without
+error.
+
+**Concurrent server start**: If the server is already
+running (e.g., `postStartCommand` succeeded but the
+health check timed out due to network latency), the
+SSH fallback will fail with "address already in use"
+on port 4096. This is non-fatal — the second
+`waitForHealth()` will succeed because the server is
+already responding.
+
+### D14: Destroy confirmation — replace `fmt.Fscanln`
+
+The confirmation prompt in `runSandboxDestroy()` uses
+`fmt.Fscanln` which is fundamentally broken for
+interactive prompts: it uses whitespace-delimited token
+scanning, not line-oriented reading. On macOS iTerm2,
+pressing Enter can send a bare `\r` (0x0D), causing
+`fmt.Fscanln` to block indefinitely.
+
+Replace `fmt.Fscanln(p.stdin, &response)` with
+`bufio.NewScanner(p.stdin)` + `scanner.Scan()` +
+`scanner.Text()`. This correctly handles `\n`, `\r\n`,
+and bare `\r` line endings. It also handles EOF from
+piped input — `scanner.Scan()` returns `false` and
+`scanner.Text()` returns `""`, which is treated as
+cancellation.
+
+Behavior: any input that is not `"y"` or `"yes"`
+(case-insensitive) prints "Cancelled." and returns
+nil. This covers empty Enter, "n", "no", EOF, and
+bare `\r`. The `--yes` flag bypasses the prompt
+entirely.
+
+## Risks / Trade-offs
+
+### R1: IDE availability not checked
+
+The sandbox does not verify that the selected IDE is
+installed on the host. If a user passes `--ide vscode`
+but VS Code is not installed, `devpod up` will fail
+with its own error message. This is acceptable because
+DevPod's error messages for missing IDEs are clear.
+
+### R2: IDE flag ignored for ephemeral Podman sandbox
+
+The `--ide` flag only affects the DevPod backend. If
+the user is on the ephemeral Podman path (no
+`uf sandbox create`), the flag is silently ignored.
+The `--ide` flag help text should note this.
+
 ## Coverage Strategy
 
-Unit tests only. All new and modified functions
-(`validateIDE`, `Create` IDE passthrough, `Start` IDE
-passthrough, `DefaultConfig` IDE resolution,
-`applySandboxConfig` IDE wiring, `Attach` persistent
-workspace detection, `Destroy` ephemeral mode) are
+Unit tests only. All new and modified functions are
 covered via the existing `ExecCmd` injection pattern.
-No integration or e2e tests required — IDE passthrough
-is verified by asserting `devpod up` arguments contain
-the expected `--ide` value. Regression tests verify
-the ephemeral Podman path ignores the IDE field and
-the Destroy/Attach dispatch handles both persistent
-and ephemeral paths correctly.
+No integration or e2e tests required.
+
+### IDE flag functions (D1-D6)
+
+- `validateIDE`: table-driven valid/invalid values
+- `Create` IDE passthrough: assert `--ide` in args
+- `Start` IDE passthrough: assert `--ide` in args
+- `DefaultConfig` IDE resolution: flag > env > default
+- `applySandboxConfig` IDE wiring: config file fallback
+- Ephemeral ignores IDE: `Start()` without persistent
+  workspace does not pass `--ide` to `podman run`
+
+### Lifecycle fixes (D7-D10)
+
+- `Attach` persistent workspace detection: delegates
+  to backend when `isPersistentWorkspace()` is true
+- `Destroy` ephemeral mode: handles cleanup directly,
+  does not call `ResolveBackend()`
+- `waitForHealth`: immediate success, delayed success
+  (retry path), timeout
+
+### Manual testing bug fixes (D11-D14)
+
+- `Create` health check (D11): verify `waitForHealth`
+  called after `devpod up`, warn on timeout
+- `Create` stderr suppression (D12): tunnel error
+  (status=Running → suppress) vs real failure
+  (status≠Running → report) vs status check failure
+  (report original error)
+- `Start`/`Create` SSH fallback (D13): health timeout
+  triggers SSH server start, second health check;
+  both-fail path prints warning; concurrent server
+  start (port-in-use) is non-fatal
+- `Destroy` confirmation (D14): empty input (Enter),
+  explicit "n", EOF/pipe, bare `\r` — all print
+  "Cancelled." via `bufio.Scanner`
+
+### Manual verification (not unit-testable)
+
+- `postStartCommand` (D9): verified by task 7.4
+  (`uf sandbox create --backend devpod --ide vscode`).
+  Unit tests verify the `postStartCommand` value in
+  the embedded devcontainer.json template.
+- Tunnel error suppression (D12): DevPod Bun bug
+  cannot be reliably triggered in tests
+
 Coverage target: 100% of new functions.

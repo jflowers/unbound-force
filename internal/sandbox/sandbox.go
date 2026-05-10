@@ -80,6 +80,13 @@ type Options struct {
 	// status code. Used for health check polling.
 	HTTPGet func(url string) (int, error)
 
+	// HealthCheckTimeout is the maximum time to wait for
+	// the OpenCode server health check. Default:
+	// HealthTimeout (60s). Injected for testability so
+	// tests can use short timeouts without mutating
+	// package-level state.
+	HealthCheckTimeout time.Duration
+
 	// --- New fields for Spec 029 ---
 
 	// IDE selects which IDE DevPod opens after workspace
@@ -221,6 +228,9 @@ func (o *Options) defaults() {
 	}
 	if o.HTTPGet == nil {
 		o.HTTPGet = defaultHTTPGet
+	}
+	if o.HealthCheckTimeout == 0 {
+		o.HealthCheckTimeout = HealthTimeout
 	}
 	if o.HTTPDo == nil {
 		o.HTTPDo = http.DefaultClient.Do
@@ -635,7 +645,7 @@ func Start(opts Options) error {
 	fmt.Fprintf(opts.Stderr, "Waiting for OpenCode server...\n")
 
 	// FR-005: Wait for health check.
-	if err := waitForHealth(opts, HealthTimeout); err != nil {
+	if err := waitForHealth(opts, opts.HealthCheckTimeout); err != nil {
 		return err
 	}
 

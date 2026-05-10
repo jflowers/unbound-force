@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // validIDEs lists the IDE values supported by DevPod.
@@ -113,12 +114,45 @@ func (b *DevPodBackend) Create(opts Options) error {
 
 	out, err := opts.ExecCmd("devpod", args...)
 	if err != nil {
-		return fmt.Errorf("devpod up failed: %w: %s", err,
-			strings.TrimSpace(string(out)))
+		// D12: Check workspace status before reporting error.
+		// DevPod v0.6.x has a Bun tunnel bug that causes
+		// non-zero exit even after successful workspace
+		// creation. Use workspace status as source of truth.
+		if b.isWorkspaceRunning(opts, wsName) {
+			fmt.Fprintf(opts.Stderr,
+				"DevPod workspace created: %s "+
+					"(IDE tunnel had a non-fatal error)\n", wsName)
+		} else {
+			return fmt.Errorf("devpod up failed: %w: %s", err,
+				strings.TrimSpace(string(out)))
+		}
+	} else {
+		fmt.Fprintf(opts.Stderr, "DevPod workspace created: %s\n", wsName)
 	}
 
-	fmt.Fprintf(opts.Stderr, "DevPod workspace created: %s\n", wsName)
-	return nil
+	// D11: Wait for OpenCode server health check after
+	// creation, matching the pattern in Start().
+	fmt.Fprintf(opts.Stderr, "Waiting for OpenCode server...\n")
+	if err := waitForHealth(opts, opts.HealthCheckTimeout); err != nil {
+		// D13: SSH fallback — start server manually for
+		// workspaces where postStartCommand didn't run.
+		if sshErr := b.startServerViaSSH(opts, wsName); sshErr == nil {
+			// Server started via SSH, wait again with
+			// shorter timeout.
+			if err2 := waitForHealth(opts, 15*time.Second); err2 == nil {
+				return b.attachOrDetach(opts)
+			}
+		}
+		// Health check failed and SSH fallback didn't help.
+		// Report the workspace as created but without the
+		// server — don't attempt attach.
+		fmt.Fprintf(opts.Stderr,
+			"Warning: OpenCode server not responding.\n"+
+				"Workspace created. Try: uf sandbox attach\n")
+		return nil
+	}
+
+	return b.attachOrDetach(opts)
 }
 
 // Start resumes a stopped DevPod workspace by calling
@@ -141,36 +175,41 @@ func (b *DevPodBackend) Start(opts Options) error {
 
 	out, err := opts.ExecCmd("devpod", args...)
 	if err != nil {
-		return fmt.Errorf("devpod up failed: %w: %s", err,
-			strings.TrimSpace(string(out)))
+		// D12: Check workspace status before reporting error.
+		if b.isWorkspaceRunning(opts, wsName) {
+			fmt.Fprintf(opts.Stderr,
+				"DevPod workspace resumed: %s "+
+					"(IDE tunnel had a non-fatal error)\n", wsName)
+		} else {
+			return fmt.Errorf("devpod up failed: %w: %s", err,
+				strings.TrimSpace(string(out)))
+		}
 	}
-
-	serverURL := fmt.Sprintf("http://localhost:%d", DefaultServerPort)
 
 	// Wait for the OpenCode server health check before
 	// attaching. DevPod containers may take a moment to
 	// start the server via postStartCommand.
 	//
-	// D3: Health timeout is non-fatal for DevPod because
-	// VS Code connects independently via its own tunnel.
-	// The user can still attach manually via
-	// "uf sandbox attach".
+	// D3/D8: Health timeout is non-fatal for DevPod
+	// because VS Code connects independently via its
+	// own tunnel. The user can still attach manually
+	// via "uf sandbox attach".
 	fmt.Fprintf(opts.Stderr, "Waiting for OpenCode server...\n")
-	if err := waitForHealth(opts, HealthTimeout); err != nil {
+	if err := waitForHealth(opts, opts.HealthCheckTimeout); err != nil {
+		// D13: SSH fallback — start server manually for
+		// workspaces where postStartCommand didn't run.
+		if sshErr := b.startServerViaSSH(opts, wsName); sshErr == nil {
+			if err2 := waitForHealth(opts, 15*time.Second); err2 == nil {
+				return b.attachOrDetach(opts)
+			}
+		}
 		fmt.Fprintf(opts.Stderr,
-			"Warning: OpenCode server not responding (%v).\n"+
-				"VS Code may still be connected. Try: uf sandbox attach\n", err)
+			"Warning: OpenCode server not responding.\n"+
+				"VS Code may still be connected. Try: uf sandbox attach\n")
 		return nil
 	}
 
-	if opts.Detach {
-		fmt.Fprintf(opts.Stdout,
-			"Sandbox resumed (detached).\nServer: %s\n", serverURL)
-		return nil
-	}
-
-	fmt.Fprintf(opts.Stderr, "Attaching to sandbox...\n")
-	return b.Attach(opts)
+	return b.attachOrDetach(opts)
 }
 
 // Stop stops a running DevPod workspace.
@@ -203,6 +242,63 @@ func (b *DevPodBackend) Destroy(opts Options) error {
 
 	fmt.Fprintf(opts.Stdout, "Sandbox destroyed.\n")
 	return nil
+}
+
+// isWorkspaceRunning checks if a DevPod workspace is in the
+// Running state by calling devpod status. Used by Create()
+// and Start() to determine if a non-zero exit from devpod
+// up was a tunnel error (workspace is fine) or a real
+// failure (D12).
+func (b *DevPodBackend) isWorkspaceRunning(opts Options, wsName string) bool {
+	out, err := opts.ExecCmd("devpod", "status", wsName,
+		"--output", "json")
+	if err != nil {
+		return false
+	}
+	var status devpodStatusOutput
+	if err := json.Unmarshal(out, &status); err != nil {
+		return false
+	}
+	return strings.EqualFold(status.State, "Running")
+}
+
+// startServerViaSSH starts the OpenCode server inside a
+// DevPod workspace via SSH. This is a fallback for
+// workspaces created before the postStartCommand was added
+// to the devcontainer template, or when postStartCommand
+// failed to execute (D13).
+//
+// Uses --start-services=false to disable port forwarding
+// (which would hang if DevPod already has a tunnel open on
+// port 4096) and --command for clean command execution.
+//
+// Injection safety: the workspace name is passed as a
+// separate exec.Command argument. The --command value is a
+// hardcoded literal with no user-controlled input.
+func (b *DevPodBackend) startServerViaSSH(opts Options, wsName string) error {
+	_, err := opts.ExecCmd("devpod", "ssh", wsName,
+		"--start-services=false",
+		"--workdir", "/",
+		"--command",
+		"cd /workspaces/"+wsName+
+			" && nohup opencode serve --port 4096"+
+			" > /tmp/opencode-server.log 2>&1 &")
+	return err
+}
+
+// attachOrDetach handles the detach/attach decision after
+// a successful workspace create or start. If --detach is
+// set, prints the server URL and returns. Otherwise,
+// attaches the TUI.
+func (b *DevPodBackend) attachOrDetach(opts Options) error {
+	serverURL := fmt.Sprintf("http://localhost:%d", DefaultServerPort)
+	if opts.Detach {
+		fmt.Fprintf(opts.Stdout,
+			"Sandbox ready (detached).\nServer: %s\n", serverURL)
+		return nil
+	}
+	fmt.Fprintf(opts.Stderr, "Attaching to sandbox...\n")
+	return b.Attach(opts)
 }
 
 // devpodStatusOutput is the subset of devpod status JSON

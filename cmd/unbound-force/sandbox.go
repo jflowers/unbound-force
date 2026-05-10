@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -272,18 +273,21 @@ type sandboxDestroyParams struct {
 }
 
 func runSandboxDestroy(p sandboxDestroyParams) error {
-	// Confirmation prompt unless --yes.
+	// Confirmation prompt unless --yes. Uses bufio.Scanner
+	// for line-oriented reading — fmt.Fscanln is broken on
+	// macOS (bare \r causes indefinite blocking, D14).
 	if !p.yes {
 		projName := sandbox.ProjectNameFromDir(p.projectDir)
 		wsName := "uf-sandbox-" + projName
 		fmt.Fprintf(p.stdout,
 			"Destroy sandbox %q?\nThis will permanently delete all workspace state.\n[y/N] ",
 			wsName)
-		var response string
-		if _, err := fmt.Fscanln(p.stdin, &response); err != nil {
+		scanner := bufio.NewScanner(p.stdin)
+		if !scanner.Scan() {
+			fmt.Fprintf(p.stdout, "Cancelled.\n")
 			return nil
 		}
-		response = strings.TrimSpace(strings.ToLower(response))
+		response := strings.TrimSpace(strings.ToLower(scanner.Text()))
 		if response != "y" && response != "yes" {
 			fmt.Fprintf(p.stdout, "Cancelled.\n")
 			return nil
