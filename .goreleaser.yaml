@@ -73,7 +73,7 @@ changelog:
       order: 9999
   filters:
     exclude:
-      - '^chore(?!\(deps\)):'
+      - '^chore:'
       - '^test:'
       - Merge pull request
 
