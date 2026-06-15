@@ -3583,6 +3583,7 @@ func TestResolveMethod(t *testing.T) {
 		toolName       string
 		packageManager string
 		toolMethods    map[string]config.ToolConfig
+		fallbacks      []string
 		want           string
 		wantStderr     string // substring expected in stderr output
 	}{
@@ -3608,23 +3609,32 @@ func TestResolveMethod(t *testing.T) {
 			want:           "homebrew",
 		},
 		{
-			name:           "apt maps to auto with info message",
+			name:           "apt falls through to first fallback",
 			toolName:       "gaze",
 			packageManager: "apt",
-			want:           "auto",
+			fallbacks:      []string{"homebrew", "dnf", "go"},
+			want:           "go",
 			wantStderr:     "apt support not yet implemented",
 		},
 		{
-			name:           "auto passes through",
+			name:           "auto resolves to first matching fallback",
 			toolName:       "gaze",
 			packageManager: "auto",
-			want:           "auto",
+			fallbacks:      []string{"homebrew", "dnf", "go"},
+			want:           "go",
 		},
 		{
-			name:           "empty PackageManager defaults to auto",
+			name:           "empty PackageManager resolves to first matching fallback",
 			toolName:       "gaze",
 			packageManager: "",
-			want:           "auto",
+			fallbacks:      []string{"homebrew", "dnf", "go"},
+			want:           "go",
+		},
+		{
+			name:           "auto with no fallbacks returns skip",
+			toolName:       "gaze",
+			packageManager: "",
+			want:           "skip",
 		},
 		{
 			name:     "per-tool rpm override",
@@ -3646,7 +3656,7 @@ func TestResolveMethod(t *testing.T) {
 			}
 			opts.defaults()
 
-			got := opts.resolveMethod(tt.toolName, env)
+			got := opts.resolveMethod(tt.toolName, env, tt.fallbacks...)
 			if got != tt.want {
 				t.Errorf("resolveMethod(%q) = %q, want %q", tt.toolName, got, tt.want)
 			}
@@ -4308,6 +4318,611 @@ func TestInstallDewey_DryRunGoFallback(t *testing.T) {
 	}
 	if !strings.Contains(result.detail, "go install") {
 		t.Errorf("detail = %q, want to contain 'go install'", result.detail)
+	}
+}
+
+// --- installGH explicit Homebrew and auto-mode Homebrew tests ---
+
+func TestInstallGH_ExplicitHomebrew(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install succeeds.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"gh": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installGH(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "Homebrew") {
+		t.Errorf("detail = %q, want to contain 'Homebrew'", result.detail)
+	}
+	found := false
+	for _, call := range rec.calls {
+		if call == "brew install gh" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'brew install gh' call, got: %v", rec.calls)
+	}
+}
+
+func TestInstallGH_ExplicitHomebrewFails(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install gh": fmt.Errorf("brew: formula not found"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"gh": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installGH(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallGH_ExplicitHomebrewDryRun(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override, dry-run mode.
+	opts := &Options{
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		ToolMethods: map[string]config.ToolConfig{
+			"gh": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installGH(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "brew install gh") {
+		t.Errorf("detail = %q, want to contain 'brew install gh'", result.detail)
+	}
+}
+
+func TestInstallGH_AutoHomebrewAvailable(t *testing.T) {
+	// Auto mode, Homebrew available → brew install succeeds.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installGH(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "Homebrew") {
+		t.Errorf("detail = %q, want to contain 'Homebrew'", result.detail)
+	}
+}
+
+func TestInstallGH_AutoHomebrewFails(t *testing.T) {
+	// Auto mode, Homebrew available → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install gh": fmt.Errorf("brew error"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installGH(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallGH_AutoDryRunHomebrew(t *testing.T) {
+	// Auto mode, dry-run, Homebrew available → dry-run with brew hint.
+	opts := &Options{
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installGH(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "brew install gh") {
+		t.Errorf("detail = %q, want to contain 'brew install gh'", result.detail)
+	}
+}
+
+func TestInstallGH_AutoDryRunNoManagers(t *testing.T) {
+	// Auto mode, dry-run, no managers → dry-run with download link.
+	opts := &Options{
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installGH(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "cli.github.com") {
+		t.Errorf("detail = %q, want to contain 'cli.github.com'", result.detail)
+	}
+}
+
+// --- installReplicator explicit Homebrew and auto-mode tests ---
+
+func TestInstallReplicator_ExplicitHomebrew(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install succeeds.
+	rec := &cmdRecorder{}
+	opts := Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"replicator": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installReplicator(&opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "Homebrew") {
+		t.Errorf("detail = %q, want to contain 'Homebrew'", result.detail)
+	}
+	found := false
+	for _, call := range rec.calls {
+		if call == "brew install unbound-force/tap/replicator" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected brew install call, got: %v", rec.calls)
+	}
+}
+
+func TestInstallReplicator_ExplicitHomebrewFails(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install unbound-force/tap/replicator": fmt.Errorf("brew error"),
+		},
+	}
+	opts := Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"replicator": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installReplicator(&opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallReplicator_ExplicitHomebrewDryRun(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override, dry-run mode.
+	opts := Options{
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		ToolMethods: map[string]config.ToolConfig{
+			"replicator": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installReplicator(&opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "brew install unbound-force/tap/replicator") {
+		t.Errorf("detail = %q, want to contain brew install hint", result.detail)
+	}
+}
+
+func TestInstallReplicator_AutoHomebrewAvailable(t *testing.T) {
+	// Auto mode, Homebrew available → brew install succeeds.
+	rec := &cmdRecorder{}
+	opts := Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installReplicator(&opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "Homebrew") {
+		t.Errorf("detail = %q, want to contain 'Homebrew'", result.detail)
+	}
+}
+
+func TestInstallReplicator_AutoHomebrewFails(t *testing.T) {
+	// Auto mode, Homebrew available → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install unbound-force/tap/replicator": fmt.Errorf("brew error"),
+		},
+	}
+	opts := Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installReplicator(&opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallReplicator_AutoGoInstallFails(t *testing.T) {
+	// Auto mode, no Homebrew, no dnf, Go available but go install fails.
+	// installViaGo returns action: "failed" → goResult.action != "skipped",
+	// so installReplicator returns the failed result directly.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"go install github.com/unbound-force/replicator/cmd/replicator@latest": fmt.Errorf("compilation error"),
+		},
+	}
+	opts := Options{
+		LookPath: stubLookPath(map[string]string{
+			"go": "/usr/local/bin/go",
+		}),
+		ExecCmd: rec.execCmd,
+		Stdout:  &bytes.Buffer{},
+		Stderr:  &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installReplicator(&opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+// --- installDewey explicit Homebrew and auto-mode tests ---
+
+func TestInstallDewey_ExplicitHomebrew(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install
+	// succeeds, post-install runs (ollama already has model).
+	rec := &cmdRecorder{
+		outputs: map[string]string{
+			"ollama list": "NAME\ngranite-embedding:30m   abc123   63 MB\n",
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{
+			"ollama": "/usr/local/bin/ollama",
+		}),
+		ExecCmd: rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"dewey": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{}
+
+	result := installDewey(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "Homebrew") {
+		t.Errorf("detail = %q, want to contain 'Homebrew'", result.detail)
+	}
+	found := false
+	for _, call := range rec.calls {
+		if call == "brew install unbound-force/tap/dewey" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected brew install call, got: %v", rec.calls)
+	}
+}
+
+func TestInstallDewey_ExplicitHomebrewFails(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install unbound-force/tap/dewey": fmt.Errorf("brew error"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"dewey": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{}
+
+	result := installDewey(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallDewey_ExplicitHomebrewDryRun(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override, dry-run mode.
+	opts := &Options{
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		ToolMethods: map[string]config.ToolConfig{
+			"dewey": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{}
+
+	result := installDewey(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "brew install unbound-force/tap/dewey") {
+		t.Errorf("detail = %q, want to contain brew install hint", result.detail)
+	}
+}
+
+func TestInstallDewey_ExplicitGoFails(t *testing.T) {
+	// resolveMethod returns "go" via per-tool override → go install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"go install github.com/unbound-force/dewey/cmd/dewey@latest": fmt.Errorf("compilation error"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{
+			"go": "/usr/local/bin/go",
+		}),
+		ExecCmd: rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"dewey": {Method: "go"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{}
+
+	result := installDewey(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallDewey_AutoHomebrewAvailable(t *testing.T) {
+	// Auto mode, Homebrew available → brew install succeeds, post-install runs.
+	rec := &cmdRecorder{
+		outputs: map[string]string{
+			"ollama list": "NAME\ngranite-embedding:30m   abc123   63 MB\n",
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{
+			"ollama": "/usr/local/bin/ollama",
+		}),
+		ExecCmd: rec.execCmd,
+		Stdout:  &bytes.Buffer{},
+		Stderr:  &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installDewey(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "Homebrew") {
+		t.Errorf("detail = %q, want to contain 'Homebrew'", result.detail)
+	}
+}
+
+func TestInstallDewey_AutoHomebrewFails(t *testing.T) {
+	// Auto mode, Homebrew available → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install unbound-force/tap/dewey": fmt.Errorf("brew error"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installDewey(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallDewey_AutoGoInstallFails(t *testing.T) {
+	// Auto mode, no Homebrew, Go available but go install fails.
+	// installViaGo returns action: "failed" → goResult.action != "skipped",
+	// so installDewey returns the failed result directly.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"go install github.com/unbound-force/dewey/cmd/dewey@latest": fmt.Errorf("compilation error"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{
+			"go": "/usr/local/bin/go",
+		}),
+		ExecCmd: rec.execCmd,
+		Stdout:  &bytes.Buffer{},
+		Stderr:  &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{}
+
+	result := installDewey(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallDewey_AutoDryRunHomebrew(t *testing.T) {
+	// Auto mode, dry-run, Homebrew available → dry-run with brew hint.
+	opts := &Options{
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+		},
+	}
+
+	result := installDewey(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "brew install unbound-force/tap/dewey") {
+		t.Errorf("detail = %q, want to contain brew install hint", result.detail)
+	}
+}
+
+// --- installGaze explicit Homebrew failure test ---
+
+func TestInstallGaze_ExplicitHomebrewFails(t *testing.T) {
+	// resolveMethod returns "homebrew" via per-tool override → brew install fails.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"brew install unbound-force/tap/gaze": fmt.Errorf("brew error"),
+		},
+	}
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		ToolMethods: map[string]config.ToolConfig{
+			"gaze": {Method: "homebrew"},
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{}
+
+	result := installGaze(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
 	}
 }
 
