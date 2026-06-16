@@ -1,8 +1,8 @@
 ---
 description: "Triage a GitHub issue using the Divisor review panel"
 ---
-
 <!-- scaffolded by uf vdev -->
+
 
 # Triage Issue
 
