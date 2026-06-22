@@ -107,7 +107,10 @@ Categorize each check as:
 - **PENDING**: Check still running
 - **SKIPPED**: Check was skipped
 
-If checks are still PENDING, inform the user and ask whether to wait or proceed with the available results.
+If checks are still PENDING, inform the user and use
+the **AskUserQuestion tool** with options
+`["Wait for checks to complete", "Proceed with
+available results"]`.
 
 **If all checks pass**: Record this and move to Step 4. No CI triage needed.
 
@@ -234,8 +237,13 @@ navigate it with targeted reads:
    - CRAP baselines: `.gaze/baseline.json`
 
 4. For very large PRs (2000+ lines or 50+ files),
-   warn the user and ask whether to review all files
-   or focus on specific ones.
+   warn the user and use the **AskUserQuestion tool**
+   with options `["Review all files", "Focus on
+   specific files"]`. If the user selects "Focus on
+   specific files", follow up with the
+   **AskUserQuestion tool** (open-ended, no preset
+   options) to ask which files or directories to
+   focus on.
 
 **Do NOT attempt**:
 - `gh pr diff <N> -- <path>` (unsupported, will fail)
@@ -709,12 +717,12 @@ I identified <N> pre-existing CI failure(s) that are NOT caused by this PR:
 - <check name>: <brief description of failure>
 
 These failures also occur on the base branch (<BASE_BRANCH>).
-
-Would you like me to create a fix branch with a proposed resolution?
-I will create the branch and commit locally — you can review the changes and file a PR when ready.
 ```
 
-**If the user agrees**:
+Use the **AskUserQuestion tool** with options
+`["Yes -- create fix branch", "No -- skip"]`.
+
+**If the user selects "Yes -- create fix branch"**:
 
 1. **Verify clean working tree**:
    ```bash
@@ -804,15 +812,13 @@ GitHub review on the PR:
 ```
 I found <N> findings (X CRITICAL, Y HIGH).
 Verdict: <APPROVE / REQUEST CHANGES / COMMENT>
-
-Would you like me to post this as a GitHub review so the
-author can see the findings in context?
-
-I will prepare the review and show it to you for approval
-before posting anything.
 ```
 
-**If the user agrees**:
+Use the **AskUserQuestion tool** with options
+`["Yes -- post as GitHub review", "No -- terminal
+summary is sufficient"]`.
+
+**If the user selects "Yes -- post as GitHub review"**:
 
 #### 11a. Pre-posting Checks
 
@@ -824,19 +830,18 @@ the current user (Step 7.5c) already exists in the
 review list (Step 7.5a):
 
 - If a prior review with the **same verdict** exists:
-  ```
-  You already have an <APPROVE/REQUEST_CHANGES> review
-  on this PR. Post a new one? (The latest review takes
-  precedence.)
-  (yes/no)
-  ```
+  Inform the user that a prior review exists and the
+  latest review takes precedence. Use the
+  **AskUserQuestion tool** with options
+  `["Yes -- post new review", "No -- skip posting"]`.
+
 - If a prior review with a **different verdict** exists:
-  ```
-  You have a prior <old_verdict> review. Post a new
-  <new_verdict>? This will override the previous
-  verdict.
-  (yes/no)
-  ```
+  Inform the user of the prior verdict and that the new
+  review will override it. Use the
+  **AskUserQuestion tool** with options
+  `["Yes -- override with <new_verdict>",
+  "No -- keep existing <old_verdict>"]`.
+
 - If no prior review exists: proceed silently.
 
 **Stale review + CODEOWNER checks** (APPROVE verdicts
@@ -928,27 +933,23 @@ If any API call fails: skip silently.
    - REQUEST CHANGES → `"event": "REQUEST_CHANGES"`
    - COMMENT → `"event": "COMMENT"`
 
-   Display the confirmation prompt with the verdict type:
+   Display the verdict context, then use the
+   **AskUserQuestion tool** for confirmation:
 
-   For APPROVE verdicts:
-   ```
-   Post review as APPROVE with N comments?
-   ⚠ This may unblock merge in repos with branch
-     protection. This review will be labeled as
-     AI-generated.
-   Type "approve" to confirm:
-   (approve/no/edit/change-verdict)
-   ```
+   For APPROVE verdicts: inform the user that this may
+   unblock merge in repos with branch protection and
+   that the review will be labeled as AI-generated.
+   Use the **AskUserQuestion tool** with options
+   `["Approve -- post review", "No -- skip posting",
+   "Edit comments first", "Change verdict"]`.
 
-   For REQUEST CHANGES or COMMENT verdicts:
-   ```
-   Post review as REQUEST CHANGES with N comments?
-   ⚠ This will block merge in repos with branch
-     protection.
-   (yes/no/edit/change-verdict)
-   ```
+   For REQUEST CHANGES or COMMENT verdicts: inform the
+   user that this will block merge in repos with branch
+   protection. Use the **AskUserQuestion tool** with
+   options `["Yes -- post review", "No -- skip posting",
+   "Edit comments first", "Change verdict"]`.
 
-   The `change-verdict` option lets the user override the
+   The "Change verdict" option lets the user override the
    computed verdict (e.g., downgrade REQUEST CHANGES to
    COMMENT).
 
@@ -984,13 +985,14 @@ If any API call fails: skip silently.
    token lacks write permissions for PR reviews and
    suggest re-authenticating with `gh auth login`.
 
-   - **no**: Skip posting, the terminal summary is sufficient
-   - **edit**: Let the user modify comments before posting, then re-confirm
+   - **"No -- skip posting"**: Skip posting, the terminal summary is sufficient
+   - **"Edit comments first"**: Let the user modify comments before posting, then re-confirm with the **AskUserQuestion tool**
 
 5. **CRITICAL RULE**: NEVER post reviews without explicit
-   human confirmation. Always show the exact content
-   (verdict type + all comments) that will be posted and
-   wait for approval. For APPROVE verdicts, require the
-   user to type "approve" explicitly — not just "yes" —
-   to prevent reflexive confirmation of merge-unblocking
-   reviews.
+   human confirmation via the **AskUserQuestion tool**.
+   Always show the exact content (verdict type + all
+   comments) that will be posted and wait for the user
+   to select a confirming option. For APPROVE verdicts,
+   the user MUST select the "Approve -- post review"
+   option — a clearly-labeled action that conveys the
+   merge-unblocking consequence.
