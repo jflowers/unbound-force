@@ -167,9 +167,11 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
 
    c. **If `gaze` is NOT available**: skip with an
       informational note:
-      > "Gaze not installed -- skipping quality
-      > analysis. Install with
-      > `brew install unbound-force/tap/gaze`."
+       > "Gaze not installed -- skipping quality
+       > analysis. Install with
+       > `brew install unbound-force/tap/gaze`
+       > (or on Fedora/RHEL:
+       > `go install github.com/unbound-force/gaze/cmd/gaze@latest`)."
 
       Proceed to step 2 without Gaze data.
 

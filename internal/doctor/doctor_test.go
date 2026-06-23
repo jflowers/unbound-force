@@ -4354,3 +4354,107 @@ func TestCheckAnyTool_FirstBinaryWins(t *testing.T) {
 		t.Errorf("message = %q, want %q (first binary wins)", result.Message, "black installed")
 	}
 }
+
+// --- dnfInstallCmd tests ---
+
+func TestDnfInstallCmd_ToolMapping(t *testing.T) {
+	tests := []struct {
+		tool string
+		want string
+	}{
+		{"go", "dnf install -y golang"},
+		{"node", "dnf install -y nodejs"},
+		{"gh", "dnf install -y gh"},
+		{"podman", "dnf install -y podman"},
+		{"gaze", "sudo dnf install <gaze RPM from https://github.com/unbound-force/gaze/releases>"},
+		{"replicator", "sudo dnf install <replicator RPM from https://github.com/unbound-force/replicator/releases>"},
+		{"opencode", "dnf install -y opencode"},
+		// Tools NOT in Fedora repos return empty string.
+		{"ollama", ""},
+		{"devpod", ""},
+		{"dewey", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			got := dnfInstallCmd(tt.tool)
+			if got != tt.want {
+				t.Errorf("dnfInstallCmd(%q) = %q, want %q", tt.tool, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInstallHint_DnfDetected_NoHomebrew(t *testing.T) {
+	// When only ManagerDnf is detected, installHint should return
+	// dnf commands for tools in Fedora repos and generic download
+	// links for tools not in Fedora repos.
+	env := DetectedEnvironment{
+		Managers: []ManagerInfo{
+			{Kind: ManagerDnf, Path: "/usr/bin/dnf", Manages: []string{"packages"}},
+		},
+	}
+
+	tests := []struct {
+		tool     string
+		contains string
+	}{
+		{"podman", "dnf install -y podman"},
+		{"gh", "dnf install -y gh"},
+		{"gaze", "dnf install"},
+		{"replicator", "dnf install"},
+		// Tools not in Fedora repos fall through to genericInstallCmd.
+		{"ollama", "Download from https://ollama.com/download"},
+		{"devpod", "Download from https://devpod.sh/docs/getting-started/install"},
+		{"dewey", "Install dewey"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			hint := installHint(tt.tool, env)
+			if !strings.Contains(hint, tt.contains) {
+				t.Errorf("installHint(%q) = %q, want to contain %q", tt.tool, hint, tt.contains)
+			}
+		})
+	}
+}
+
+func TestInstallHint_BothManagers_HomebrewPreferred(t *testing.T) {
+	// When both Homebrew and dnf are detected, Homebrew takes
+	// priority because it appears first in the manager iteration
+	// (Homebrew is detected before dnf in DetectEnvironment).
+	env := DetectedEnvironment{
+		Managers: []ManagerInfo{
+			{Kind: ManagerHomebrew, Path: "/opt/homebrew/bin/brew", Manages: []string{"packages"}},
+			{Kind: ManagerDnf, Path: "/usr/bin/dnf", Manages: []string{"packages"}},
+		},
+	}
+
+	tests := []struct {
+		tool     string
+		contains string
+	}{
+		{"podman", "brew install podman"},
+		{"gaze", "brew install unbound-force/tap/gaze"},
+		{"gh", "brew install gh"},
+		{"ollama", "brew install"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			hint := installHint(tt.tool, env)
+			if !strings.Contains(hint, tt.contains) {
+				t.Errorf("installHint(%q) = %q, want to contain %q", tt.tool, hint, tt.contains)
+			}
+		})
+	}
+}
+
+func TestGenericInstallCmd_ReplicatorFixed(t *testing.T) {
+	// Verify the replicator bug fix: genericInstallCmd should return
+	// a download link, not a brew command.
+	got := genericInstallCmd("replicator")
+	if strings.Contains(got, "brew") {
+		t.Errorf("genericInstallCmd(replicator) = %q, must not contain brew command", got)
+	}
+	if !strings.Contains(got, "https://github.com/unbound-force/replicator/releases") {
+		t.Errorf("genericInstallCmd(replicator) = %q, want download URL", got)
+	}
+}

@@ -251,6 +251,8 @@ func managerInstallCmd(toolName string, manager ManagerKind) string {
 		}
 	case ManagerHomebrew:
 		return homebrewInstallCmd(toolName)
+	case ManagerDnf:
+		return dnfOrGenericCmd(toolName)
 	}
 	return homebrewInstallCmd(toolName)
 }
@@ -287,6 +289,44 @@ func homebrewInstallCmd(toolName string) string {
 	}
 }
 
+// dnfOrGenericCmd returns the dnf install command for a tool if
+// available in Fedora repos, otherwise falls through to generic
+// download instructions. This avoids returning Homebrew hints on
+// Fedora systems for tools without native packages.
+func dnfOrGenericCmd(toolName string) string {
+	if cmd := dnfInstallCmd(toolName); cmd != "" {
+		return cmd
+	}
+	return genericInstallCmd(toolName)
+}
+
+// dnfInstallCmd returns the dnf install command for a tool.
+// Returns empty string for tools not available in Fedora repos
+// (ollama, devpod, dewey), signaling fall-through to
+// genericInstallCmd. Parallel to homebrewInstallCmd per D5.
+func dnfInstallCmd(toolName string) string {
+	switch toolName {
+	case "go":
+		return "dnf install -y golang"
+	case "node":
+		return "dnf install -y nodejs"
+	case "gh":
+		return "dnf install -y gh"
+	case "podman":
+		return "dnf install -y podman"
+	case "gaze":
+		return "sudo dnf install <gaze RPM from https://github.com/unbound-force/gaze/releases>"
+	case "replicator":
+		return "sudo dnf install <replicator RPM from https://github.com/unbound-force/replicator/releases>"
+	case "ollama", "devpod", "dewey":
+		// Not available in Fedora repos — fall through to
+		// genericInstallCmd for download links.
+		return ""
+	default:
+		return "dnf install -y " + toolName
+	}
+}
+
 // genericInstallCmd returns generic install instructions when
 // no package manager is detected.
 func genericInstallCmd(toolName string) string {
@@ -300,7 +340,7 @@ func genericInstallCmd(toolName string) string {
 	case "node":
 		return "Download from https://nodejs.org/"
 	case "replicator":
-		return "brew install unbound-force/tap/replicator"
+		return "Download from https://github.com/unbound-force/replicator/releases"
 	case "gh":
 		return "Download from https://cli.github.com/"
 	case "ollama":

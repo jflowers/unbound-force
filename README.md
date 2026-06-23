@@ -27,8 +27,20 @@ All hero repositories must maintain constitutions that align with (and never con
 
 ## Getting Started
 
+### macOS (Homebrew)
+
 ```bash
 brew install unbound-force/tap/unbound-force
+```
+
+### Fedora / RHEL (dnf)
+
+```bash
+sudo dnf install -y "$(
+  curl -fsSL \
+    https://api.github.com/repos/unbound-force/unbound-force/releases/latest |
+  grep -o 'https://[^"]*linux_amd64\.rpm'
+)"
 ```
 
 See **[QUICKSTART.md](QUICKSTART.md)** for full installation instructions (macOS and Fedora/RHEL), first-use walkthrough, and platform-specific guidance. See **[Usage Guide](docs/usage.md)** for common workflows and command reference.

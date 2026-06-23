@@ -80,6 +80,7 @@ Before running any gaze command, locate the `gaze` binary:
 
 If all three methods fail, report the error clearly and suggest
 the developer install gaze via `brew install unbound-force/tap/gaze`
+(or on Fedora/RHEL: `sudo dnf install <RPM URL>`)
 or `go install github.com/unbound-force/gaze/cmd/gaze@latest`.
 
 ## Mode Parsing

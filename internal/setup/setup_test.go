@@ -1554,10 +1554,11 @@ func TestSetupRun_OllamaNoHomebrew(t *testing.T) {
 		}
 	}
 
-	// Verify output contains download link.
+	// Verify output contains the curl|bash skip message (FR-DNF-003:
+	// non-interactive without --yes skips the curl installer).
 	output := buf.String()
-	if !strings.Contains(output, "ollama.com/download") {
-		t.Error("expected download link in output when Homebrew is not available")
+	if !strings.Contains(output, "curl|bash install requires --yes flag or interactive terminal") {
+		t.Errorf("expected curl|bash skip message in output when Homebrew is not available, got: %s", output)
 	}
 }
 
@@ -3077,31 +3078,140 @@ func TestInstallDevPod_BrewInstall(t *testing.T) {
 	}
 }
 
-func TestInstallDevPod_NoHomebrew(t *testing.T) {
+func TestInstallDevPod_NoHomebrew_NonInteractive(t *testing.T) {
+	// No Homebrew + non-interactive → skipped with YesFlag/IsTTY message.
 	rec := &cmdRecorder{}
 
-	opts := Options{
-		Stdout:       &bytes.Buffer{},
-		Stderr:       &bytes.Buffer{},
-		LookPath:     stubLookPath(map[string]string{}),
-		ExecCmd:      rec.execCmd,
-		EvalSymlinks: stubEvalSymlinks(nil),
-		Getenv:       stubGetenv(map[string]string{}),
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  false,
+		IsTTY:    func() bool { return false },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
 	}
-	opts.defaults()
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
 
-	env := doctor.DetectEnvironment(&doctor.Options{
-		LookPath:     opts.LookPath,
-		EvalSymlinks: opts.EvalSymlinks,
-		Getenv:       opts.Getenv,
-	})
-
-	result := installDevPod(&opts, env)
+	result := installDevPod(opts, env)
 	if result.action != "skipped" {
 		t.Errorf("expected 'skipped', got %q", result.action)
 	}
-	if !strings.Contains(result.detail, "devpod.sh/docs/getting-started/install") {
-		t.Errorf("expected download URL in detail, got %q", result.detail)
+	if !strings.Contains(result.detail, "requires --yes flag") {
+		t.Errorf("expected YesFlag hint in detail, got %q", result.detail)
+	}
+}
+
+func TestInstallDevPod_BinaryDownload_YesFlag(t *testing.T) {
+	// YesFlag true + no Homebrew → installs via binary download.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  true,
+		IsTTY:    func() bool { return false },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installDevPod(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if result.detail != "via binary download" {
+		t.Errorf("detail = %q, want 'via binary download'", result.detail)
+	}
+	found := false
+	for _, call := range rec.calls {
+		if strings.Contains(call, "curl -L -o") && strings.Contains(call, "devpod-linux") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected curl binary download call, got: %v", rec.calls)
+	}
+}
+
+func TestInstallDevPod_BinaryDownload_IsTTY(t *testing.T) {
+	// IsTTY true + no Homebrew → installs via binary download.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  false,
+		IsTTY:    func() bool { return true },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installDevPod(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if result.detail != "via binary download" {
+		t.Errorf("detail = %q, want 'via binary download'", result.detail)
+	}
+}
+
+func TestInstallDevPod_BinaryDownloadFails(t *testing.T) {
+	// Binary download fails → returns failed with URL hint.
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  true,
+		IsTTY:    func() bool { return false },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd: func(cmd string, args ...string) ([]byte, error) {
+			return nil, fmt.Errorf("curl failed")
+		},
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installDevPod(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if !strings.Contains(result.detail, "binary download failed") {
+		t.Errorf("detail = %q, want 'binary download failed'", result.detail)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallDevPod_DryRun_NoBrew(t *testing.T) {
+	// Dry-run + no Homebrew → shows binary download URL.
+	opts := &Options{
+		GOOS:     "linux",
+		DryRun:   true,
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  (&cmdRecorder{}).execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installDevPod(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "curl -L -o devpod") {
+		t.Errorf("detail = %q, want curl download URL", result.detail)
 	}
 }
 
@@ -4923,6 +5033,299 @@ func TestInstallGaze_ExplicitHomebrewFails(t *testing.T) {
 	}
 	if result.err == nil {
 		t.Error("expected non-nil error")
+	}
+}
+
+// --- Ollama curl installer tests (FR-DNF-003) ---
+
+func TestInstallOllama_CurlInstall_YesFlag(t *testing.T) {
+	// YesFlag true + no Homebrew → installs via curl installer.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  true,
+		IsTTY:    func() bool { return false },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installOllama(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if result.detail != "via curl installer" {
+		t.Errorf("detail = %q, want 'via curl installer'", result.detail)
+	}
+	found := false
+	for _, call := range rec.calls {
+		if strings.Contains(call, "curl -fsSL https://ollama.com/install.sh") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected curl install call, got: %v", rec.calls)
+	}
+}
+
+func TestInstallOllama_CurlInstall_IsTTY(t *testing.T) {
+	// IsTTY true + YesFlag false + no Homebrew → installs via curl.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  false,
+		IsTTY:    func() bool { return true },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installOllama(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if result.detail != "via curl installer" {
+		t.Errorf("detail = %q, want 'via curl installer'", result.detail)
+	}
+}
+
+func TestInstallOllama_Skipped_NonInteractive(t *testing.T) {
+	// IsTTY false + YesFlag false + no Homebrew → skips.
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  false,
+		IsTTY:    func() bool { return false },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  (&cmdRecorder{}).execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installOllama(opts, env)
+	if result.action != "skipped" {
+		t.Errorf("action = %q, want skipped", result.action)
+	}
+	if !strings.Contains(result.detail, "requires --yes flag or interactive terminal") {
+		t.Errorf("detail = %q, want to contain '--yes flag or interactive terminal'", result.detail)
+	}
+}
+
+func TestInstallOllama_CurlFails(t *testing.T) {
+	// Curl command fails → returns failed.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"bash -c curl -fsSL https://ollama.com/install.sh | sh": fmt.Errorf("network error"),
+		},
+	}
+	opts := &Options{
+		GOOS:     "linux",
+		YesFlag:  true,
+		IsTTY:    func() bool { return false },
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installOllama(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if result.detail != "curl install failed" {
+		t.Errorf("detail = %q, want 'curl install failed'", result.detail)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallOllama_DryRun_NoBrew(t *testing.T) {
+	// Dry-run + no Homebrew → shows curl command.
+	opts := &Options{
+		DryRun:   true,
+		GOOS:     "linux",
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{},
+	}
+
+	result := installOllama(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "curl -fsSL https://ollama.com/install.sh") {
+		t.Errorf("detail = %q, want to contain curl install command", result.detail)
+	}
+}
+
+// --- Podman dnf fallback tests (FR-DNF-002) ---
+
+func TestInstallPodman_DnfFallback(t *testing.T) {
+	// No Homebrew, dnf available → installs via dnf.
+	rec := &cmdRecorder{
+		outputs: map[string]string{
+			"podman info": "host:\n  os: linux\n",
+		},
+	}
+	opts := &Options{
+		GOOS:     "linux",
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+
+	result := installPodman(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "via dnf") {
+		t.Errorf("detail = %q, want to contain 'via dnf'", result.detail)
+	}
+}
+
+func TestInstallPodman_DnfFails_SudoGuidance(t *testing.T) {
+	// dnf install fails → failed with actionable sudo guidance.
+	rec := &cmdRecorder{
+		errors: map[string]error{
+			"dnf install -y podman": fmt.Errorf("Error: This command has to be run with superuser privileges"),
+		},
+	}
+	opts := &Options{
+		GOOS:     "linux",
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+
+	result := installPodman(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if !strings.Contains(result.detail, "sudo") {
+		t.Errorf("detail = %q, want to contain sudo guidance", result.detail)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil error")
+	}
+}
+
+func TestInstallPodman_PackageManagerDnf(t *testing.T) {
+	// PackageManager: "dnf" + Homebrew available → uses dnf, not Homebrew.
+	rec := &cmdRecorder{
+		outputs: map[string]string{
+			"podman info": "host:\n  os: linux\n",
+		},
+	}
+	opts := &Options{
+		GOOS:           "linux",
+		PackageManager: "dnf",
+		LookPath:       stubLookPath(map[string]string{}),
+		ExecCmd:        rec.execCmd,
+		Stdout:         &bytes.Buffer{},
+		Stderr:         &bytes.Buffer{},
+	}
+	opts.defaults()
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+
+	result := installPodman(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "via dnf") {
+		t.Errorf("detail = %q, want to contain 'via dnf'", result.detail)
+	}
+	for _, call := range rec.calls {
+		if strings.Contains(call, "brew") {
+			t.Errorf("unexpected brew call when PackageManager=dnf: %s", call)
+		}
+	}
+}
+
+func TestInstallPodman_BothManagers_AutoUsesHomebrew(t *testing.T) {
+	// Both managers in auto mode → uses Homebrew (first in fallback chain).
+	rec := &cmdRecorder{
+		outputs: map[string]string{
+			"podman info": "host:\n  os: linux\n",
+		},
+	}
+	opts := &Options{
+		GOOS:     "linux",
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerHomebrew, Path: "/opt/homebrew/bin/brew"},
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+
+	result := installPodman(opts, env)
+	if result.action != "installed" {
+		t.Errorf("action = %q, want installed", result.action)
+	}
+	if !strings.Contains(result.detail, "via Homebrew") {
+		t.Errorf("detail = %q, want to contain 'via Homebrew'", result.detail)
+	}
+}
+
+func TestInstallPodman_DryRunDnfFallback(t *testing.T) {
+	// Dry-run + dnf detected → shows dnf command.
+	opts := &Options{
+		DryRun:   true,
+		GOOS:     "linux",
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+
+	result := installPodman(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "dnf install -y podman") {
+		t.Errorf("detail = %q, want to contain 'dnf install -y podman'", result.detail)
 	}
 }
 

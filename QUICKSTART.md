@@ -162,6 +162,11 @@ uf setup        # installs recommended tools
 uf doctor       # verify everything works
 ```
 
+On Fedora/RHEL: `uf setup` automatically uses `dnf install`
+for tools with RPM packages (e.g., Podman) and `go install`
+for Go-based tools when Homebrew is absent. No extra
+configuration needed.
+
 Preview what `uf setup` will install before running:
 
 ```bash

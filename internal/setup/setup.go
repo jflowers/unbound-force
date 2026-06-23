@@ -1016,36 +1016,54 @@ func ollamaBrew(goos string) []string {
 // installOllama installs Ollama if missing. Ollama is the local
 // model runtime used by both Dewey (semantic search embeddings)
 // and Replicator (semantic memory). OS-aware: uses cask on macOS,
-// formula on Linux. Skips with download link if no Homebrew.
+// formula on Linux. Falls back to the official curl installer when
+// Homebrew is absent, gated by YesFlag/IsTTY per FR-DNF-003.
 func installOllama(opts *Options, env doctor.DetectedEnvironment) stepResult {
 	if _, err := opts.LookPath("ollama"); err == nil {
 		return stepResult{name: "Ollama", action: "already installed"}
 	}
 
-	// Determine the Homebrew install method based on OS.
-	// macOS: cask (ollama-app) for .app bundle with auto-updates.
-	// Linux: formula (ollama) — casks are macOS-only.
 	brewArgs := ollamaBrew(opts.GOOS)
 
 	if opts.DryRun {
 		if doctor.HasManager(env, doctor.ManagerHomebrew) {
 			return stepResult{name: "Ollama", action: "dry-run", detail: "Would install: brew install " + strings.Join(brewArgs[1:], " ")}
 		}
-		return stepResult{name: "Ollama", action: "dry-run", detail: "Would install: download from https://ollama.com/download"}
+		return stepResult{name: "Ollama", action: "dry-run", detail: "Would install via: curl -fsSL https://ollama.com/install.sh | sh"}
 	}
 
-	if !doctor.HasManager(env, doctor.ManagerHomebrew) {
+	// Try Homebrew first.
+	if doctor.HasManager(env, doctor.ManagerHomebrew) {
+		if out, err := opts.ExecCmd(brewArgs[0], brewArgs[1:]...); err != nil {
+			return stepResult{name: "Ollama", action: "failed", detail: "brew install failed", err: err, output: out}
+		}
+		return stepResult{name: "Ollama", action: "installed", detail: "via Homebrew"}
+	}
+
+	return installOllamaViaCurl(opts)
+}
+
+// installOllamaViaCurl installs Ollama via the official curl installer.
+// Requires --yes or TTY confirmation (FR-DNF-003). Matches the
+// installOpenCode() YesFlag/IsTTY pattern.
+//
+// Constitution V trade-off: the install script is fetched over HTTPS
+// from the official domain without content-hash verification. Hash
+// pinning is impractical — the script changes with each release.
+// The YesFlag/IsTTY gate ensures no unattended execution.
+func installOllamaViaCurl(opts *Options) stepResult {
+	if !opts.YesFlag && !opts.IsTTY() {
 		return stepResult{
 			name:   "Ollama",
 			action: "skipped",
-			detail: "Homebrew not available. Download from https://ollama.com/download",
+			detail: "curl|bash install requires --yes flag or interactive terminal",
 		}
 	}
 
-	if out, err := opts.ExecCmd(brewArgs[0], brewArgs[1:]...); err != nil {
-		return stepResult{name: "Ollama", action: "failed", detail: "brew install failed", err: err, output: out}
+	if out, err := opts.ExecCmd("bash", "-c", "curl -fsSL https://ollama.com/install.sh | sh"); err != nil {
+		return stepResult{name: "Ollama", action: "failed", detail: "curl install failed", err: err, output: out}
 	}
-	return stepResult{name: "Ollama", action: "installed", detail: "via Homebrew"}
+	return stepResult{name: "Ollama", action: "installed", detail: "via curl installer"}
 }
 
 // podmanMachineTimeout is the timeout for podman machine init,
@@ -1055,38 +1073,85 @@ func installOllama(opts *Options, env doctor.DetectedEnvironment) stepResult {
 const podmanMachineTimeout = "180"
 
 // installPodman installs Podman if missing. Podman is the container
-// runtime used by the sandbox for isolated agent sessions. On macOS,
-// after installation, a Podman machine is initialized and started
-// (best-effort — failures are reported but do not block the step).
-// A smoke test via `podman info` verifies the installation is
+// runtime used by the sandbox for isolated agent sessions.
+// Fallback chain (D2): Homebrew → dnf → skip with download link.
+// On macOS, after installation, a Podman machine is initialized and
+// started (best-effort — failures are reported but do not block the
+// step). A smoke test via `podman info` verifies the installation is
 // functional.
 func installPodman(opts *Options, env doctor.DetectedEnvironment) stepResult {
 	if _, err := opts.LookPath("podman"); err == nil {
 		return stepResult{name: "Podman", action: "already installed"}
 	}
 
-	if opts.DryRun {
-		if doctor.HasManager(env, doctor.ManagerHomebrew) {
-			return stepResult{name: "Podman", action: "dry-run", detail: "Would install: brew install podman"}
-		}
-		return stepResult{name: "Podman", action: "dry-run", detail: "Would install: download from https://podman.io/docs/installation"}
+	// Fallback chain (D2): Homebrew → dnf → skip.
+	method := opts.resolveMethod("podman", env, "homebrew", "dnf")
+	switch method {
+	case "homebrew":
+		return installPodmanViaBrew(opts, env)
+	case "dnf":
+		return installPodmanViaDnf(opts, env)
+	default:
+		return podmanSkipResult(opts)
 	}
+}
 
-	if !doctor.HasManager(env, doctor.ManagerHomebrew) {
-		return stepResult{
-			name:   "Podman",
-			action: "skipped",
-			detail: "Homebrew not available. Download from https://podman.io/docs/installation",
-		}
+// installPodmanViaBrew installs Podman via Homebrew. Handles dry-run,
+// macOS machine init, and smoke test.
+func installPodmanViaBrew(opts *Options, env doctor.DetectedEnvironment) stepResult {
+	if opts.DryRun {
+		return stepResult{name: "Podman", action: "dry-run", detail: "Would install: brew install podman"}
 	}
 
 	if out, err := opts.ExecCmd("brew", "install", "podman"); err != nil {
 		return stepResult{name: "Podman", action: "failed", detail: "brew install failed", err: err, output: out}
 	}
 
+	return podmanPostInstall(opts, "via Homebrew")
+}
+
+// installPodmanViaDnf installs Podman via dnf. On failure, returns
+// an actionable error with sudo guidance per FR-DNF-002.
+func installPodmanViaDnf(opts *Options, env doctor.DetectedEnvironment) stepResult {
+	if opts.DryRun {
+		return stepResult{name: "Podman", action: "dry-run", detail: "Would install: dnf install -y podman"}
+	}
+
+	if out, err := opts.ExecCmd("dnf", "install", "-y", "podman"); err != nil {
+		return stepResult{
+			name:   "Podman",
+			action: "failed",
+			detail: "dnf install requires root — run with sudo or install manually: sudo dnf install -y podman",
+			err:    err,
+			output: out,
+		}
+	}
+
+	return podmanPostInstall(opts, "via dnf")
+}
+
+// podmanSkipResult returns the appropriate skip/dry-run result when
+// no package manager is available for Podman.
+func podmanSkipResult(opts *Options) stepResult {
+	if opts.DryRun {
+		return stepResult{
+			name:   "Podman",
+			action: "dry-run",
+			detail: "Would install: download from https://podman.io/docs/installation",
+		}
+	}
+	return stepResult{
+		name:   "Podman",
+		action: "skipped",
+		detail: "Homebrew not available. Download from https://podman.io/docs/installation",
+	}
+}
+
+// podmanPostInstall handles macOS machine init and smoke test after
+// a successful Podman installation. Shared between brew and dnf paths.
+func podmanPostInstall(opts *Options, detail string) stepResult {
 	// macOS post-install: initialize and start a Podman machine.
 	// Podman on macOS requires a VM to run Linux containers.
-	detail := "via Homebrew"
 	if opts.GOOS == "darwin" {
 		detail = podmanMachineInit(opts, detail)
 	}
@@ -1145,10 +1210,20 @@ func initMachineWithTimeout(opts *Options) ([]byte, error) {
 	return opts.ExecCmd("podman", "machine", "init")
 }
 
+// devpodBinaryURL returns the GitHub Releases download URL for the
+// DevPod CLI binary matching the current architecture. DevPod does
+// not provide a curl|sh installer or native packages — the CLI is
+// distributed as a standalone binary download (D4).
+func devpodBinaryURL() string {
+	return fmt.Sprintf(
+		"https://github.com/loft-sh/devpod/releases/latest/download/devpod-linux-%s",
+		rpmArch(),
+	)
+}
+
 // installDevPod installs DevPod if missing. DevPod provides
-// persistent workspace management on top of Podman. Follows the
-// installGaze() pattern: Homebrew only, skip with download URL
-// if no Homebrew.
+// persistent workspace management on top of Podman. Fallback chain:
+// Homebrew → binary download (gated by YesFlag/IsTTY) → skip.
 func installDevPod(opts *Options, env doctor.DetectedEnvironment) stepResult {
 	if _, err := opts.LookPath("devpod"); err == nil {
 		return stepResult{name: "DevPod", action: "already installed"}
@@ -1158,21 +1233,59 @@ func installDevPod(opts *Options, env doctor.DetectedEnvironment) stepResult {
 		if doctor.HasManager(env, doctor.ManagerHomebrew) {
 			return stepResult{name: "DevPod", action: "dry-run", detail: "Would install: brew install devpod"}
 		}
-		return stepResult{name: "DevPod", action: "dry-run", detail: "Would install: download from https://devpod.sh/docs/getting-started/install"}
-	}
-
-	if !doctor.HasManager(env, doctor.ManagerHomebrew) {
 		return stepResult{
 			name:   "DevPod",
-			action: "skipped",
-			detail: "Homebrew not available. Download from https://devpod.sh/docs/getting-started/install",
+			action: "dry-run",
+			detail: "Would install via: curl -L -o devpod " + devpodBinaryURL(),
 		}
 	}
 
-	if out, err := opts.ExecCmd("brew", "install", "devpod"); err != nil {
-		return stepResult{name: "DevPod", action: "failed", detail: "brew install failed", err: err, output: out}
+	// Try Homebrew first.
+	if doctor.HasManager(env, doctor.ManagerHomebrew) {
+		if out, err := opts.ExecCmd("brew", "install", "devpod"); err != nil {
+			return stepResult{name: "DevPod", action: "failed", detail: "brew install failed", err: err, output: out}
+		}
+		return stepResult{name: "DevPod", action: "installed", detail: "via Homebrew"}
 	}
-	return stepResult{name: "DevPod", action: "installed", detail: "via Homebrew"}
+
+	return installDevPodViaBinary(opts)
+}
+
+// installDevPodViaBinary downloads and installs the DevPod CLI binary
+// from GitHub Releases. Follows the official DevPod install method:
+// curl the binary, then use install(1) to place it with 0755 perms.
+// Requires --yes or TTY confirmation (FR-DNF-004).
+//
+// Constitution V trade-off: the binary is fetched over HTTPS from
+// GitHub Releases without content-hash verification. The download
+// URL uses /releases/latest/ which resolves to the newest version,
+// making hash pinning impractical. The YesFlag/IsTTY gate ensures
+// no unattended execution. Uses mktemp for the temporary file to
+// avoid TOCTOU on multi-user systems.
+func installDevPodViaBinary(opts *Options) stepResult {
+	if !opts.YesFlag && !opts.IsTTY() {
+		return stepResult{
+			name:   "DevPod",
+			action: "skipped",
+			detail: "curl|bash install requires --yes flag or interactive terminal",
+		}
+	}
+
+	url := devpodBinaryURL()
+	cmd := fmt.Sprintf(
+		"tmpfile=$(mktemp) && curl -L -o \"$tmpfile\" %q && sudo install -c -m 0755 \"$tmpfile\" /usr/local/bin/devpod && rm -f \"$tmpfile\"",
+		url,
+	)
+	if out, err := opts.ExecCmd("bash", "-c", cmd); err != nil {
+		return stepResult{
+			name:   "DevPod",
+			action: "failed",
+			detail: "binary download failed — try: " + url,
+			err:    fmt.Errorf("devpod binary download: %w", err),
+			output: out,
+		}
+	}
+	return stepResult{name: "DevPod", action: "installed", detail: "via binary download"}
 }
 
 // configureDevPodProvider configures the DevPod Podman provider

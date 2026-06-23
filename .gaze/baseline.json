@@ -1751,9 +1751,9 @@
       "function": "managerInstallCmd",
       "file": "internal/doctor/environ.go",
       "line": 228,
-      "complexity": 11,
-      "line_coverage": 91.66666666666667,
-      "crap": 11.070023148148149
+      "complexity": 12,
+      "line_coverage": 92.3076923076923,
+      "crap": 12.071005917159763
     },
     {
       "package": "doctor",
@@ -4728,7 +4728,7 @@
       "package": "setup",
       "function": "installOllama",
       "file": "internal/setup/setup.go",
-      "line": 897,
+      "line": 1010,
       "complexity": 6,
       "line_coverage": 100,
       "crap": 6
@@ -4764,7 +4764,7 @@
       "package": "setup",
       "function": "installDevPod",
       "file": "internal/setup/setup.go",
-      "line": 1029,
+      "line": 1210,
       "complexity": 6,
       "line_coverage": 90.9090909090909,
       "crap": 6.027047332832457
@@ -5035,6 +5035,33 @@
       "contract_coverage": 100,
       "gaze_crap": 1,
       "quadrant": "Q1_Safe"
+    },
+    {
+      "package": "doctor",
+      "function": "dnfOrGenericCmd",
+      "file": "internal/doctor/environ.go",
+      "line": 296,
+      "complexity": 2,
+      "line_coverage": 100,
+      "crap": 2
+    },
+    {
+      "package": "setup",
+      "function": "installOllamaViaCurl",
+      "file": "internal/setup/setup.go",
+      "line": 1038,
+      "complexity": 4,
+      "line_coverage": 100,
+      "crap": 4
+    },
+    {
+      "package": "setup",
+      "function": "installDevPodViaBinary",
+      "file": "internal/setup/setup.go",
+      "line": 1241,
+      "complexity": 4,
+      "line_coverage": 100,
+      "crap": 4
     }
   ],
   "summary": {

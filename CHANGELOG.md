@@ -72,6 +72,16 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/parallel-subtool-init/)
 
 ### Fixed
+- `uf setup` DevPod now falls back to binary download from GitHub
+  Releases when Homebrew is absent, gated by `--yes` flag or
+  interactive terminal (#268)
+- `uf setup` auto mode now falls back to `dnf install`
+  for Podman and curl installer for Ollama when Homebrew
+  is absent on Fedora/RHEL (#268)
+- Doctor hints now show `dnf install` commands on Fedora
+  systems instead of `brew install`
+- Fixed `genericInstallCmd("replicator")` returning
+  `brew install` in the no-package-manager codepath
 - `uf setup` auto mode now falls back to native package
   managers and `go install` when Homebrew is absent.
   Previously, 4 companion tools (Gaze, Replicator, Dewey,
