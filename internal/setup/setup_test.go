@@ -5298,6 +5298,9 @@ func TestInstallGolangciLint_NoManagers(t *testing.T) {
 	if result.action != "skipped" {
 		t.Errorf("expected 'skipped', got %q", result.action)
 	}
+	if result.err != nil {
+		t.Errorf("expected nil error, got: %v", result.err)
+	}
 }
 
 func TestInstallGolangciLint_DryRunGoAvailable(t *testing.T) {
