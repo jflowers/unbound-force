@@ -341,6 +341,9 @@ func isDivisorAsset(relPath string) bool {
 	if isConventionPack(relPath) {
 		return true
 	}
+	if relPath == "opencode/skills/review-context/SKILL.md" {
+		return true
+	}
 	return false
 }
 

@@ -175,8 +175,9 @@ var expectedAssetPaths = []string{
 	"openspec/schemas/unbound-force/templates/spec.md",
 	"openspec/schemas/unbound-force/templates/design.md",
 	"openspec/schemas/unbound-force/templates/tasks.md",
-	// Swarm skills (2)
+	// Swarm skills (3)
 	"opencode/skills/pre-flight/SKILL.md",
+	"opencode/skills/review-context/SKILL.md",
 	"opencode/skills/speckit-workflow/SKILL.md",
 }
 
@@ -1161,6 +1162,8 @@ func TestIsDivisorAsset(t *testing.T) {
 		{"opencode/uf/packs/severity.md", true},
 		{"opencode/uf/packs/python.md", true},
 		{"opencode/uf/packs/python-custom.md", true},
+		// Divisor review-context skill
+		{"opencode/skills/review-context/SKILL.md", true},
 		// Non-Divisor assets
 		{"opencode/agents/constitution-check.md", false},
 		{"opencode/commands/speckit.specify.md", false},
