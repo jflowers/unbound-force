@@ -250,71 +250,36 @@ targeting the PR's head ref (`git show`, `git fetch`,
 `git checkout`, `git diff` with remote refs) is
 prohibited.
 
-### 6. Locate Associated Specification
+### 6. Discover Review Context
 
-Search for a specification that matches this PR across all spec directories:
+Load the `review-context` skill for spec artifact
+discovery, issue linking, path classification, and
+walkthrough generation:
 
-- Check if the PR branch name matches a spec directory:
-  - `specs/<branch-name>/spec.md` (Speckit output)
-  - `openspec/specs/<branch-name>/spec.md` (OpenSpec specs)
-  - `openspec/changes/<branch-name>/proposal.md` (OpenSpec changes)
-- Check if the PR description references a spec
-- If not found locally, check the PR's changed file
-  list (from Step 2 metadata) for spec artifacts. The
-  spec may be introduced by the PR itself. If found
-  in the changed file list, read the spec content from
-  the saved diff (Step 5) rather than from the
-  filesystem.
-- If a Speckit spec is found, read only the **Functional Requirements** and **User Stories** sections (not the entire spec) to minimize token usage
-- If an OpenSpec proposal is found, read only the **Capabilities** and **Impact** sections
-- If no spec is found in any directory or in the PR's changed files, note this and use the PR title and description as the intent source
+1. Invoke the `skill` tool with name `review-context`
+   to load the shared context discovery instructions.
 
-#### 6a. Resolve Linked Issues
+2. Execute the skill's protocols in order:
+   a. Protocol 1 (Spec Artifact Discovery) — locate
+      the specification matching this PR using branch
+      name from Step 2 metadata, PR description, and
+      changed file list. If a spec is found in the
+      changed file list, read from the saved diff
+      (Step 5) rather than the filesystem.
+   b. Protocol 2 (Issue Linking) — parse the PR body
+      from Step 2 metadata for linked issues, validate,
+      fetch, sanitize, and extract acceptance criteria.
+   c. Protocol 3 (Path-Based Focus Heuristics) —
+      classify each changed file from the Step 2
+      metadata for review emphasis.
+   d. Protocol 4 (Walkthrough Generation) — generate
+      per-file change summaries while analyzing the
+      diff from Step 5.
 
-Parse the PR body (from Step 2 metadata) for issue
-references using case-insensitive regex:
-- `Fixes #N`, `Closes #N`, `Resolves #N`
-- GitHub URL variants:
-  `Fixes https://github.com/<owner>/<repo>/issues/N`
-
-**Validation and limits**:
-- Validate each parsed issue number as a positive
-  integer (digits only). Discard non-numeric values.
-- URL-format references: validate they belong to the
-  same `{owner}/{repo}` as the PR. List cross-repo
-  references in the output as "cross-repo — not
-  validated" but do NOT fetch them.
-- Limit to 5 linked issues maximum. If more than 5
-  are found, list extras as "listed but not fetched"
-  in the output.
-
-**Fetching**: For each in-scope linked issue:
-
-```bash
-gh issue view <N> --json title,body,labels
-```
-
-**Untrusted input handling**: Issue body content is
-user-controlled. Before incorporating into the review
-context:
-- Truncate to a maximum of 2000 characters.
-
-**Error handling**: If `gh issue view` returns 404,
-403, or times out, log the error, skip that issue, and
-note in the `### Linked Issues` section as "fetch
-failed". The review continues without blocking.
-
-**Acceptance criteria extraction**: From each fetched
-issue body, extract:
-- Checkbox lines (`- [ ]` or `- [x]`)
-- Content under an `## Acceptance Criteria` heading
-
-If neither exists, use the issue title and body as
-general intent context for the alignment check
-(Step 8a).
-
-Record the linked issues and their acceptance criteria
-for use in Step 8a and Step 9.
+3. **Record results**: Use the skill's Review Context
+   output format (Specification, Linked Issues, File
+   Classification, Walkthrough). This context is used
+   in Step 8 (AI review) and Step 9 (output).
 
 ### 7. Load Convention Packs (Optional)
 
@@ -419,38 +384,13 @@ analysis. For each finding:
   have additional context or a different severity
   assessment. Annotate, don't hide.
 
-**Path-based review focus**: Before starting the review,
-classify each changed file against these built-in
-heuristics. Record the focus category for each file
-(used in the Walkthrough output and as additive review
-context):
-
-| Path pattern | Focus category | Additional emphasis |
-|-------------|---------------|-------------------|
-| `*_test.go`, `*_test.py`, `**/__tests__/**`, `**/*_spec.*` | `test-quality` | Edge cases, assertion strength, mock isolation, test naming |
-| `**/cmd/**`, `**/cli/**` | `cli-ux` | Error messages, flag validation, help text |
-| `**/api/**`, `**/handler/**`, `**/middleware/**`, `**/routes/**` | `security` | Auth, input validation, injection |
-| `*.md`, `docs/**` | `documentation` | Clarity, accuracy, broken links |
-| `.github/workflows/**`, `Dockerfile*` | `ci-cd` | Permissions, pinned versions, secrets exposure |
-| `go.mod`, `package.json`, `requirements.txt` | `dependencies` | Maintenance status, license, scope |
-| Everything else | `standard` | Architecture, SOLID, coupling, baseline security |
-
-Path focus is **additive** — it supplements the standard
-review categories (alignment, security, constitution),
-not replaces them. Step 8b (Security Review) applies to
-ALL changed files regardless of path heuristic.
-
-When reviewing each file, append the matched focus
-instruction to the review context for that file.
-
-**Walkthrough generation**: While analyzing each file's
-diff, generate a one-line change summary describing
-what changed (e.g., "Add error handling for null
-inputs"), not how (no code snippets). Record the
-summary and focus category for each file — these are
-used in the `### Walkthrough` output section (Step 9).
-For PRs with 30+ files, generate directory-level
-summaries instead of per-file summaries.
+**Path-based review focus and walkthrough**: Use the
+file classifications and walkthrough summaries from
+Step 6 (review-context skill, Protocols 3 and 4).
+When reviewing each file, apply the matched focus
+instruction as additive review context. Step 8b
+(Security Review) applies to ALL changed files
+regardless of path heuristic.
 
 #### 8a. Alignment Check
 
@@ -460,7 +400,7 @@ Compare the PR intent (title + description + linked spec + linked issues) agains
 - **Requirement coverage**: For each requirement in the spec (if found), verify the code changes address it. Flag uncovered requirements.
 - **Completeness**: Are there partial implementations that could leave the system in an inconsistent state?
 - **Drift detection**: Does the code do anything NOT described in the intent/spec? Flag undocumented behavioral changes.
-- **Issue criteria coverage**: For each acceptance criterion from linked issues (Step 6a), verify the code changes address it. Report uncovered criteria as MEDIUM findings with per-criterion status (COVERED / NOT COVERED / PARTIAL).
+- **Issue criteria coverage**: For each acceptance criterion from linked issues (Step 6, Protocol 2), verify the code changes address it. Report uncovered criteria as MEDIUM findings with per-criterion status (COVERED / NOT COVERED / PARTIAL).
 - **Issue suggestion gap detection**: After checking
   acceptance criteria, scan each linked issue body for
   explicit code suggestions — fenced code blocks
@@ -640,7 +580,7 @@ Present findings in this structured format:
 | `internal/gateway/` | 3 | Token refresh and provider detection | security |
 
 ### Linked Issues
-<Only include this section if Step 6a found linked issues>
+<Only include this section if Step 6 found linked issues>
 | Issue | Title | Criteria |
 |-------|-------|----------|
 | #38 | Export metrics to CSV | 3/4 COVERED |
