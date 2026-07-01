@@ -1,4 +1,5 @@
 ---
+name: pre-flight
 description: "Shared pre-flight skill for CI detection and local tool execution. Supports hard-gate and ci-aware execution policies."
 ---
 <!-- scaffolded by uf vdev -->
