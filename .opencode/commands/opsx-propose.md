@@ -13,6 +13,12 @@ When ready to implement, run /unleash (autonomous) or /opsx-apply (sequential)
 
 ---
 
+**NEVER implement code changes** -- this command creates
+artifacts ONLY (proposal, design, specs, tasks). **NEVER**
+commit, push, or create PRs. **NEVER** run /unleash,
+/opsx-apply, or /cobalt-crush. After artifacts are complete,
+**STOP** and prompt the user.
+
 **Input**: The argument after `/opsx-propose` is the change name (kebab-case), OR a description of what the user wants to build.
 
 **Steps**
@@ -55,6 +61,16 @@ When ready to implement, run /unleash (autonomous) or /opsx-apply (sequential)
         `/opsx-propose fix-typos`), this still requires
         confirmation -- never silently switch branches
         with uncommitted work.
+
+      Use **AskUserQuestion** with options:
+        - "Stash changes and continue"
+        - "Abort -- keep changes as-is"
+      If the user selects "Abort", STOP the workflow
+      immediately.
+      If the user selects "Stash changes and continue",
+      run `git stash --include-untracked`. If the stash
+      fails, STOP and report the failure. If the stash
+      succeeds, proceed with branch creation.
 
    b. **Branch check**: Check the current branch:
       - If already on `opsx/<name>` (exact match): skip
