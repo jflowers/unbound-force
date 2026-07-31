@@ -77,8 +77,15 @@ Run `git status --short` to inspect the working tree.
   > Proceed with staging all files? These files will be
   > included in the commit."
 
-  Ask for confirmation. If the user declines, stop and
-  let them handle it manually.
+  Use the **AskUserQuestion tool** with options
+  `["Yes -- stage all files and continue", "No -- stop here"]`.
+
+  - If the user selects **"Yes -- stage all files and
+    continue"**: proceed to `git add .`.
+  - If the user selects **"No -- stop here"**: **STOP**.
+    Do not run `git add .`. Do not proceed to Step 3 or
+    any subsequent steps. Report that the user declined
+    and let them handle the secret files manually.
 
 - **Stage all changes**: `git add .`
 
