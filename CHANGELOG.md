@@ -19,6 +19,16 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/council-review-action/,
   Closes: #253)
 
+### Fixed
+- mutimind-acceptance-gate: Added AskUserQuestion
+  confirmation gate before acceptance decision CLI
+  (`go run cmd/mutimind/main.go decide`) in
+  muti-mind-po.md agent. Prevents irreversible
+  governance action from firing without user
+  confirmation.
+  (Spec: openspec/changes/mutimind-acceptance-gate/,
+  Fixes: #351)
+
 ### Changed
 - All 10 uf-owned slash commands renamed to `uf.`
   dot-notation namespace prefix: `/address-feedback`

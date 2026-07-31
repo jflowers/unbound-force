@@ -66,6 +66,15 @@ When evaluating a Gaze Quality Report against a backlog item's acceptance criter
 - `rationale`: Markdown explanation
 - `criteria_met` / `criteria_failed`
 
+**Interactive Approval**: Before running the `bash` tool to record an acceptance decision using the `go run cmd/mutimind/main.go decide` command, you MUST use the **AskUserQuestion tool** to present:
+- The target backlog item (e.g., `BI-NNN`)
+- The proposed decision (`accept`, `reject`, or `conditional`)
+- The rationale summary
+
+Options: `["Confirm decision", "Abort"]`
+
+Only invoke the Go CLI backend if the user selects "Confirm decision". If the user selects "Abort", report that the acceptance decision was cancelled and do NOT invoke the command.
+
 To generate these artifacts, you MUST use the Go CLI backend to ensure proper schema compliance:
 ```bash
 go run cmd/mutimind/main.go decide --item "BI-NNN" --decision "accept|reject|conditional" --rationale "..." --report-ref "path/to/report.json" --met "Criterion 1" --met "Criterion 2" --failed "Criterion 3"
