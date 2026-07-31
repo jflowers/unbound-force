@@ -327,7 +327,46 @@ But this summary is optional. Sometimes the thinking IS the value.
 - **Don't rush** - Discovery is thinking time, not task time
 - **Don't force structure** - Let patterns emerge naturally
 - **Don't auto-capture** - Offer to save insights, don't just do it
-- **Don't switch branches without confirmation** - If exploration leads to creating a proposal (which requires a new `opsx/` branch), check for uncommitted changes first and ask the user before switching. Never silently leave uncommitted work behind.
+- **Branch Creation Gate** - If exploration leads to creating
+  a proposal (which requires a new `opsx/` branch) or directly
+  creating a branch via `git checkout -b`, the agent MUST
+  execute this confirmation gate before any branch operation:
+
+  1. **Check current branch state**:
+     a. If already on the target `opsx/<name>` branch: skip
+        branch creation, proceed without the gate.
+     b. If on a different `opsx/*` branch: **STOP** with error:
+        "Already on branch `opsx/<other>` -- finish or archive
+        that change first."
+     c. If on `main` or any non-opsx branch: proceed to step 2.
+
+  2. **Check for uncommitted changes**: Run `git status --short`.
+     If uncommitted changes exist, show what changes exist and
+     warn the user that switching branches with a dirty working
+     tree may cause changes to be applied to the wrong branch.
+
+  3. **Get explicit confirmation**: Use the **AskUserQuestion
+     tool** with the proposed branch name included in the prompt
+     text (e.g., "Create branch `opsx/<name>` and start a
+     proposal?") and options:
+     - "Create branch and proceed"
+     - "Stay in explore mode"
+
+  4. **Act on the response**: Only execute branch creation or
+     invoke `/opsx-propose` if the user selects "Create branch
+     and proceed." If the user selects "Stay in explore mode,"
+     remain in explore mode without creating a branch.
+
+  The agent MUST NOT create a branch, switch branches, or invoke
+  `/opsx-propose` without completing this gate. This applies to
+  both direct `git checkout -b` and transitions via
+  `/opsx-propose`.
+
+  Note: The `/opsx-propose` skill has its own independent branch
+  guard (Step 3). Both gates apply independently -- the explore
+  gate fires before the transition, and the propose gate fires
+  within `/opsx-propose`.
+
 - **Do visualize** - A good diagram is worth many paragraphs
 - **Do explore the codebase** - Ground discussions in reality
 - **Do question assumptions** - Including the user's and your own
