@@ -79,6 +79,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
   lines) and the canonical scaffold copy (278 lines).
   (Spec: openspec/changes/fix-gaze-test-generator-compile-gate/,
   Fixes: unbound-force/gaze#204)
+- `speckit.specify`: Dirty-tree check before branch creation now
+  uses an explicit `AskUserQuestion` tool call with structured
+  options ("Stash changes and continue" / "Abort -- keep changes
+  as-is") instead of prose-only instructions. Includes `git stash`
+  failure handling and stash recovery notification. Hardens against
+  context compression skipping the guard (T1+T3 weakness).
+  (Spec: openspec/changes/fix-speckit-dirty-tree-check/,
+  Fixes: #358)
 - `uf init --force` no longer hangs on Dewey re-indexing.
   Dewey indexing now runs with `--no-embeddings` for a fast
   metadata-only pass. Run `dewey index` separately to
