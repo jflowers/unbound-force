@@ -88,6 +88,25 @@ Archive a completed change in the experimental workflow.
    changes to follow you to the wrong branch or be
    lost entirely.
 
+   d. **Commit-state confirmation gate**: Before
+      proceeding to step 6, run `git status --short` and
+      present the output to the user. Use the
+      **AskUserQuestion tool** with options:
+      - "Changes committed and pushed — proceed to archive"
+      - "Abort — need to commit first"
+
+      If the user selects **"Abort"**: display which
+      steps have completed (steps 1-5), inform the user
+      they can re-run the archive skill after committing
+      and pushing their changes, then **STOP** execution
+      immediately. Do NOT proceed to step 6 (archive) or
+      step 7 (branch switch).
+
+      This gate MUST be presented fresh in every session
+      regardless of prior context. Compressed or resumed
+      session state MUST NOT be treated as implicit
+      authorization to skip this gate.
+
 6. **Perform the archive**
 
    Create the archive directory if it doesn't exist:
