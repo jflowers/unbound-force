@@ -101,6 +101,7 @@ Archive a completed change in the experimental workflow.
    - If yes: Fail with error, suggest renaming existing archive or using different date
    - If no: Move the change directory to archive
 
+   Execute the following only if the target does not already exist:
    ```bash
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
@@ -114,7 +115,11 @@ Archive a completed change in the experimental workflow.
    git push
    ```
 
-   Then switch branches:
+   Then use the **AskUserQuestion tool** to confirm
+   before switching branches:
+   - **Options**: `["Return to main", "Stay on branch"]`
+
+   **If "Return to main":**
    ```bash
    git checkout main
    ```
@@ -123,6 +128,11 @@ Archive a completed change in the experimental workflow.
    in the summary that the developer can delete it
    manually with `git branch -d opsx/<name>` if desired.
 
+   **If "Stay on branch":**
+   Skip the checkout. Note in the summary that the
+   developer remained on `opsx/<name>` and can switch
+   to main manually with `git checkout main` when ready.
+
 8. **Display summary**
 
    Show archive completion summary including:
@@ -130,7 +140,7 @@ Archive a completed change in the experimental workflow.
    - Schema that was used
    - Archive location
    - Whether specs were synced (if applicable)
-   - Branch status (returned to main)
+   - Branch status (returned to main / stayed on opsx/<name>)
    - Note about any warnings (incomplete artifacts/tasks)
 
 **Output On Success**
@@ -142,6 +152,7 @@ Archive a completed change in the experimental workflow.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
+**Branch:** returned to main | stayed on opsx/<name>
 
 All artifacts complete. All tasks complete.
 ```

@@ -71,16 +71,30 @@ Archive a completed change in the experimental workflow.
    - If yes: Fail with error, suggest renaming existing archive or using different date
    - If no: Move the change directory to archive
 
+   Execute the following **only if the target does not already exist**:
+
    ```bash
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
 
 6. **Return to main branch**
 
-   After the archive move completes:
+   After the archive move completes, use the
+   **AskUserQuestion tool** to confirm branch switching:
+
+   > The archive is complete. Would you like to return
+   > to the main branch?
+
+   Options: `["Return to main", "Stay on branch"]`
+
+   **If "Return to main":**
    ```bash
    git checkout main
    ```
+
+   **If "Stay on branch":**
+   Skip the `git checkout main`. Note in the summary
+   that the user remained on the `opsx/<name>` branch.
 
    The `opsx/<name>` branch still exists locally. Note
    in the summary that the developer can delete it
@@ -93,7 +107,7 @@ Archive a completed change in the experimental workflow.
    - Schema that was used
    - Archive location
    - Spec sync status (synced / sync skipped / no delta specs)
-   - Branch status (returned to main)
+   - Branch status (returned to main / remained on opsx/<name>)
    - Note about any warnings (incomplete artifacts/tasks)
 
 **Output On Success**
@@ -105,6 +119,7 @@ Archive a completed change in the experimental workflow.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** ✓ Synced to main specs
+**Branch:** returned to main | stayed on opsx/<name>
 
 All artifacts complete. All tasks complete.
 ```
@@ -118,6 +133,7 @@ All artifacts complete. All tasks complete.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** No delta specs
+**Branch:** returned to main | stayed on opsx/<name>
 
 All artifacts complete. All tasks complete.
 ```
@@ -131,6 +147,7 @@ All artifacts complete. All tasks complete.
 **Schema:** <schema-name>
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** Sync skipped (user chose to skip)
+**Branch:** returned to main | stayed on opsx/<name>
 
 **Warnings:**
 - Archived with 2 incomplete artifacts
