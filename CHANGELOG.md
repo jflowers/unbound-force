@@ -26,6 +26,12 @@ Each entry follows the format: `- <change-name>: <summary>`.
   label retains supplementary close-semantics confirmation.
   (Spec: openspec/changes/review-council-label-gates/,
   Fixes: #352)
+- `/speckit.clarify`: added mandatory AskUserQuestion tool
+  call gate to sequential questioning loop (step 4);
+  prevents question batching and answer assumption under
+  context compression
+  (Spec: openspec/changes/speckit-clarify-askuser-gate/,
+  Fixes: #364)
 - `/review-council` Code Review Mode: added optional
   Step 7 (GitHub Review Posting) for posting consolidated
   multi-persona council findings as a GitHub PR review;
