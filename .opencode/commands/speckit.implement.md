@@ -37,10 +37,17 @@ You **MUST** consider the user input before proceeding (if not empty).
 
    - **If any checklist is incomplete**:
      - Display the table with incomplete item counts
-     - **STOP** and ask: "Some checklists are incomplete. Do you want to proceed with implementation anyway? (yes/no)"
-     - Wait for user response before continuing
-     - If user says "no" or "wait" or "stop", halt execution
-     - If user says "yes" or "proceed" or "continue", proceed to step 3
+     - Use the **AskUserQuestion tool** with options
+       `["Proceed anyway", "Stop -- fix checklists first"]`
+     - Wait for the user's selection before continuing
+     - If user selects "Stop -- fix checklists first", halt
+       execution and report which checklists need attention
+     - If user selects "Proceed anyway", proceed to step 3
+
+   - **CRITICAL RULE**: NEVER proceed past this gate without
+     an **AskUserQuestion tool** call response. This gate
+     cannot be inherited from compressed or resumed session
+     context — it MUST be executed fresh in every session.
 
    - **If all checklists are complete**:
      - Display the table showing all checklists passed
@@ -139,8 +146,16 @@ You **MUST** consider the user input before proceeding (if not empty).
      BEFORE suggesting any next steps (PR creation, merging,
      or branch switching).
    - Run `git status --short` to check for uncommitted changes.
-   - If uncommitted changes exist, prompt the user to commit
-     and push before proceeding.
+   - If uncommitted changes exist, use the **AskUserQuestion
+     tool** with options `["Yes -- all committed and pushed",
+     "Not yet -- let me commit first"]`.
+   - If user selects "Not yet -- let me commit first", halt
+     and remind the user to commit and push changes. Do NOT
+     suggest branch switching, PR creation, or merge steps.
+   - If user selects "Yes -- all committed and pushed",
+     proceed to suggest next steps.
+   - If the working tree is clean (no uncommitted changes),
+     proceed to suggest next steps without prompting.
    - Do NOT suggest switching to `main` or any other branch
      until the working tree is clean and changes are pushed.
    - The recommended completion flow is:
@@ -148,6 +163,13 @@ You **MUST** consider the user input before proceeding (if not empty).
      2. Push to remote
      3. Create PR (if desired)
      4. Then merge and switch branches
+
+   - **CRITICAL RULE**: NEVER suggest next steps (PR creation,
+     merging, branch switching, archiving) without an
+     **AskUserQuestion tool** call response confirming changes
+     are committed and pushed. This gate cannot be inherited
+     from compressed or resumed session context — it MUST be
+     executed fresh in every session.
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.
 
