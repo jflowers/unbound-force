@@ -49,6 +49,16 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/improve-finale-pr-description/)
 
 ### Fixed
+- `gaze-test-generator` agent: replaced advisory compile
+  verification prose ("ALWAYS verify generated code compiles")
+  with a concrete pre-write compile gate protocol. The agent
+  now MUST run `go build` before any Write or Edit tool call
+  and halt if compilation fails. Resolves T3 weakness where
+  the advisory check could be skipped under context compression.
+  Also resolves existing drift between the active copy (242
+  lines) and the canonical scaffold copy (278 lines).
+  (Spec: openspec/changes/fix-gaze-test-generator-compile-gate/,
+  Fixes: unbound-force/gaze#204)
 - `uf init --force` no longer hangs on Dewey re-indexing.
   Dewey indexing now runs with `--no-embeddings` for a fast
   metadata-only pass. Run `dewey index` separately to
