@@ -43,18 +43,38 @@ When ready to implement, run /unleash (autonomous) or /opsx-apply (sequential)
 
    a. **Dirty working tree check**: Run `git status --short`.
       If there are uncommitted changes (staged, unstaged,
-      or untracked files that appear related to work):
-      - **STOP** and ask the user for confirmation before
-        switching branches. Show what uncommitted changes
-        exist and warn that switching branches with a
-        dirty working tree may cause changes to be
-        applied to the wrong branch.
-      - If the user confirms, proceed. If not, abort.
-      - Exception: if the user explicitly requested a
-        new change in the same message (e.g.,
-        `/opsx-propose fix-typos`), this still requires
-        confirmation -- never silently switch branches
-        with uncommitted work.
+      or untracked files that appear related to work),
+      switching branches may cause those changes to appear
+      on the wrong branch. The agent MUST confirm with the
+      user before proceeding — never silently switch
+      branches with uncommitted work, even if the user
+      explicitly requested a new change in the same message
+      (e.g., `/opsx-propose fix-typos`).
+
+      When `git status --short` output is non-empty, invoke
+      the **AskUserQuestion tool** with:
+      - **Question**: Include the full `git status --short`
+        output, the target branch name (`opsx/<name>`), and
+        a warning that switching branches with uncommitted
+        changes may cause changes to appear on the wrong
+        branch.
+      - **Options**: `["Stash changes and continue",
+        "Abort — keep changes as-is"]`
+
+      The agent MUST NOT run `git checkout -b` until the
+      user responds.
+
+      - If the user selects **"Abort — keep changes as-is"**:
+        stop the workflow and report that the operation was
+        aborted due to uncommitted changes.
+      - If the user selects **"Stash changes and continue"**:
+        run `git stash`. If `git stash` exits with a
+        non-zero exit code, abort and report the stash
+        failure. After a successful stash, re-run
+        `git status --short` — if the output is still
+        non-empty, abort and report the remaining
+        uncommitted changes. Only proceed to branch
+        creation when the working tree is confirmed clean.
 
    b. **Branch check**: Check the current branch:
       - If already on `opsx/<name>` (exact match): skip
