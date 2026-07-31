@@ -794,9 +794,11 @@ user. The user will invoke a separate command
 when they are ready to implement.
 ```
 
-**Where**: After the main workflow instructions, before
-the `## Guardrails` section. If no `## Guardrails`
-section exists, insert at the end of the file.
+**Where**: Immediately after the `## Outline` heading
+(or equivalent section heading), before the first
+numbered workflow step. If no `## Outline` heading
+exists, insert before the first numbered step in the
+file.
 
 ### Step 11: Scaffold Comment Deduplication
 
