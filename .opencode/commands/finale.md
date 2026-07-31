@@ -161,9 +161,28 @@ d. Commit with the approved message.
 git rev-parse --abbrev-ref @{upstream} 2>/dev/null
 ```
 
-- If no upstream: `git push -u origin <branch>`
-- If upstream exists: `git push`
-- If push fails: report error and **STOP**.
+Fetch the remote branch state to detect divergence:
+
+```bash
+git fetch origin <branch>
+git status
+```
+
+**If branch has diverged** (the remote has commits not
+in the local branch): warn the user about the divergence
+before presenting the confirmation gate.
+
+Use the **AskUserQuestion tool** with options
+`["Push to remote", "Abort -- keep commits local"]`.
+
+- If the user selects **"Push to remote"**:
+  - If no upstream: `git push -u origin <branch>`
+  - If upstream exists: `git push`
+  - If push fails: report error and **STOP**. Do not
+    proceed to Step 5 or any subsequent steps.
+- If the user selects **"Abort -- keep commits local"**:
+  report that local commits are preserved and **STOP**.
+  Do not proceed to Step 5 or any subsequent steps.
 
 ### 5. Create or Find PR
 
