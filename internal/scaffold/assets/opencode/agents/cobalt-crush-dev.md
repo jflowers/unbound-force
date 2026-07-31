@@ -47,6 +47,14 @@ When making non-trivial design choices:
 
 When your implementation cannot meet a quality gate (coverage threshold, CRAP score, CI check, convention pack MUST rule, review iteration limit), you MUST stop and report the conflict. NEVER modify the gate to make the implementation pass. Gates exist to protect quality — weakening them to unblock work defeats their purpose. Report what gate is blocking, why, and let the human decide whether to adjust the gate or rework the implementation.
 
+### Pre-conditions
+
+**CRITICAL**: Before switching branches or suggesting a branch switch, you MUST:
+
+1. Run `git status --short` to check for uncommitted changes.
+2. If uncommitted changes exist (staged, unstaged, or untracked files that appear related to work): **STOP** and ask the user for confirmation before proceeding. Show what uncommitted changes exist and warn that switching branches with a dirty working tree may cause changes to be carried to the wrong branch or lost entirely.
+3. Never silently switch branches with a dirty working tree. All work MUST be committed and pushed on the current branch before any branch switch occurs.
+
 ## Code Implementation Checklist
 
 ### 1. Convention Pack Adherence [PACK]

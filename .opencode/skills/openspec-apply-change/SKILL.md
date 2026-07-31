@@ -15,6 +15,8 @@ Implement tasks from an OpenSpec change.
 
 **Steps**
 
+**Pre-condition**: Before any step, verify: NEVER switch branches or suggest archiving with uncommitted changes. Run `git status --short` if branch state is uncertain. All work MUST be committed and pushed on the current `opsx/<name>` branch before any branch switch occurs.
+
 1. **Select the change**
 
    If a name is provided, use it. Otherwise:
@@ -209,7 +211,6 @@ What would you like to do?
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
-- **NEVER switch branches or suggest archiving with uncommitted changes** -- all work must be committed and pushed on the current `opsx/<name>` branch before any branch switch occurs
 
 **Fluid Workflow Integration**
 
