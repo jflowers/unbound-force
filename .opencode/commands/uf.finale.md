@@ -33,6 +33,50 @@ stays open for human review. Works with both Speckit
 
 ## Instructions
 
+**Session-resume guard**: If this session has been
+   resumed from compressed context, or if you cannot
+   verify that the human explicitly confirmed a gate
+   in the current uncompressed conversation history, you
+   MUST re-read this entire template, recover state from
+   the execution checklist below, and re-confirm any
+   pending gates via the **AskUserQuestion tool** before
+   proceeding. Do NOT rely on gate confirmations recorded
+   in compressed context. Do NOT infer step completion
+   from compressed summaries. When in doubt, re-confirm
+   — false re-confirmation is harmless; executing without
+   consent is a violation.
+
+**Execution checklist**: The agent MUST maintain this
+checklist using the **Edit tool** after completing each
+step. This checklist survives context compression and
+serves as the source of truth for workflow state.
+
+```
+BRANCH=<set when known>
+COMMIT=<set when known>
+PR_NUMBER=<set when known>
+PR_URL=<set when known>
+CONFLICT_OPTION=<set when known>
+
+[ ] Step 1 — Branch Safety Gate
+[ ] Step 2 — Check for Changes to Commit
+[ ] Step 3 — Generate and Confirm Commit Message
+[ ] Step 4 — Push to Remote
+[ ] Step 5 — Create or Find PR
+[ ] Step 6 — Watch CI Checks
+[ ] Step 7 — Return to Main
+[ ] Step 8 — Summary
+```
+
+After completing each step, use the Edit tool to:
+1. Mark the step `[x]` in this checklist
+2. Set any state variables that became known
+   (e.g., `BRANCH=opsx/my-feature` after Step 1)
+
+If resuming from compressed context, re-read this
+checklist to determine which steps are complete and
+what state is available.
+
 ### 1. Branch Safety Gate
 
 Get the current branch:
@@ -68,6 +112,9 @@ Run `git status --short` to inspect the working tree.
   - Any file matching common secret patterns
 
   If potential secret files are found:
+
+  >>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<
+
   > "Warning: the following files may contain secrets
   > and should not be committed:
   >
@@ -87,7 +134,12 @@ Run `git status --short` to inspect the working tree.
     any subsequent steps. Report that the user declined
     and let them handle the secret files manually.
 
+  >>> END MANDATORY GATE <<<
+
 - **Stage all changes**: `git add .`
+
+**Checkpoint**: Update the execution checklist (mark
+Step 2 `[x]`) before proceeding.
 
 ### 3. Generate and Confirm Commit Message
 
@@ -161,6 +213,9 @@ edited message without re-adding attribution.
 
 d. Commit with the approved message.
 
+**Checkpoint**: Update the execution checklist — set
+`COMMIT=<hash>` and mark Step 3 `[x]` before proceeding.
+
 ### 4. Push to Remote
 
 ```bash
@@ -190,6 +245,9 @@ Use the **AskUserQuestion tool** with options
 - If the user selects **"Abort -- keep commits local"**:
   report that local commits are preserved and **STOP**.
   Do not proceed to Step 5 or any subsequent steps.
+
+**Checkpoint**: Update the execution checklist (mark
+Step 4 `[x]`) before proceeding.
 
 ### 5. Create or Find PR
 
@@ -324,6 +382,12 @@ gh pr view --json number,url 2>/dev/null
 
   f. Show the proposed PR content to the user:
 
+  **Session-resume guard**: If resuming from compressed
+  context, re-present the PR title and body and obtain
+  fresh confirmation before calling `gh pr create`.
+
+  >>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<
+
   > **Proposed PR:**
   >
   > **Title:** `<title>`
@@ -332,8 +396,13 @@ gh pr view --json number,url 2>/dev/null
   > ```
   > <body>
   > ```
-  >
-  > Approve, edit, or provide your own?
+
+  Use the **AskUserQuestion tool** with options
+  `["Approve — create PR", "Edit title or body",
+  "Provide my own title and body", "Abort — do not
+  create PR"]`.
+
+  >>> END MANDATORY GATE <<<
 
   Use the approved (or edited/replaced) title and body
   for creation.
@@ -370,6 +439,10 @@ gh pr view --json number,url 2>/dev/null
 
   h. Report the PR URL.
 
+  **Checkpoint**: Update the execution checklist — set
+  `PR_NUMBER=<number>`, `PR_URL=<url>`, and mark
+  Step 5 `[x]` before proceeding.
+
 ### 6. Watch CI Checks
 
 ```bash
@@ -379,6 +452,8 @@ gh pr checks <number> --watch
 - **If checks pass**: proceed to step 7.
 - **If checks fail**: report the failure details and
   **STOP**:
+
+  >>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<
 
   > "CI checks failed on PR #<number>:
   >
@@ -390,7 +465,10 @@ gh pr checks <number> --watch
   > 2. Re-run the checks
   > 3. Stop here and fix manually"
 
-  Ask the user how to proceed.
+  Use the **AskUserQuestion tool** to ask the user how
+  to proceed.
+
+  >>> END MANDATORY GATE <<<
 
 - **If no checks are reported** ("no checks reported"
   or equivalent empty result): do NOT conclude that no
@@ -451,6 +529,8 @@ from step 5) and the target remote:
 When `mergeable` is `CONFLICTING`, report the
 conflict to the user and present recovery options:
 
+>>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<
+
 > "PR #<number> has a merge conflict with
 > `<target-remote>/<base-branch>`. CI checks cannot
 > run until the conflict is resolved.
@@ -463,7 +543,13 @@ conflict to the user and present recovery options:
 > 5. Spawn sub-agent to resolve conflicts
 >    (AI-assisted)"
 
-Ask the user which option to take.
+Use the **AskUserQuestion tool** to ask the user
+which option to take. After the user selects an option,
+update the execution checklist: set
+`CONFLICT_OPTION=<N>` (where N is the selected option
+number).
+
+>>> END MANDATORY GATE <<<
 
 **Option 1 — Merge target branch**:
 
@@ -793,6 +879,9 @@ ls .github/workflows/*.yml .github/workflows/*.yaml \
 
   Proceed to step 7.
 
+**Checkpoint**: Update the execution checklist (mark
+Step 6 `[x]`) before proceeding.
+
 ### 7. Return to Main
 
 Return to main so the developer can start other work:
@@ -808,6 +897,9 @@ git rev-parse --abbrev-ref HEAD
 ```
 
 Should be `main`.
+
+**Checkpoint**: Update the execution checklist (mark
+Step 7 `[x]`) before proceeding.
 
 ### 8. Summary
 
@@ -837,6 +929,9 @@ option 4), include a warning in the summary:
 Replace the `**Checks:** passed` line with the warning
 above. This ensures the user is aware that CI
 verification is incomplete.
+
+**Checkpoint**: Update the execution checklist (mark
+Step 8 `[x]`). All steps complete.
 
 ## Guardrails
 
