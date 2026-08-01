@@ -10,11 +10,48 @@ You are a token-efficient feedback analyst. The user will provide a PR number or
 
 The command follows four sequential phases (Ingest → Assess → Triage → Execute). Phases are not independently invocable — run all four in sequence every invocation.
 
+> **SESSION-RESUME GUARD**: If this session has been resumed
+> from compressed context, or if you cannot locate the
+> execution checklist in the current conversation, you MUST:
+> 1. Re-read this full command template
+> 2. Check `.uf/feedback/pr-<PR_NUMBER>/state.json` for
+>    cached assessment state
+> 3. Locate the execution checklist in your prior output
+>    and verify which phases are marked `[x]`
+> 4. Do NOT infer phase completion or triage decisions from
+>    compressed context summaries — only `state.json` and the
+>    execution checklist are authoritative
+> 5. Resume from the first incomplete phase
+
 ## Arguments
 
 - **PR number** (optional): The pull request number to address feedback for (e.g., `42`). If omitted, auto-detect the open PR for the current branch.
 
 **Argument parsing** (before any tool calls): Check the user's message for a PR number argument. If present, set `PR_NUMBER` to that value immediately. All subsequent steps use `<PR_NUMBER>` — no auto-detection commands are needed or permitted.
+
+---
+
+## Execution Checklist
+
+At the start of execution, render this checklist in your
+output. Update it in-place using the **Edit tool** as each
+phase and sub-step completes. This checklist survives
+context compression and serves as the authoritative record
+of progress.
+
+```
+- [ ] Phase 1: Ingest -- _N_ items fetched
+- [ ] Phase 2: Assess -- _N_ items classified
+- [ ] Phase 3: Triage -- _N_/_M_ items decided: _n_A _n_M _n_R _n_K
+- [ ] Phase 4.1: Code changes -- _N_ files modified
+- [ ] Phase 4.2: Commits -- _N_ commits created
+- [ ] Phase 4.3: Review-council -- iteration _N_, PASS/FAIL
+- [ ] Phase 4.4: Push -- done
+- [ ] Phase 4.5: Reply comments -- _N_/_M_ posted
+```
+
+Replace `_N_`, `_M_`, etc. with actual counts as you
+progress. Mark each line `[x]` when the phase completes.
 
 ---
 
@@ -123,6 +160,9 @@ On crash-recovery re-entry: items marked as fully executed (`comment-posted`) in
 
 If no items remain after filtering: report "No unresolved feedback to address" and **STOP**.
 
+> **CHECKPOINT**: Update the execution checklist above
+> before proceeding to Phase 2.
+
 ---
 
 ## Phase 2: Assess
@@ -207,6 +247,9 @@ Write assessment results to `.uf/feedback/pr-<PR_NUMBER>/state.json`:
 
 **Permissions**: files `600`, directories `700`.
 
+> **CHECKPOINT**: Update the execution checklist above
+> before proceeding to Phase 3.
+
 ---
 
 ## Phase 3: Triage
@@ -275,6 +318,10 @@ List each item with its decision. Use the
 proceed with execution", "Revise -- change decisions"]`
 before execution proceeds.
 
+> **CHECKPOINT**: Update the execution checklist above
+> before proceeding to Phase 4. Verify all items have
+> decisions recorded.
+
 ---
 
 ## Phase 4: Execute
@@ -323,6 +370,9 @@ attribution").
 
 The `<scope>` is the package or directory of the changed files. The description summarizes the logical group of fixes.
 
+> **CHECKPOINT**: Update the execution checklist:
+> Phase 4.2 commit count.
+
 ### 4.3 Review-Council Gate
 
 After all code changes are committed locally, run `/uf.review-council` on the cumulative changes.
@@ -330,6 +380,13 @@ After all code changes are committed locally, run `/uf.review-council` on the cu
 - **If passes**: continue to push
 - **If fails**: enter fix loop (same behavior as `/uf.unleash`). Fix findings and re-run council.
 - **If fix loop exhausts iterations**: **STOP** and report persistent findings. Do NOT push until council passes.
+
+After each council run, update the execution checklist:
+`[ ] Phase 4.3: Review-council -- iteration N, PASS/FAIL`
+Mark `[x]` only when the council passes.
+
+> **CHECKPOINT**: Update the execution checklist:
+> Phase 4.3 iteration and result.
 
 ### 4.4 Push Changes
 
@@ -354,12 +411,25 @@ git push origin <branch>
 **If push fails** (network error, branch protection rejection): preserve local commits and report which commits are stranded. Provide guidance:
 > "Push failed. Local commits preserved. Retry with `git push origin <branch>` after resolving the issue."
 
+> **CHECKPOINT**: Update the execution checklist:
+> Phase 4.4 push status.
+
 ### 4.5 Post Reply Comments
 
 After push succeeds (or if there are no code changes),
 post reply comments to the PR. Before posting, use the
 **AskUserQuestion tool** with options `["Yes -- post
 reply comments", "No -- skip posting"]`.
+
+**Checklist gate**: Before presenting comments for posting,
+verify the execution checklist shows:
+1. Phase 3 is marked `[x]` with all items decided
+2. Phase 4.1 through 4.4 are marked `[x]`
+
+If the checklist is missing, incomplete, or shows Phase 3
+as not complete, you MUST re-read this command template and
+rebuild state from `state.json` and the git log. Do NOT
+post comments without verified checklist state.
 
 For each item, compose the reply:
 
@@ -395,6 +465,9 @@ rm -f "$REPLY_FILE"
 > "Posted 3 of 6 reply comments. Items 4-6 pending. Re-run `/uf.address-feedback <PR_NUMBER>` to retry."
 
 Record progress in `.uf/feedback/pr-<PR_NUMBER>/state.json` for idempotent retry.
+
+> **CHECKPOINT**: Update the execution checklist:
+> Phase 4.5 comment posting count.
 
 ### 4.6 Resolve Threads
 
