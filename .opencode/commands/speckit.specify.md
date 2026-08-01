@@ -21,6 +21,13 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
+**STOP HERE. Do NOT proceed to implementation.**
+
+Your job is done. Report the results and prompt the
+user. The user will invoke a separate command
+(/uf.unleash, /uf.cobalt-crush, or /opsx-apply) when they
+are ready to implement.
+
 The text the user typed after `/speckit.specify` in the triggering message **is** the feature description. Assume you always have it available in this conversation even if `$ARGUMENTS` appears literally below. Do not ask the user to repeat it unless they provided an empty command.
 
 Given that feature description, do this:
@@ -232,13 +239,6 @@ Given that feature description, do this:
    d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
 
 9. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
-
-**STOP HERE. Do NOT proceed to implementation.**
-
-Your job is done. Report the results and prompt the
-user. The user will invoke a separate command
-(/uf.unleash, /uf.cobalt-crush, or /opsx-apply) when they
-are ready to implement.
 
 **NOTE:** The script creates and checks out the new branch and initializes the spec file before writing.
 

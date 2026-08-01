@@ -17,6 +17,13 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
+**STOP HERE. Do NOT proceed to implementation.**
+
+Your job is done. Report the results and prompt the
+user. The user will invoke a separate command
+(/uf.unleash, /uf.cobalt-crush, or /opsx-apply) when they
+are ready to implement.
+
 Goal: Detect and reduce ambiguity or missing decision points in the active feature specification and record the clarifications directly in the spec file.
 
 Note: This clarification workflow is expected to run (and be completed) BEFORE invoking `/speckit.plan`. If the user explicitly states they are skipping clarification (e.g., exploratory spike), you may proceed, but must warn that downstream rework risk increases.
@@ -181,13 +188,6 @@ Execution steps:
    - Coverage summary table listing each taxonomy category with Status: Resolved (was Partial/Missing and addressed), Deferred (exceeds question quota or better suited for planning), Clear (already sufficient), Outstanding (still Partial/Missing but low impact).
    - If any Outstanding or Deferred remain, recommend whether to proceed to `/speckit.plan` or run `/speckit.clarify` again later post-plan.
    - Suggested next command.
-
-**STOP HERE. Do NOT proceed to implementation.**
-
-Your job is done. Report the results and prompt the
-user. The user will invoke a separate command
-(/uf.unleash, /uf.cobalt-crush, or /opsx-apply) when they
-are ready to implement.
 
 Behavior rules:
 

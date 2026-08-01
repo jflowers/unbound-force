@@ -13,6 +13,13 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Goal
 
+**STOP HERE. Do NOT proceed to implementation.**
+
+Your job is done. Report the results and prompt the
+user. The user will invoke a separate command
+(/uf.unleash, /uf.cobalt-crush, or /opsx-apply) when they
+are ready to implement.
+
 Assess the testability of feature specification artifacts (`spec.md`, `plan.md`, `tasks.md`) through a dedicated testing lens. This command identifies vague acceptance criteria, missing coverage strategy, undefined contract surfaces, and infeasible fixture requirements — issues that cause rework if discovered only during implementation. This command MUST run only after `/speckit.tasks` has successfully produced a complete `tasks.md`.
 
 ## Operating Constraints
@@ -115,13 +122,6 @@ At end of report, output a concise Next Actions block:
 ### 6. Offer Remediation
 
 Ask the user: "Would you like me to suggest concrete remediation edits for the top N issues?" (Do NOT apply them automatically.)
-
-**STOP HERE. Do NOT proceed to implementation.**
-
-Your job is done. Report the results and prompt the
-user. The user will invoke a separate command
-(/uf.unleash, /uf.cobalt-crush, or /opsx-apply) when they
-are ready to implement.
 
 ## Operating Principles
 
