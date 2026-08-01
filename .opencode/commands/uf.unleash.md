@@ -29,6 +29,36 @@ off on re-run.
 
 ## Instructions
 
+> **SESSION-RESUME GUARD**: If you are resuming this
+> command after context compression or a session restart,
+> STOP and re-read this entire template before continuing.
+> Do NOT infer which steps are complete from compressed
+> context summaries. Only filesystem markers are
+> authoritative for resumability:
+> - Task checkboxes (`[x]` vs `[ ]`) in `tasks.md`
+> - `<!-- spec-review: passed -->` in `tasks.md`
+> - `<!-- code-review: passed -->` in `tasks.md`
+>
+> Maintain the execution checklist below using the Edit
+> tool. Update it in-place as each step, phase, or
+> iteration completes. This is your live state record.
+
+**Execution Checklist** -- update in-place with Edit tool:
+
+```
+- [ ] Step 0: Startup Cleanup
+- [ ] Step 1: Branch Safety Gate
+- [ ] Step 2: Resumability Detection
+- [ ] Step 3: Clarify (Step 1)
+- [ ] Step 4: Plan (Step 2)
+- [ ] Step 5: Tasks (Step 3)
+- [ ] Step 6: Spec Review (Step 4) -- iteration: 0/3
+- [ ] Step 7: Implement (Step 5) -- phase: 0/N, batch: 0/N, workers: 0/N
+- [ ] Step 8: Code Review (Step 6) -- iteration: 0/3
+- [ ] Step 9: Retrospective (Step 7)
+- [ ] Step 10: Demo (Step 8)
+```
+
 ### 0. Startup Cleanup
 
 Before any pipeline logic, clean up stale worktrees from
@@ -43,6 +73,9 @@ previous interrupted runs:
 
 If `swarm_worktree_list` is not available (Replicator
 not installed), skip this step silently.
+
+> CHECKPOINT: Mark Step 0 complete in the execution
+> checklist before proceeding.
 
 ### 1. Branch Safety Gate
 
@@ -95,10 +128,16 @@ git rev-parse --abbrev-ref HEAD
   > (`opsx/*`). Run `/speckit.specify` or
   > `/opsx-propose` to create one."
 
+> CHECKPOINT: Mark Step 1 complete in the execution
+> checklist before proceeding.
+
 ### 2. Resumability Detection
 
 Probe filesystem state to determine which steps are
-already complete. Check in order:
+already complete. Check in order. **Important**:
+compressed context summaries are NOT valid resumability
+indicators -- only the filesystem markers listed below
+are authoritative.
 
 **If `WORKFLOW_TIER = openspec`**: checks 1-3 are always
 "done" — these artifacts were created by `/opsx-propose`.
@@ -151,6 +190,9 @@ from the first incomplete step.
 If ALL steps are complete (all tasks done, tests pass):
 skip directly to step 7 (retrospective) since it is
 idempotent.
+
+> CHECKPOINT: Mark Step 2 complete in the execution
+> checklist before proceeding.
 
 ### 3. Step 1 -- Clarify
 
@@ -227,6 +269,9 @@ needed" and proceed to step 2.
   Run `/uf.unleash` to continue from the plan step.
   ```
 
+> CHECKPOINT: Mark Step 3 complete in the execution
+> checklist before proceeding.
+
 ### 4. Step 2 -- Plan
 
 **If `WORKFLOW_TIER = openspec`**: skip this step.
@@ -248,6 +293,9 @@ Generate the implementation plan by delegating to the
    > "Plan generation failed -- plan.md was not created.
    > Check the agent output for errors."
 
+> CHECKPOINT: Mark Step 4 complete in the execution
+> checklist before proceeding.
+
 ### 5. Step 3 -- Tasks
 
 **If `WORKFLOW_TIER = openspec`**: skip this step.
@@ -267,6 +315,9 @@ Generate the task list by delegating to the
 4. If `tasks.md` was NOT created: **STOP** with error:
    > "Task generation failed -- tasks.md was not created.
    > Check the agent output for errors."
+
+> CHECKPOINT: Mark Step 5 complete in the execution
+> checklist before proceeding.
 
 ### 6. Step 4 -- Spec Review
 
@@ -302,6 +353,9 @@ analysis + quality validation) in a single pass.
   policy). After fixes, re-run the review. If all
   APPROVE after fixes, write the marker and proceed.
 
+  > CHECKPOINT: Update execution checklist -- spec
+  > review iteration N/3.
+
 - If HIGH or CRITICAL findings remain after auto-fixing
   LOW/MEDIUM: **EXIT** with the findings:
 
@@ -321,6 +375,9 @@ analysis + quality validation) in a single pass.
   ### Then resume
   Run `/uf.unleash` to continue from spec review.
   ```
+
+> CHECKPOINT: Mark Step 6 complete in the execution
+> checklist before proceeding.
 
 ### 7. Step 5 -- Implement
 
@@ -373,6 +430,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
         worktree path.
 
    d. Wait for all workers in the batch to complete.
+
+      > CHECKPOINT: Update execution checklist --
+      > batch N/M complete, workers done/total.
 
    e. **If any worker fails**: stop spawning new workers
       (do not start the next batch). Wait for any
@@ -451,6 +511,10 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    are complete (both sequential and parallel), run the
    pre-flight skill in `hard-gate` mode to execute all
    detected CI and local tool commands.
+
+   > CHECKPOINT: Update execution checklist -- Phase
+   > N/M complete.
+
    - If all pass: proceed to the next phase.
    - If any fail: **EXIT** with the failure details:
 
@@ -468,6 +532,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
      ### Then resume
      Run `/uf.unleash` to continue from the next phase.
      ```
+
+> CHECKPOINT: Mark Step 7 complete in the execution
+> checklist before proceeding.
 
 ### 8. Step 6 -- Code Review
 
@@ -508,6 +575,9 @@ quality data.
   b. Re-run the review council in code review mode.
   c. If all APPROVE: proceed to step 7.
 
+  > CHECKPOINT: Update execution checklist -- code
+  > review iteration N/3.
+
 - If 3 iterations are exhausted with remaining findings:
   **EXIT** with the persistent issues:
 
@@ -533,6 +603,9 @@ quality data.
   ### Then resume
   Run `/uf.unleash` to continue from code review.
   ```
+
+> CHECKPOINT: Mark Step 8 complete in the execution
+> checklist before proceeding.
 
 ### 9. Step 7 -- Retrospective
 
@@ -569,6 +642,9 @@ memory.
 
    Display the learnings in the output so they are not
    lost.
+
+> CHECKPOINT: Mark Step 9 complete in the execution
+> checklist before proceeding.
 
 ### 10. Step 8 -- Demo
 
@@ -633,6 +709,9 @@ Format the output as:
 - Run `/uf.finale` to create PR and watch CI
 - Run `/speckit.clarify` to refine and iterate
 ```
+
+> CHECKPOINT: Mark Step 10 complete in the execution
+> checklist. Pipeline complete.
 
 ## Guardrails
 
