@@ -1,7 +1,8 @@
 # Eval smoke test — runs eval fixtures against the eval-infra driver.
 #
-# Triggers on push to the eval smoke test branch for initial validation.
-# Will switch to PR-triggered + weekly cron once proven.
+# Triggers on push to the eval branch and on PRs that touch eval/opencode files.
+# Posts eval summary as a GitHub Actions job summary (always) and as a
+# PR comment (on pull_request events only).
 
 name: Eval
 
@@ -9,6 +10,11 @@ on:
   push:
     branches:
       - eval/smoke-test-constitution-check
+  pull_request:
+    branches: [main]
+    paths:
+      - '.opencode/**'
+      - '.eval/**'
 
 permissions: {}
 
@@ -18,6 +24,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      pull-requests: write
     secrets:
       gcp_project_id: ${{ secrets.GCP_PROJECT_ID }}
       gcp_workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
