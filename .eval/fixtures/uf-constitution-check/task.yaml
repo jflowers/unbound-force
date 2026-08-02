@@ -1,0 +1,5 @@
+task_id: uf-constitution-check-smoke
+task_version: "1"
+description: "Smoke test for /uf.constitution-check — verify it produces a structured alignment report from frozen constitutions"
+command: uf.constitution-check
+timeout_seconds: 120

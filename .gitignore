@@ -62,3 +62,7 @@ internal/**/openspec/
 *.log
 gateway.pid
 unbound-force
+
+# Eval
+eval-out/
+*.db

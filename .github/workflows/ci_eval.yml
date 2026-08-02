@@ -1,0 +1,27 @@
+# Eval smoke test — runs eval fixtures against the eval-infra driver.
+#
+# Triggers on push to the eval smoke test branch for initial validation.
+# Will switch to PR-triggered + weekly cron once proven.
+
+name: Eval
+
+on:
+  push:
+    branches:
+      - eval/smoke-test-constitution-check
+
+permissions: {}
+
+jobs:
+  eval:
+    uses: jflowers/eval-infra/.github/workflows/reusable_opencode_eval.yml@main
+    permissions:
+      contents: read
+      id-token: write
+    secrets:
+      gcp_project_id: ${{ secrets.GCP_PROJECT_ID }}
+      gcp_workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    with:
+      fixture-path: .eval/fixtures
+      opencode-version: '1.2.26'
+      timeout-minutes: 10
