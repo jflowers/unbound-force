@@ -17,7 +17,9 @@ status:: ready
 - [ ] 2.1 Run `/uf.review-pr` against a PR with only MEDIUM/LOW
   findings and confirm Step 7 presents the
   `AskUserQuestion`. Pass: agent output includes the
-  verdict-posting prompt. Fail: Step 7 is skipped.
+  verdict-posting prompt and does not include the finding
+  count summary. Fail: Step 7 is skipped or framing text
+  appears.
 - [ ] 2.2 Run `/uf.review-pr` against a PR with zero findings
   and APPROVE verdict and confirm Step 7 presents the
   `AskUserQuestion` without framing text. Pass: agent

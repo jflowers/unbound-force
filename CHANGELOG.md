@@ -20,6 +20,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Closes: #253)
 
 ### Fixed
+- fix-review-pr-step7-gate: Step 7 verdict-posting offer
+  in `/uf.review-pr` was gated behind a HIGH+ findings
+  condition, causing the `AskUserQuestion` to be skipped
+  when a review had only MEDIUM/LOW findings or zero
+  findings. Restructured Step 7 so the framing text is
+  conditional on HIGH+ findings while the posting offer
+  always executes.
+  (Spec: openspec/changes/fix-review-pr-step7-gate/,
+  Fixes: #441)
 - mutimind-acceptance-gate: Added AskUserQuestion
   confirmation gate before acceptance decision CLI
   (`go run cmd/mutimind/main.go decide`) in
