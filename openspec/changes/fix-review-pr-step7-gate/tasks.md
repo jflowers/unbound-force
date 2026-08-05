@@ -31,3 +31,4 @@ status:: ready
   count summary and the verdict-posting prompt.
 
 <!-- spec-review: passed -->
+<!-- code-review: passed -->
