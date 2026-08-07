@@ -374,6 +374,7 @@ func warnStaleCommandRefs(w io.Writer, targetDir string) {
 	for _, m := range matches {
 		data, readErr := os.ReadFile(m)
 		if readErr != nil {
+			_, _ = fmt.Fprintf(w, "  warning: could not read %s: %v\n", filepath.Base(m), readErr)
 			continue
 		}
 		content := string(data)
@@ -395,7 +396,8 @@ func warnStaleCommandRefs(w io.Writer, targetDir string) {
 		_, _ = fmt.Fprintf(w, "    %s: %s → %s\n", f.file, f.oldRef, f.newRef)
 	}
 	_, _ = fmt.Fprintln(w, "  Agent files are user-owned and not auto-updated.")
-	_, _ = fmt.Fprintln(w, "  Update these references manually or re-scaffold agents with --force.")
+	_, _ = fmt.Fprintln(w, "  Update these references manually, or run `uf init --force` to")
+	_, _ = fmt.Fprintln(w, "  re-scaffold all agent files (this will overwrite customizations).")
 }
 
 // isToolOwned returns true if the file is maintained by the

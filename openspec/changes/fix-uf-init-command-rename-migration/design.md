@@ -136,8 +136,8 @@ references. The warning may occasionally flag non-command
 text.
 
 Accepted: false positives in a warning are low-cost.
-The warning lists specific lines so users can judge. No
-files are modified.
+The warning lists affected files and the old/new command
+references so users can judge. No files are modified.
 
 ### Trade-off: Warning vs. auto-fix for agents
 

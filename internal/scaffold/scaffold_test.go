@@ -6654,7 +6654,7 @@ func TestCleanupRenamedCommands_NoOldFiles(t *testing.T) {
 	}
 }
 
-func TestCleanupRenamedCommands_PartialFailure(t *testing.T) {
+func TestCleanupRenamedCommands_NonWritableDir(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("read-only file test not reliable on Windows")
 	}
@@ -6674,13 +6674,12 @@ func TestCleanupRenamedCommands_PartialFailure(t *testing.T) {
 		}
 	}
 
-	// Make the directory read-only so os.Remove fails for readonly file,
-	// but first make readonly file read-only too.
+	// Make a file read-only, then make the directory non-writable so
+	// os.Remove fails for ALL files (total failure, not partial).
 	readonlyPath := filepath.Join(cmdDir, readonly)
 	if err := os.Chmod(readonlyPath, 0o444); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	// Make the directory non-writable so Remove fails.
 	if err := os.Chmod(cmdDir, 0o555); err != nil {
 		t.Fatalf("chmod dir: %v", err)
 	}
@@ -6693,9 +6692,9 @@ func TestCleanupRenamedCommands_PartialFailure(t *testing.T) {
 	var buf bytes.Buffer
 	removed := cleanupRenamedCommands(&buf, dir)
 
-	// Neither file should be removable since the directory is read-only.
+	// No files should be removable since the directory is non-writable.
 	if len(removed) != 0 {
-		t.Errorf("expected 0 removed (dir is read-only), got %d: %v", len(removed), removed)
+		t.Errorf("expected 0 removed (dir is non-writable), got %d: %v", len(removed), removed)
 	}
 
 	// Warnings should have been emitted for both files.
