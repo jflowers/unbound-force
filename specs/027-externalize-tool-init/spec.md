@@ -304,9 +304,10 @@ after setup, and `specify` is installed and in PATH.
 
 ### Assumptions
 
-- The `specify init` command is non-interactive when
-  run without a project name argument (creates
-  `.specify/` in the current directory).
+- The `specify init` command requires explicit flags
+  for non-interactive operation: `--here` (current
+  directory), `--integration opencode` (agent
+  selection), and `--offline` (bundled assets).
 - The `openspec init --tools opencode` command is
   non-interactive (the `--tools` flag bypasses the
   interactive tool selection prompt).

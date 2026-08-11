@@ -3717,7 +3717,7 @@ func TestInitSubTools_ConcurrentAllResults(t *testing.T) {
 
 	expectedCmds := []string{
 		"dewey init", "dewey index --no-embeddings",
-		"replicator init", "specify init",
+		"replicator init", "specify init --here --integration opencode --offline",
 		"openspec init --tools opencode", "gaze init",
 	}
 	for _, cmd := range expectedCmds {
@@ -4086,12 +4086,12 @@ func TestInitSubTools_SpecifyInit(t *testing.T) {
 
 	found := false
 	for _, call := range rec.calls {
-		if call == "specify init" {
+		if call == "specify init --here --integration opencode --offline" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected 'specify init' call, got: %v", rec.calls)
+		t.Errorf("expected 'specify init --here --integration opencode --offline' call, got: %v", rec.calls)
 	}
 }
 
@@ -4118,7 +4118,7 @@ func TestInitSubTools_SpecifySkipped(t *testing.T) {
 	}
 
 	for _, call := range rec.calls {
-		if call == "specify init" {
+		if call == "specify init --here --integration opencode --offline" {
 			t.Error("specify init should NOT be called when .specify/ exists")
 		}
 	}
@@ -4147,7 +4147,7 @@ func TestInitSubTools_SpecifyFailed(t *testing.T) {
 	dir := t.TempDir()
 	rec := &scaffoldCmdRecorder{
 		errors: map[string]error{
-			"specify init": fmt.Errorf("init failed"),
+			"specify init --here --integration opencode --offline": fmt.Errorf("init failed"),
 		},
 	}
 
@@ -6356,10 +6356,10 @@ func TestInitSubTools_SimpleToolFails_ShowsError(t *testing.T) {
 	dir := t.TempDir()
 	rec := &scaffoldCmdRecorder{
 		errors: map[string]error{
-			"specify init": fmt.Errorf("exit status 1"),
+			"specify init --here --integration opencode --offline": fmt.Errorf("exit status 1"),
 		},
 		outputs: map[string]string{
-			"specify init": "Error: .specify already exists\nUse --force to overwrite.\n",
+			"specify init --here --integration opencode --offline": "Error: .specify already exists\nUse --force to overwrite.\n",
 		},
 	}
 

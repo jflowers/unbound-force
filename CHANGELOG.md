@@ -37,6 +37,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Closes: #253)
 
 ### Fixed
+- fix-specify-init-invocation: Fixed `uf init` failing
+  to create `.specify/` directory due to upstream
+  specify-cli interface changes. Updated specify
+  invocation from bare `specify init` to
+  `specify init --here --integration opencode --offline`
+  to match the new CLI contract.
+  (Spec: openspec/changes/fix-specify-init-invocation/,
+  Fixes: #216)
 - fix-incorrect-guardrails: Step 6 of `/uf.init` now
   injects command-specific guardrails for
   `speckit.implement.md`, `speckit.constitution.md`,
