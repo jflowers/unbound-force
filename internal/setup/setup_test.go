@@ -1924,8 +1924,8 @@ func TestDefaultResolveRelease_TagTooLong(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for tag too long")
 	}
-	if !strings.Contains(err.Error(), "tag too long") {
-		t.Errorf("error = %q, want to contain 'tag too long'", err.Error())
+	if !strings.Contains(err.Error(), "release tag too long") {
+		t.Errorf("error = %q, want to contain 'release tag too long'", err.Error())
 	}
 }
 
@@ -1972,8 +1972,8 @@ func TestDefaultResolveRelease_EmptyOutput(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty output")
 	}
-	if !strings.Contains(err.Error(), "no release tag found") {
-		t.Errorf("error = %q, want to contain 'no release tag found'", err.Error())
+	if !strings.Contains(err.Error(), "invalid release tag format") {
+		t.Errorf("error = %q, want to contain 'invalid release tag format'", err.Error())
 	}
 }
 
@@ -2001,8 +2001,8 @@ func TestDefaultResolveRelease_MalformedRepo(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for malformed repo")
 	}
-	if !strings.Contains(err.Error(), "invalid repo format") {
-		t.Errorf("error = %q, want to contain 'invalid repo format'", err.Error())
+	if !strings.Contains(err.Error(), "invalid repository format") {
+		t.Errorf("error = %q, want to contain 'invalid repository format'", err.Error())
 	}
 }
 
@@ -2123,6 +2123,32 @@ func TestInstallGaze_ResolveReleaseError(t *testing.T) {
 		},
 	}
 	result := installGaze(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if !strings.Contains(result.detail, "cannot resolve latest release") {
+		t.Errorf("detail should contain 'cannot resolve latest release', got %q", result.detail)
+	}
+	if !strings.Contains(result.detail, "--method go") {
+		t.Errorf("detail should contain actionable guidance '--method go', got %q", result.detail)
+	}
+}
+
+func TestInstallReplicator_ResolveReleaseError(t *testing.T) {
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "", fmt.Errorf("resolve latest release for %s: network timeout", repo)
+		},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+	result := installReplicator(opts, env)
 	if result.action != "failed" {
 		t.Errorf("action = %q, want failed", result.action)
 	}

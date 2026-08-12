@@ -153,7 +153,7 @@ var semverPattern = regexp.MustCompile(`^[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}$`)
 func (o *Options) defaultResolveRelease(repo string) (string, error) {
 	// D7: validate repo parameter format before passing to ExecCmd.
 	if !repoPattern.MatchString(repo) {
-		return "", fmt.Errorf("invalid repo format %q: must match owner/repo", repo)
+		return "", fmt.Errorf("invalid repository format %q: must match owner/repo", repo)
 	}
 
 	out, err := o.ExecCmd("gh", "release", "view", "--repo", repo, "--json", "tagName", "-q", ".tagName")
@@ -167,14 +167,10 @@ func (o *Options) defaultResolveRelease(repo string) (string, error) {
 	// D3 step 1: strip leading "v" prefix.
 	tag = strings.TrimPrefix(tag, "v")
 
-	if tag == "" {
-		return "", fmt.Errorf("resolve latest release for %s: no release tag found", repo)
-	}
-
 	// D3 step 2: reject tags longer than 20 characters (defense-in-depth).
 	// Checked before semver regex for early rejection of oversized input.
 	if len(tag) > 20 {
-		return "", fmt.Errorf("resolve latest release for %s: tag too long (%d chars)", repo, len(tag))
+		return "", fmt.Errorf("resolve latest release for %s: release tag too long (%d chars)", repo, len(tag))
 	}
 
 	// D3 step 3: verify basic semver format.
