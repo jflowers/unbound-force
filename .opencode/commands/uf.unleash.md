@@ -648,6 +648,13 @@ memory.
 
 ### 10. Step 8 -- Demo
 
+> **OUTPUT FIDELITY GUARD**: Before composing any demo
+> output, re-read this Step 10 Demo section (from this
+> heading through the CHECKPOINT blockquote below).
+> The template is the sole authority for prescribed
+> output format — NEVER reconstruct it from memory or
+> compressed context summaries.
+
 Present structured demo instructions to the developer.
 
 1. **What Was Built**:
@@ -678,11 +685,13 @@ Present structured demo instructions to the developer.
 4. **Test Results**: summarize the test output from the
    most recent build/test checkpoint.
 
-5. **Next Steps**: always present these options:
-   - `/uf.finale` to commit, push, create PR, and return
-     to main
-   - `/speckit.clarify` to refine the spec and re-run
-     `/uf.unleash`
+5. **Next Steps**: always present exactly these two
+   options as shown in the format block below — do not
+   paraphrase, add, or remove options.
+   **Note**: The pre-PR `/uf.review-council` requirement
+   is already satisfied by Step 8 (Code Review). Do NOT
+   re-suggest `/uf.review-council` or hand-roll git
+   commit/push/PR steps in the demo output.
 
 Format the output as:
 
@@ -738,3 +747,6 @@ Format the output as:
 - **NEVER hardcode build/test commands** -- load the
   `pre-flight` skill to derive them from
   `.github/workflows/` and local tool configs
+- **NEVER improvise Demo exit text** -- the "Next Steps"
+  section in Step 10 prescribes the exact output; re-read
+  and reproduce it verbatim

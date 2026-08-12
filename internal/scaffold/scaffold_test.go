@@ -178,7 +178,8 @@ var expectedAssetPaths = []string{
 	"openspec/schemas/unbound-force/templates/spec.md",
 	"openspec/schemas/unbound-force/templates/design.md",
 	"openspec/schemas/unbound-force/templates/tasks.md",
-	// Swarm skills (3)
+	// Swarm skills (4)
+	"opencode/skills/always-on-guidance/SKILL.md",
 	"opencode/skills/pre-flight/SKILL.md",
 	"opencode/skills/review-context/SKILL.md",
 	"opencode/skills/speckit-workflow/SKILL.md",
@@ -1066,8 +1067,12 @@ var knownNonEmbeddedFiles = map[string]bool{
 	".opencode/commands/handoff.md":          true,
 	".opencode/commands/inbox.md":            true,
 	".opencode/commands/org.md":              true,
+	// OpenSpec skills — created by openspec init, not scaffolded by uf init
+	".opencode/skills/openspec-apply-change/SKILL.md":   true,
+	".opencode/skills/openspec-archive-change/SKILL.md": true,
+	".opencode/skills/openspec-explore/SKILL.md":        true,
+	".opencode/skills/openspec-propose/SKILL.md":        true,
 	// Replicator-scaffolded skills — created by replicator init
-	".opencode/skills/always-on-guidance/SKILL.md": true,
 	".opencode/skills/forge-coordination/SKILL.md": true,
 	".opencode/skills/forge-global/SKILL.md":       true,
 	".opencode/skills/learning-systems/SKILL.md":   true,
@@ -1096,6 +1101,7 @@ func TestCanonicalSources_AreEmbedded(t *testing.T) {
 	canonicalDirs := []string{
 		".opencode/commands",
 		".opencode/agents",
+		".opencode/skills",
 		".opencode/uf/packs",
 	}
 
@@ -1107,6 +1113,11 @@ func TestCanonicalSources_AreEmbedded(t *testing.T) {
 		err := filepath.Walk(fullDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return err
+			}
+			// Skip hidden files (e.g., .DS_Store) — they are not
+			// canonical source files and should not be tracked.
+			if strings.HasPrefix(info.Name(), ".") {
+				return nil
 			}
 			relPath, _ := filepath.Rel(root, path)
 			if knownNonEmbeddedFiles[relPath] {

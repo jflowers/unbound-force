@@ -163,9 +163,10 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 - **CI parity**: MUST replicate CI checks locally before marking
   tasks complete. Derive commands from `.github/workflows/`.
 - **Review council**: MUST run `/uf.review-council` before PR
-  submission. Resolve all REQUEST CHANGES. No code changes
-  between APPROVE and PR. Exempt: constitution amendments,
-  docs-only, emergency hotfixes.
+  submission (already executed as `/uf.unleash` Step 8;
+  do not re-run). Resolve all REQUEST CHANGES. No code
+  changes between APPROVE and PR. Exempt: constitution
+  amendments, docs-only, emergency hotfixes.
 - **Branch protection**: MUST NOT commit directly to `main`.
   All changes via feature branches and PRs.
 - **Documentation gate**: Before marking a task complete,
@@ -191,7 +192,7 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 
 | Command | When | Scope |
 |---------|------|-------|
-| `/uf.review-council` | Pre-PR (local) | 5+ Divisor agents |
+| `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 8) | 5+ Divisor agents |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent, CI analysis |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
 

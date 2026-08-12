@@ -43,6 +43,18 @@ Each entry follows the format: `- <change-name>: <summary>`.
   to match the new CLI contract.
   (Spec: openspec/changes/fix-specify-init-invocation/,
   Fixes: #216)
+- unleash-demo-output-fidelity: `/uf.unleash` Step 10
+  Demo now includes a JIT re-read guard ensuring
+  prescribed Next Steps output is reproduced verbatim
+  from the template, not improvised after compression.
+  Reconciles divergent Next Steps blocks into one
+  canonical format. Adds anti-improvisation guardrail
+  and Step 8 equivalence note (review council already
+  runs in Step 8). Scaffolds `always-on-guidance` skill
+  for org-wide propagation via `uf init`. Clarifies
+  AGENTS.md review-council rule. Extends reverse-drift
+  test to cover `.opencode/skills/`.
+  (Spec: openspec/changes/unleash-demo-output-fidelity/)
 - fix-incorrect-guardrails: Step 6 of `/uf.init` now
   injects command-specific guardrails for
   `speckit.implement.md`, `speckit.constitution.md`,
