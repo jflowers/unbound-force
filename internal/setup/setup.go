@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -64,10 +65,16 @@ type Options struct {
 	// Defaults to runtime.GOOS when empty.
 	GOOS string
 
-	// Version is the current binary version (e.g., "0.12.0"),
-	// used to construct GitHub Release RPM URLs. Set by the CLI
-	// from the build-time version variable.
+	// Version is the current uf binary version (e.g., "0.12.0").
+	// Set by the CLI from the build-time version variable.
+	// NOT used for companion tool RPM URLs — use ResolveRelease instead.
 	Version string
+
+	// ResolveRelease resolves the latest release tag for a GitHub
+	// repository (e.g., "unbound-force/gaze" → "0.15.0"). Returns
+	// the version string without the "v" prefix. Returns an error
+	// if resolution fails (network, no releases, invalid format).
+	ResolveRelease func(repo string) (string, error)
 
 	// PackageManager is the preferred package manager from config.
 	// Valid: "auto", "homebrew", "dnf", "apt", "manual".
@@ -123,11 +130,59 @@ func (o *Options) defaults() {
 	if o.GOOS == "" {
 		o.GOOS = runtime.GOOS
 	}
+	if o.ResolveRelease == nil {
+		o.ResolveRelease = o.defaultResolveRelease
+	}
 }
 
 // defaultExecCmd is the production implementation of ExecCmd.
 func defaultExecCmd(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
+}
+
+// repoPattern validates the GitHub "owner/repo" format per D7.
+var repoPattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$`)
+
+// semverPattern validates a basic semver version string (major.minor.patch)
+// with bounded digit counts per D3.
+var semverPattern = regexp.MustCompile(`^[0-9]{1,5}\.[0-9]{1,5}\.[0-9]{1,5}$`)
+
+// defaultResolveRelease is the production implementation of ResolveRelease.
+// It invokes `gh release view --repo {repo} --json tagName -q .tagName`
+// and validates the returned tag per D1, D3, D7.
+func (o *Options) defaultResolveRelease(repo string) (string, error) {
+	// D7: validate repo parameter format before passing to ExecCmd.
+	if !repoPattern.MatchString(repo) {
+		return "", fmt.Errorf("invalid repo format %q: must match owner/repo", repo)
+	}
+
+	out, err := o.ExecCmd("gh", "release", "view", "--repo", repo, "--json", "tagName", "-q", ".tagName")
+	if err != nil {
+		return "", fmt.Errorf("resolve latest release for %s: %w", repo, err)
+	}
+
+	// D3 step 0: trim whitespace (including trailing newlines from ExecCmd).
+	tag := strings.TrimSpace(string(out))
+
+	// D3 step 1: strip leading "v" prefix.
+	tag = strings.TrimPrefix(tag, "v")
+
+	if tag == "" {
+		return "", fmt.Errorf("resolve latest release for %s: no release tag found", repo)
+	}
+
+	// D3 step 2: reject tags longer than 20 characters (defense-in-depth).
+	// Checked before semver regex for early rejection of oversized input.
+	if len(tag) > 20 {
+		return "", fmt.Errorf("resolve latest release for %s: tag too long (%d chars)", repo, len(tag))
+	}
+
+	// D3 step 3: verify basic semver format.
+	if !semverPattern.MatchString(tag) {
+		return "", fmt.Errorf("resolve latest release for %s: invalid release tag format %q", repo, tag)
+	}
+
+	return tag, nil
 }
 
 // stepResult tracks the outcome of a setup step.
@@ -379,8 +434,8 @@ func Run(opts Options) error {
 func buildSteps(opts *Options, nodeAvailable, uvAvailable, replicatorAvailable *bool) []stepDef {
 	return []stepDef{
 		{name: "OpenCode", tool: "opencode", install: installOpenCode},
-		{name: "Gaze", tool: "gaze", install: installGaze},
 		{name: "GitHub CLI", tool: "gh", install: installGH},
+		{name: "Gaze", tool: "gaze", install: installGaze},
 		{
 			name: "Node.js", tool: "node", install: ensureNodeJS,
 			effect: func(r stepResult) {
@@ -666,7 +721,17 @@ func installGaze(opts *Options, env doctor.DetectedEnvironment) stepResult {
 	case "homebrew":
 		return installViaBrew(opts, "Gaze", "unbound-force/tap/gaze")
 	case "rpm", "dnf":
-		return installViaRpm(opts, "Gaze", "unbound-force/gaze", opts.Version)
+		version, err := opts.ResolveRelease("unbound-force/gaze")
+		if err != nil {
+			return stepResult{
+				name:   "Gaze",
+				action: "failed",
+				detail: "cannot resolve latest release: " + err.Error() +
+					" — try --method go or set tool_methods.gaze: go in config",
+				err: err,
+			}
+		}
+		return installViaRpm(opts, "Gaze", "unbound-force/gaze", version)
 	case "go":
 		result := installViaGo(opts, "Gaze", "github.com/unbound-force/gaze/cmd/gaze")
 		if result.action != "skipped" {
@@ -854,7 +919,17 @@ func installReplicator(opts *Options, env doctor.DetectedEnvironment) stepResult
 	case "homebrew":
 		return installViaBrew(opts, "Replicator", "unbound-force/tap/replicator")
 	case "rpm", "dnf":
-		return installViaRpm(opts, "Replicator", "unbound-force/replicator", opts.Version)
+		version, err := opts.ResolveRelease("unbound-force/replicator")
+		if err != nil {
+			return stepResult{
+				name:   "Replicator",
+				action: "failed",
+				detail: "cannot resolve latest release: " + err.Error() +
+					" — try --method go or set tool_methods.replicator: go in config",
+				err: err,
+			}
+		}
+		return installViaRpm(opts, "Replicator", "unbound-force/replicator", version)
 	case "go":
 		result := installViaGo(opts, "Replicator", "github.com/unbound-force/replicator/cmd/replicator")
 		if result.action != "skipped" {

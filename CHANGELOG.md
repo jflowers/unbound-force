@@ -55,6 +55,16 @@ Each entry follows the format: `- <change-name>: <summary>`.
   AGENTS.md review-council rule. Extends reverse-drift
   test to cover `.opencode/skills/`.
   (Spec: openspec/changes/unleash-demo-output-fidelity/)
+- fix-rpm-version-skew: `uf setup` RPM install path now
+  resolves each companion tool's latest release
+  independently via `gh release view` instead of using
+  the uf binary's own version. Fixes 404 errors on
+  Fedora/RHEL when gaze or replicator versions diverge
+  from uf. Adds `ResolveRelease` injectable dependency
+  to `Options` for testability. Reorders `buildSteps()`
+  so GitHub CLI is installed before Gaze.
+  (Spec: openspec/changes/fix-rpm-version-skew/,
+  Fixes: #455)
 - fix-incorrect-guardrails: Step 6 of `/uf.init` now
   injects command-specific guardrails for
   `speckit.implement.md`, `speckit.constitution.md`,

@@ -1863,6 +1863,338 @@ func TestInstallViaRpm_DryRun(t *testing.T) {
 	}
 }
 
+// --- defaultResolveRelease tests (Task 3.1) ---
+
+func TestDefaultResolveRelease_ValidTagWithVPrefix(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "v1.2.3\n"},
+		}).execCmd,
+	}
+	got, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "1.2.3" {
+		t.Errorf("got %q, want %q", got, "1.2.3")
+	}
+}
+
+func TestDefaultResolveRelease_ValidTagNoPrefix(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "1.2.3\n"},
+		}).execCmd,
+	}
+	got, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "1.2.3" {
+		t.Errorf("got %q, want %q", got, "1.2.3")
+	}
+}
+
+func TestDefaultResolveRelease_InvalidFormat(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "latest\n"},
+		}).execCmd,
+	}
+	_, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err == nil {
+		t.Fatal("expected error for invalid format")
+	}
+	if !strings.Contains(err.Error(), "invalid release tag format") {
+		t.Errorf("error = %q, want to contain 'invalid release tag format'", err.Error())
+	}
+}
+
+func TestDefaultResolveRelease_TagTooLong(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "v1.2.3-very-long-tag-name-here"},
+		}).execCmd,
+	}
+	_, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err == nil {
+		t.Fatal("expected error for tag too long")
+	}
+	if !strings.Contains(err.Error(), "tag too long") {
+		t.Errorf("error = %q, want to contain 'tag too long'", err.Error())
+	}
+}
+
+func TestDefaultResolveRelease_GhCliFailure(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			errors: map[string]error{ghCmd: fmt.Errorf("gh: not found")},
+		}).execCmd,
+	}
+	_, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err == nil {
+		t.Fatal("expected error when gh CLI fails")
+	}
+	if !strings.Contains(err.Error(), "resolve latest release for") {
+		t.Errorf("error = %q, want to contain 'resolve latest release for'", err.Error())
+	}
+}
+
+func TestDefaultResolveRelease_WhitespacePadded(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "  v1.2.3  \n"},
+		}).execCmd,
+	}
+	got, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "1.2.3" {
+		t.Errorf("got %q, want %q", got, "1.2.3")
+	}
+}
+
+func TestDefaultResolveRelease_EmptyOutput(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: ""},
+		}).execCmd,
+	}
+	_, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err == nil {
+		t.Fatal("expected error for empty output")
+	}
+	if !strings.Contains(err.Error(), "no release tag found") {
+		t.Errorf("error = %q, want to contain 'no release tag found'", err.Error())
+	}
+}
+
+func TestDefaultResolveRelease_PreReleaseRejected(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "v1.2.3-rc.1"},
+		}).execCmd,
+	}
+	_, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err == nil {
+		t.Fatal("expected error for pre-release tag")
+	}
+	if !strings.Contains(err.Error(), "invalid release tag format") {
+		t.Errorf("error = %q, want to contain 'invalid release tag format'", err.Error())
+	}
+}
+
+func TestDefaultResolveRelease_MalformedRepo(t *testing.T) {
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{}).execCmd,
+	}
+	_, err := opts.defaultResolveRelease("not-a-repo")
+	if err == nil {
+		t.Fatal("expected error for malformed repo")
+	}
+	if !strings.Contains(err.Error(), "invalid repo format") {
+		t.Errorf("error = %q, want to contain 'invalid repo format'", err.Error())
+	}
+}
+
+func TestDefaultResolveRelease_ValidRepo(t *testing.T) {
+	ghCmd := "gh release view --repo unbound-force/gaze --json tagName -q .tagName"
+	opts := &Options{
+		ExecCmd: (&cmdRecorder{
+			outputs: map[string]string{ghCmd: "v0.15.0\n"},
+		}).execCmd,
+	}
+	got, err := opts.defaultResolveRelease("unbound-force/gaze")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "0.15.0" {
+		t.Errorf("got %q, want %q", got, "0.15.0")
+	}
+}
+
+// --- Regression tests for issue #455 (Tasks 3.2, 3.3) ---
+
+func TestInstallGaze_Issue455_UsesResolvedVersionNotOptsVersion(t *testing.T) {
+	// Regression test: The RPM URL must use the resolved version (0.15.0)
+	// from ResolveRelease, NOT opts.Version (0.16.0). Issue #455.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		Version:  "0.16.0", // uf's version — must NOT appear in RPM URL
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "0.15.0", nil // gaze's version — must appear in RPM URL
+		},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+	result := installGaze(opts, env)
+	if result.action != "installed" {
+		t.Fatalf("action = %q, want installed", result.action)
+	}
+	// Verify the dnf install URL contains resolved version.
+	found := false
+	for _, call := range rec.calls {
+		if strings.Contains(call, "dnf install") {
+			found = true
+			if !strings.Contains(call, "v0.15.0") {
+				t.Errorf("RPM URL should contain resolved version v0.15.0, got: %s", call)
+			}
+			if strings.Contains(call, "v0.16.0") {
+				t.Errorf("RPM URL should NOT contain uf version v0.16.0, got: %s", call)
+			}
+		}
+	}
+	if !found {
+		t.Error("no dnf install call recorded")
+	}
+}
+
+func TestInstallReplicator_Issue455_UsesResolvedVersionNotOptsVersion(t *testing.T) {
+	// Regression test: The RPM URL must use the resolved version (2.1.0)
+	// from ResolveRelease, NOT opts.Version (0.16.0). Issue #455.
+	rec := &cmdRecorder{}
+	opts := &Options{
+		Version:  "0.16.0", // uf's version — must NOT appear in RPM URL
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  rec.execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "2.1.0", nil // replicator's version — must appear in RPM URL
+		},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+	result := installReplicator(opts, env)
+	if result.action != "installed" {
+		t.Fatalf("action = %q, want installed", result.action)
+	}
+	// Verify the dnf install URL contains resolved version.
+	found := false
+	for _, call := range rec.calls {
+		if strings.Contains(call, "dnf install") {
+			found = true
+			if !strings.Contains(call, "v2.1.0") {
+				t.Errorf("RPM URL should contain resolved version v2.1.0, got: %s", call)
+			}
+			if strings.Contains(call, "v0.16.0") {
+				t.Errorf("RPM URL should NOT contain uf version v0.16.0, got: %s", call)
+			}
+		}
+	}
+	if !found {
+		t.Error("no dnf install call recorded")
+	}
+}
+
+// --- Error path tests (Task 3.4) ---
+
+func TestInstallGaze_ResolveReleaseError(t *testing.T) {
+	opts := &Options{
+		LookPath: stubLookPath(map[string]string{}),
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "", fmt.Errorf("resolve latest release for %s: network timeout", repo)
+		},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+	result := installGaze(opts, env)
+	if result.action != "failed" {
+		t.Errorf("action = %q, want failed", result.action)
+	}
+	if !strings.Contains(result.detail, "cannot resolve latest release") {
+		t.Errorf("detail should contain 'cannot resolve latest release', got %q", result.detail)
+	}
+	if !strings.Contains(result.detail, "--method go") {
+		t.Errorf("detail should contain actionable guidance '--method go', got %q", result.detail)
+	}
+}
+
+// --- Dry-run with resolved version (Task 3.5) ---
+
+func TestInstallGaze_DryRunDnfWithResolvedVersion(t *testing.T) {
+	opts := &Options{
+		DryRun:   true,
+		Version:  "0.16.0",
+		LookPath: stubLookPath(map[string]string{}),
+		ExecCmd:  (&cmdRecorder{}).execCmd,
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "0.15.0", nil
+		},
+	}
+	env := doctor.DetectedEnvironment{
+		Managers: []doctor.ManagerInfo{
+			{Kind: doctor.ManagerDnf, Path: "/usr/bin/dnf"},
+		},
+	}
+	result := installGaze(opts, env)
+	if result.action != "dry-run" {
+		t.Errorf("action = %q, want dry-run", result.action)
+	}
+	if !strings.Contains(result.detail, "v0.15.0") {
+		t.Errorf("dry-run detail should contain resolved version v0.15.0, got %q", result.detail)
+	}
+	if strings.Contains(result.detail, "v0.16.0") {
+		t.Errorf("dry-run detail should NOT contain uf version v0.16.0, got %q", result.detail)
+	}
+}
+
+// --- buildSteps order test (Task 3.6) ---
+
+func TestBuildSteps_GHBeforeGaze(t *testing.T) {
+	opts := &Options{
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+	}
+	var node, uv, repl bool
+	steps := buildSteps(opts, &node, &uv, &repl)
+
+	ghIdx, gazeIdx := -1, -1
+	for i, s := range steps {
+		if s.name == "GitHub CLI" {
+			ghIdx = i
+		}
+		if s.name == "Gaze" {
+			gazeIdx = i
+		}
+	}
+	if ghIdx < 0 {
+		t.Fatal("GitHub CLI step not found")
+	}
+	if gazeIdx < 0 {
+		t.Fatal("Gaze step not found")
+	}
+	if ghIdx >= gazeIdx {
+		t.Errorf("GitHub CLI (index %d) must come before Gaze (index %d) per D6", ghIdx, gazeIdx)
+	}
+}
+
 // --- GitHub CLI installation tests ---
 
 func TestSetupRun_GHMissing_BrewInstall(t *testing.T) {
@@ -3871,6 +4203,9 @@ func TestInstallGaze_DnfFallback(t *testing.T) {
 		ExecCmd:  rec.execCmd,
 		Stdout:   &bytes.Buffer{},
 		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "1.0.0", nil
+		},
 	}
 	env := doctor.DetectedEnvironment{
 		Managers: []doctor.ManagerInfo{
@@ -3934,6 +4269,9 @@ func TestInstallGaze_PackageManagerDnf(t *testing.T) {
 		ExecCmd:        rec.execCmd,
 		Stdout:         &bytes.Buffer{},
 		Stderr:         &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "1.0.0", nil
+		},
 	}
 	opts.defaults()
 	env := doctor.DetectedEnvironment{
@@ -3996,6 +4334,9 @@ func TestInstallReplicator_DnfFallback(t *testing.T) {
 		ExecCmd:  rec.execCmd,
 		Stdout:   &bytes.Buffer{},
 		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "1.0.0", nil
+		},
 	}
 	env := doctor.DetectedEnvironment{
 		Managers: []doctor.ManagerInfo{
@@ -4056,6 +4397,9 @@ func TestInstallReplicator_PackageManagerDnf(t *testing.T) {
 		ExecCmd:        rec.execCmd,
 		Stdout:         &bytes.Buffer{},
 		Stderr:         &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "1.0.0", nil
+		},
 	}
 	opts.defaults()
 	env := doctor.DetectedEnvironment{
@@ -4327,6 +4671,9 @@ func TestInstallGaze_DryRunDnfFallback(t *testing.T) {
 		ExecCmd:  (&cmdRecorder{}).execCmd,
 		Stdout:   &bytes.Buffer{},
 		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "1.0.0", nil
+		},
 	}
 	env := doctor.DetectedEnvironment{
 		Managers: []doctor.ManagerInfo{
@@ -4372,6 +4719,9 @@ func TestInstallReplicator_DryRunDnfFallback(t *testing.T) {
 		ExecCmd:  (&cmdRecorder{}).execCmd,
 		Stdout:   &bytes.Buffer{},
 		Stderr:   &bytes.Buffer{},
+		ResolveRelease: func(repo string) (string, error) {
+			return "1.0.0", nil
+		},
 	}
 	env := doctor.DetectedEnvironment{
 		Managers: []doctor.ManagerInfo{
