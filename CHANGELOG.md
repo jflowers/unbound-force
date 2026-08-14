@@ -50,6 +50,16 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Adds regression guards for `/uf.` and `OpenCode` references
   in hints, and a drift-detection test for Tier 1 sections.
   (Spec: openspec/changes/fix-doctor-hints/, Fixes: #460)
+- fix-unleash-autonomy: `/uf.unleash` no longer halts
+  between pipeline steps to ask for human confirmation.
+  Added an inter-step autonomy guardrail and explicit
+  "proceed immediately" transition instructions at all
+  10 step checkpoints (Steps 0-9). All existing
+  STOP/EXIT conditions (HIGH/CRITICAL spec findings,
+  build failures, merge conflicts, review iteration
+  exhaustion) remain unchanged.
+  (Spec: openspec/changes/fix-unleash-autonomy/,
+  Fixes: #457)
 - fix-specify-init-invocation: Fixed `uf init` failing
   to create `.specify/` directory due to upstream
   specify-cli interface changes. Updated specify
