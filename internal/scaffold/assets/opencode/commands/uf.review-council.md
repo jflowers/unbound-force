@@ -833,6 +833,53 @@ step, determine which artifacts to review:
    from `severity.md`, and present as consolidated
    findings with per-persona attribution preserved.
 
+>>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<
+
+**Session-resume guard**: If this session was resumed
+from compressed context, or if you cannot verify that
+the human explicitly confirmed the auto-fix plan in
+the current uncompressed conversation history, you
+MUST re-present the findings summary below and obtain
+fresh confirmation via the **question tool** before
+applying fixes. Do NOT rely on confirmation recorded
+in compressed context. When in doubt, re-confirm —
+false re-confirmation is harmless; editing spec files
+without consent is a violation.
+
+Present the auto-fix plan to the user:
+
+> **Spec Auto-Fix Plan:**
+>
+> LOW findings to auto-fix: N
+> MEDIUM findings to auto-fix: N
+> HIGH/CRITICAL findings (report only): N
+>
+> Files to be modified:
+> - <file1>: <finding summary>
+> - <file2>: <finding summary>
+>
+> Auto-fixes will address formatting, terminology,
+> cross-references, and metadata issues. HIGH/CRITICAL
+> findings will be reported without modification.
+
+Use the **question tool** with options
+`["Apply auto-fixes",
+"Review findings first",
+"Skip auto-fixes -- report only"]`.
+
+- **"Apply auto-fixes"**: Proceed to apply LOW/MEDIUM
+  fixes per the hybrid fix policy below.
+- **"Review findings first"**: Display each finding
+  with full context before proceeding.
+- **"Skip auto-fixes -- report only"**: Skip all
+  auto-fixes and report all findings as-is.
+
+**CRITICAL RULE**: NEVER apply auto-fixes to spec
+files without explicit human confirmation via the
+**question tool**.
+
+>>> END MANDATORY GATE <<<
+
 3. If there are **REQUEST CHANGES**, apply the **hybrid fix policy**:
 
    Severity levels are defined in the shared severity convention pack at `.opencode/uf/packs/severity.md`. The auto-fix boundary (LOW/MEDIUM = auto-fix, HIGH/CRITICAL = report only) is grounded in these shared definitions to ensure consistent behavior across all 5 personas.

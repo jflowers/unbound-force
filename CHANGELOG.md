@@ -23,6 +23,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Fixes: #428)
 
 ### Added
+- mandatory-gate-hardening: Add mandatory confirmation
+  gates with session-resume guards to 4 command files
+  (uf.address-feedback Phase 4 entry, uf.review-pr
+  fix-branch commit, uf.review-council spec auto-fix,
+  uf.finale commit and push). Prevents agents from
+  executing mutations without human consent under
+  compressed context.
+  (Spec: openspec/changes/mandatory-gate-hardening/,
+  Fixes: #474)
 - granular-bash-permissions: Runtime-enforced bash permission
   rules in `opencode.json` gating 14 GitHub-mutating, git-write,
   and destructive commands (`gh issue create/edit/close/comment`,
