@@ -345,7 +345,7 @@ But this summary is optional. Sometimes the thinking IS the value.
      warn the user that switching branches with a dirty working
      tree may cause changes to be applied to the wrong branch.
 
-  3. **Get explicit confirmation**: Use the **AskUserQuestion
+  3. **Get explicit confirmation**: Use the **question
      tool** with the proposed branch name included in the prompt
      text (e.g., "Create branch `opsx/<name>` and start a
      proposal?") and options:

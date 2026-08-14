@@ -490,13 +490,13 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    - If a prior review with the **same verdict** exists:
      Inform the user that a prior review exists and the
      latest review takes precedence. Use the
-     **AskUserQuestion tool** with options
+     **question tool** with options
      `["Yes -- post new review", "No -- skip posting"]`.
 
    - If a prior review with a **different verdict** exists:
      Inform the user of the prior verdict and that the new
      review will override it. Use the
-     **AskUserQuestion tool** with options
+     **question tool** with options
      `["Yes -- override with <new_verdict>",
      "No -- keep existing <old_verdict>"]`.
 
@@ -665,7 +665,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    current uncompressed conversation history, you MUST
    re-present the review content (verdict + all comments)
    and obtain fresh confirmation via the
-   **AskUserQuestion tool** before posting. Do NOT rely
+   **question tool** before posting. Do NOT rely
    on confirmation recorded in compressed context. When
    in doubt, re-confirm — false re-confirmation is
    harmless; posting without consent is a violation.
@@ -681,7 +681,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    | APPROVE WITH ADVISORIES | `COMMENT` |
 
    Display the verdict context, then use the
-   **AskUserQuestion tool** for confirmation:
+   **question tool** for confirmation:
 
    For APPROVE verdicts:
    > "This will post an APPROVE review, which may unblock
@@ -709,7 +709,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
      COMMENT).
 
    **CRITICAL RULE**: NEVER post reviews without explicit
-   human confirmation via the **AskUserQuestion tool**.
+   human confirmation via the **question tool**.
    Always show the exact content (verdict type + all
    comments) that will be posted and wait for the user
    to select a confirming option. Mark `Step 7f` as

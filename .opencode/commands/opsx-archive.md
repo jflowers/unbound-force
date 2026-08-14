@@ -10,7 +10,7 @@ Archive a completed change in the experimental workflow.
 
 1. **If no change name provided, prompt for selection**
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Run `openspec list --json` to get available changes. Use the **question tool** to let the user select.
 
    Show only active changes (not already archived).
    Include the schema used for each change if available.
@@ -80,7 +80,7 @@ Archive a completed change in the experimental workflow.
 6. **Return to main branch**
 
    After the archive move completes, use the
-   **AskUserQuestion tool** to confirm branch switching:
+   **question tool** to confirm branch switching:
 
    > The archive is complete. Would you like to return
    > to the main branch?

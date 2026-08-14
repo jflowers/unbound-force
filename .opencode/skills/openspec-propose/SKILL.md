@@ -26,7 +26,7 @@ When ready to implement, run /uf.unleash (autonomous) or /opsx-apply (sequential
 
 1. **If no clear input provided, ask what they want to build**
 
-   Use the **AskUserQuestion tool** (open-ended, no preset options) to ask:
+   Use the **question tool** (open-ended, no preset options) to ask:
    > "What change do you want to work on? Describe what you want to build or fix."
 
    From their description, derive a kebab-case name (e.g., "add user authentication" → `add-user-auth`).
@@ -59,7 +59,7 @@ When ready to implement, run /uf.unleash (autonomous) or /opsx-apply (sequential
       (e.g., `/opsx:propose fix-typos`).
 
       **When `git status --short` output is non-empty, the
-      agent MUST invoke the AskUserQuestion tool** with:
+      agent MUST invoke the question tool** with:
       - **Question**: Include the full `git status --short`
         output, the target branch name (`opsx/<name>`), and
         a warning that switching branches with uncommitted
@@ -172,7 +172,7 @@ cross-repo context but are never required.
       - Stop when all `applyRequires` artifacts are done
 
    c. **If an artifact requires user input** (unclear context):
-      - Use **AskUserQuestion tool** to clarify
+      - Use **question tool** to clarify
       - Then continue with creation
 
 6. **Show final status**

@@ -47,6 +47,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Closes: #253)
 
 ### Fixed
+- fix-ask-user-question-tool-name: Rename all `AskUserQuestion`
+  tool references to `question` across 24 command, agent, skill,
+  and scaffold files. The actual OpenCode tool is named `question`;
+  the incorrect name could cause agents to silently skip
+  interactive confirmation gates.
+  (Spec: openspec/changes/fix-ask-user-question-tool-name/,
+  Fixes: #475)
 - fix-constitution-scaffold: `uf init` now scaffolds a working
   starter constitution at `.specify/memory/constitution.md`
   instead of delegating to `specify init` (which fails

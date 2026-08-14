@@ -17,7 +17,7 @@ Archive a completed change in the experimental workflow.
 
 1. **If no change name provided, prompt for selection**
 
-   Run `openspec list --json` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Run `openspec list --json` to get available changes. Use the **question tool** to let the user select.
 
    Show only active changes (not already archived).
    Include the schema used for each change if available.
@@ -34,7 +34,7 @@ Archive a completed change in the experimental workflow.
 
    **If any artifacts are not `done`:**
    - Display warning listing incomplete artifacts
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
+   - Use **question tool** to confirm user wants to proceed
    - Proceed if user confirms
 
 3. **Check task completion status**
@@ -45,7 +45,7 @@ Archive a completed change in the experimental workflow.
 
    **If incomplete tasks found:**
    - Display warning showing count of incomplete tasks
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
+   - Use **question tool** to confirm user wants to proceed
    - Proceed if user confirms
 
    **If no tasks file exists:** Proceed without task-related warning.
@@ -91,7 +91,7 @@ Archive a completed change in the experimental workflow.
    d. **Commit-state confirmation gate**: Before
       proceeding to step 6, run `git status --short` and
       present the output to the user. Use the
-      **AskUserQuestion tool** with options:
+      **question tool** with options:
       - "Changes committed and pushed — proceed to archive"
       - "Abort — need to commit first"
 
@@ -134,7 +134,7 @@ Archive a completed change in the experimental workflow.
    git push
    ```
 
-   Then use the **AskUserQuestion tool** to confirm
+   Then use the **question tool** to confirm
    before switching branches:
    - **Options**: `["Return to main", "Stay on branch"]`
 

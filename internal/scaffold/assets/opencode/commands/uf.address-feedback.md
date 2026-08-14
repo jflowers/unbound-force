@@ -282,16 +282,16 @@ If the item has a GitHub suggestion block, display it clearly as an applicable c
 
 ### 3.2 Author Decision
 
-For each item, use the **AskUserQuestion tool** with
+For each item, use the **question tool** with
 options `["Accept", "Modify", "Reject", "Ask"]`. The
 author chooses exactly one:
 
 | Decision | Follow-up | Queued action |
 |---|---|---|
 | **Accept** | (none) | Code change using suggested approach |
-| **Modify** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect the alternative approach | Code change using author's approach |
-| **Reject** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect evidence-based reasoning | Reply comment with reasoning |
-| **Ask** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect the clarification question | Reply comment with question |
+| **Modify** | Use **question tool** (open-ended, no preset options) to collect the alternative approach | Code change using author's approach |
+| **Reject** | Use **question tool** (open-ended, no preset options) to collect evidence-based reasoning | Reply comment with reasoning |
+| **Ask** | Use **question tool** (open-ended, no preset options) to collect the clarification question | Reply comment with question |
 
 **No item may be skipped or deferred.** Every item MUST receive a decision before the triage phase completes.
 
@@ -314,7 +314,7 @@ Total:   N items
 ```
 
 List each item with its decision. Use the
-**AskUserQuestion tool** with options `["Confirm --
+**question tool** with options `["Confirm --
 proceed with execution", "Revise -- change decisions"]`
 before execution proceeds.
 
@@ -399,7 +399,7 @@ git status
 
 **If branch has diverged** (another contributor pushed
 commits): warn the author and use the
-**AskUserQuestion tool** with options `["Rebase onto
+**question tool** with options `["Rebase onto
 remote and push", "Abort -- preserve local commits"]`.
 
 Push all commits:
@@ -418,7 +418,7 @@ git push origin <branch>
 
 After push succeeds (or if there are no code changes),
 post reply comments to the PR. Before posting, use the
-**AskUserQuestion tool** with options `["Yes -- post
+**question tool** with options `["Yes -- post
 reply comments", "No -- skip posting"]`.
 
 **Checklist gate**: Before presenting comments for posting,
@@ -478,7 +478,7 @@ After posting reply comments for accepted items, offer to resolve those threads:
 gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<thread_id>"}) { thread { isResolved } } }'
 ```
 
-Use the **AskUserQuestion tool** with options
+Use the **question tool** with options
 `["Yes -- resolve accepted threads", "No -- leave
 threads open"]` before resolving.
 

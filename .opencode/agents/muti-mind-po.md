@@ -66,7 +66,7 @@ When evaluating a Gaze Quality Report against a backlog item's acceptance criter
 - `rationale`: Markdown explanation
 - `criteria_met` / `criteria_failed`
 
-**Interactive Approval**: Before running the `bash` tool to record an acceptance decision using the `go run cmd/mutimind/main.go decide` command, you MUST use the **AskUserQuestion tool** to present:
+**Interactive Approval**: Before running the `bash` tool to record an acceptance decision using the `go run cmd/mutimind/main.go decide` command, you MUST use the **question tool** to present:
 - The target backlog item (e.g., `BI-NNN`)
 - The proposed decision (`accept`, `reject`, or `conditional`)
 - The rationale summary

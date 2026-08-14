@@ -48,7 +48,7 @@ Given that feature description, do this:
 
    a. Run `git status --short` to check for uncommitted changes.
       - **If uncommitted changes exist**: use the
-        **AskUserQuestion tool** to confirm before proceeding.
+        **question tool** to confirm before proceeding.
         Include the `git status --short` output in the question
         so the user can see which files are uncommitted:
 

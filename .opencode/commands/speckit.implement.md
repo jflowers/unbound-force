@@ -37,7 +37,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
    - **If any checklist is incomplete**:
      - Display the table with incomplete item counts
-     - Use the **AskUserQuestion tool** with options
+     - Use the **question tool** with options
        `["Proceed anyway", "Stop -- fix checklists first"]`
      - Wait for the user's selection before continuing
      - If user selects "Stop -- fix checklists first", halt
@@ -45,7 +45,7 @@ You **MUST** consider the user input before proceeding (if not empty).
      - If user selects "Proceed anyway", proceed to step 3
 
    - **CRITICAL RULE**: NEVER proceed past this gate without
-     an **AskUserQuestion tool** call response. This gate
+     a **question tool** call response. This gate
      cannot be inherited from compressed or resumed session
      context — it MUST be executed fresh in every session.
 
@@ -146,7 +146,7 @@ You **MUST** consider the user input before proceeding (if not empty).
      BEFORE suggesting any next steps (PR creation, merging,
      or branch switching).
    - Run `git status --short` to check for uncommitted changes.
-   - If uncommitted changes exist, use the **AskUserQuestion
+   - If uncommitted changes exist, use the **question
      tool** with options `["Yes -- all committed and pushed",
      "Not yet -- let me commit first"]`.
    - If user selects "Not yet -- let me commit first", halt
@@ -166,7 +166,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
    - **CRITICAL RULE**: NEVER suggest next steps (PR creation,
      merging, branch switching, archiving) without an
-     **AskUserQuestion tool** call response confirming changes
+     **question tool** call response confirming changes
      are committed and pushed. This gate cannot be inherited
      from compressed or resumed session context — it MUST be
      executed fresh in every session.

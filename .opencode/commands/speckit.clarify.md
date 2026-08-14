@@ -107,11 +107,11 @@ Execution steps:
 4. Sequential questioning loop (interactive):
 
     ---
-    **MANDATORY GATE — AskUserQuestion Required**
+    **MANDATORY GATE — question Required**
 
     Each question MUST be delivered as a single
-    **AskUserQuestion tool call**. Do NOT present the next
-    question until the previous AskUserQuestion response has
+    **question tool call**. Do NOT present the next
+    question until the previous question response has
     been received. Do NOT batch questions together.
 
     ---
@@ -135,16 +135,16 @@ Execution steps:
        | Short | Provide a different short answer (<=5 words) (Include only if free-form alternative is appropriate) |
 
        - After the table, add: `You can reply with the option letter (e.g., "A"), accept the recommendation by saying "yes" or "recommended", or provide your own short answer.`
-       - Deliver the question using the **AskUserQuestion tool** with options matching the table rows. List the recommended option first with "(Recommended)" appended to its label. Enable custom text for free-form alternatives.
+       - Deliver the question using the **question tool** with options matching the table rows. List the recommended option first with "(Recommended)" appended to its label. Enable custom text for free-form alternatives.
     - For short‑answer style (no meaningful discrete options):
        - Provide your **suggested answer** based on best practices and context.
        - Format as: `**Suggested:** <your proposed answer> - <brief reasoning>`
        - Then output: `Format: Short answer (<=5 words). You can accept the suggestion by saying "yes" or "suggested", or provide your own answer.`
-       - Deliver the question using the **AskUserQuestion tool** in open-ended mode (no preset options). Include the suggested answer in the question text.
-    - After the AskUserQuestion tool returns a response:
-       - When the AskUserQuestion tool returns "yes", "recommended", or "suggested", use your previously stated recommendation/suggestion as the answer.
+       - Deliver the question using the **question tool** in open-ended mode (no preset options). Include the suggested answer in the question text.
+    - After the question tool returns a response:
+       - When the question tool returns "yes", "recommended", or "suggested", use your previously stated recommendation/suggestion as the answer.
        - Otherwise, validate the answer maps to one option or fits the <=5 word constraint.
-       - If ambiguous, ask for a quick disambiguation via a follow-up **AskUserQuestion tool call** (count still belongs to same question; do not advance).
+       - If ambiguous, ask for a quick disambiguation via a follow-up **question tool call** (count still belongs to same question; do not advance).
        - Once satisfactory, record it in working memory (do not yet write to disk) and move to the next queued question.
     - Stop asking further questions when:
        - All critical ambiguities resolved early (remaining queued items become unnecessary), OR

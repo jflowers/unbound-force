@@ -40,7 +40,7 @@ Pushes local backlog items to GitHub Issues using the Go backend, which relies o
    - Otherwise: present the sync-status output to the user
      and continue to step 3.
 
-3. **Confirmation gate**: Use the **AskUserQuestion tool**
+3. **Confirmation gate**: Use the **question tool**
    with the following options:
    - "Yes -- sync to GitHub"
    - "No -- abort"
