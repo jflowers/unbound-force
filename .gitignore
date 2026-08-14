@@ -25,8 +25,10 @@ dist/
 
 # Unbound Force — managed by uf init
 # Runtime data under .uf/ (databases, caches, locks, logs)
+.uf/config.yaml
 .uf/workflows/
 .uf/artifacts/
+.uf/dewey/config.yaml
 .uf/dewey/graph.db
 .uf/dewey/graph.db-shm
 .uf/dewey/graph.db-wal
