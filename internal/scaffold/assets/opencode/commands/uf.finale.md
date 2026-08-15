@@ -33,6 +33,8 @@ stays open for human review. Works with both Speckit
 
 ## Instructions
 
+<protect>
+
 **Session-resume guard**: If this session has been
    resumed from compressed context, or if you cannot
    verify that the human explicitly confirmed a gate
@@ -969,3 +971,5 @@ the OpenSpec and Speckit workflows:
 - All changes are committed before any branch switch
 - The remote branch is NOT deleted — it stays open with
   the PR until a reviewer merges
+
+</protect>

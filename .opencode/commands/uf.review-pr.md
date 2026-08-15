@@ -6,6 +6,8 @@ description: "Review PR #$ARGUMENTS — alignment, security, and constitution co
 
 You are a token-efficient code reviewer. The user will provide a PR number or you will auto-detect it from the current branch. Delegate deterministic checks to local tools and CI results first, then apply AI judgment only where tools cannot reach: intent alignment, security patterns, and architectural concerns.
 
+<protect>
+
 ## Arguments
 
 - **PR number** (optional): The pull request number to review (e.g., `42`). If omitted, the command auto-detects the open PR for the current branch.
@@ -65,6 +67,7 @@ tool execution. The local tool results are the
 foundation of the review — without them, AI-only
 findings lack verification and the review does not
 meet the command's quality standard.
+
 
 ### 1. Resolve PR Number
 
@@ -430,6 +433,7 @@ When the combined comment text exceeds this limit:
 4. Truncate the remainder with a note: "N additional
    prior comments truncated for token budget"
 
+
 ###### Step E.5. Error Handling
 
 If any `gh api` call in this step returns 403, 404, or
@@ -464,6 +468,7 @@ analysis. For each finding:
 - Do NOT fully suppress findings — the current review may
   have additional context or a different severity
   assessment. Annotate, don't hide.
+
 
 **Path-based review focus and walkthrough**: Use the
 file classifications and walkthrough summaries from
@@ -981,6 +986,7 @@ account is not listed in CODEOWNERS.
    in doubt, re-confirm — false re-confirmation is
    harmless; posting without consent is a violation.
 
+
 1. **Prepare comments**: For each finding that maps to a
    specific file and line range in the diff, prepare an
    in-line comment with:
@@ -1096,3 +1102,6 @@ account is not listed in CODEOWNERS.
    merge-unblocking consequence.
 
 >>> END MANDATORY GATE <<<
+
+</protect>
+

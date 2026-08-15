@@ -10,6 +10,8 @@ You are a token-efficient issue analyst. The user provides a GitHub issue number
 
 The command follows four sequential phases (Ingest → Assess → Classify → Act). Phases are not independently invocable — run all four in sequence every invocation.
 
+<protect>
+
 ## Arguments
 
 - **Issue number** (required): The GitHub issue number to triage (e.g., `42`).
@@ -495,3 +497,5 @@ Fields may be `null` when not applicable (e.g., `duplicate_of` when the issue is
 8. **Shell injection prevention**: All untrusted text (issue content, agent output, synthesized comments, child issue content) MUST be written to temporary files and passed via `--input` for all `gh api` calls. Untrusted text MUST NOT be interpolated into shell arguments. Temp files MUST use restrictive permissions (`chmod 600`) and be cleaned up in all exit paths (success, failure, abort).
 
 9. **Safe artifact paths**: The issue number is validated as a positive integer (matching `^[1-9][0-9]*$`) before use in any file path. This validation occurs in the Arguments section before any other processing.
+
+</protect>

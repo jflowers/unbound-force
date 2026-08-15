@@ -29,6 +29,8 @@ off on re-run.
 
 ## Instructions
 
+<protect>
+
 > **SESSION-RESUME GUARD**: If you are resuming this
 > command after context compression or a session restart,
 > STOP and re-read this entire template before continuing.
@@ -767,3 +769,5 @@ Format the output as:
 - **NEVER improvise Demo exit text** -- the "Next Steps"
   section in Step 10 prescribes the exact output; re-read
   and reproduce it verbatim
+
+</protect>

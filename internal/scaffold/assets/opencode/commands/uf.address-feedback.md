@@ -10,6 +10,8 @@ You are a token-efficient feedback analyst. The user will provide a PR number or
 
 The command follows four sequential phases (Ingest → Assess → Triage → Execute). Phases are not independently invocable — run all four in sequence every invocation.
 
+<protect>
+
 > **SESSION-RESUME GUARD**: If this session has been resumed
 > from compressed context, or if you cannot locate the
 > execution checklist in the current conversation, you MUST:
@@ -23,6 +25,7 @@ The command follows four sequential phases (Ingest → Assess → Triage → Exe
 >    execution checklist are authoritative
 > 5. Resume from the first incomplete phase
 
+
 ## Arguments
 
 - **PR number** (optional): The pull request number to address feedback for (e.g., `42`). If omitted, auto-detect the open PR for the current branch.
@@ -30,6 +33,7 @@ The command follows four sequential phases (Ingest → Assess → Triage → Exe
 **Argument parsing** (before any tool calls): Check the user's message for a PR number argument. If present, set `PR_NUMBER` to that value immediately. All subsequent steps use `<PR_NUMBER>` — no auto-detection commands are needed or permitted.
 
 ---
+
 
 ## Execution Checklist
 
@@ -52,6 +56,7 @@ of progress.
 
 Replace `_N_`, `_M_`, etc. with actual counts as you
 progress. Mark each line `[x]` when the phase completes.
+
 
 ---
 
@@ -293,7 +298,9 @@ author chooses exactly one:
 | **Reject** | Use **question tool** (open-ended, no preset options) to collect evidence-based reasoning | Reply comment with reasoning |
 | **Ask** | Use **question tool** (open-ended, no preset options) to collect the clarification question | Reply comment with question |
 
+
 **No item may be skipped or deferred.** Every item MUST receive a decision before the triage phase completes.
+
 
 ### 3.3 Conflicting Items
 
@@ -421,6 +428,7 @@ post reply comments to the PR. Before posting, use the
 **question tool** with options `["Yes -- post
 reply comments", "No -- skip posting"]`.
 
+
 **Checklist gate**: Before presenting comments for posting,
 verify the execution checklist shows:
 1. Phase 3 is marked `[x]` with all items decided
@@ -430,6 +438,7 @@ If the checklist is missing, incomplete, or shows Phase 3
 as not complete, you MUST re-read this command template and
 rebuild state from `state.json` and the git log. Do NOT
 post comments without verified checklist state.
+
 
 For each item, compose the reply:
 
@@ -546,6 +555,7 @@ Fields `file`, `line`, `decision_reasoning`, and `commit_sha` may be `null` (gen
 
 ---
 
+
 ## Guardrails
 
 1. **No auto-merge**: This command addresses feedback. It NEVER merges the PR, approves the PR, or dismisses reviews.
@@ -567,3 +577,6 @@ Fields `file`, `line`, `decision_reasoning`, and `commit_sha` may be `null` (gen
 9. **File permissions**: Cache files `600`, cache directories `700`. The `.uf/feedback/` directory MUST be in `.gitignore`.
 
 10. **Commit scope**: Only commit files directly related to addressing the specific feedback item. Do not bundle unrelated changes into feedback fix commits.
+
+</protect>
+
