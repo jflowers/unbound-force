@@ -63,6 +63,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
   from "create" to "customize".
   (Spec: openspec/changes/fix-constitution-scaffold/,
   Fixes: #213)
+- shield-constitution-from-force: `uf init --force` no
+  longer overwrites `.specify/memory/constitution.md`,
+  preserving user governance customizations. Adds an
+  `isNeverOverwrite` guard that protects the constitution
+  from force-overwrite while still allowing first-time
+  creation from the embedded starter template.
+  (Spec: openspec/changes/shield-constitution-from-force/,
+  Fixes: #495)
 - fix-doctor-hints: Replace five hardcoded OpenCode-specific
   `InstallHint` strings in `uf doctor` agent context checks
   with tool-agnostic plain-language remediation instructions.

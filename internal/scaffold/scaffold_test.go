@@ -408,7 +408,7 @@ func TestRun_ConstitutionPreservedOnRerun(t *testing.T) {
 	}
 }
 
-func TestRun_ConstitutionOverwrittenWithForce(t *testing.T) {
+func TestRun_ConstitutionProtectedWithForce(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
 
@@ -424,11 +424,12 @@ func TestRun_ConstitutionOverwrittenWithForce(t *testing.T) {
 
 	// User customizes the constitution.
 	constitutionPath := filepath.Join(dir, ".specify", "memory", "constitution.md")
-	if err := os.WriteFile(constitutionPath, []byte("user content"), 0o644); err != nil {
+	customContent := "# My Custom Constitution\n\nCustomized governance."
+	if err := os.WriteFile(constitutionPath, []byte(customContent), 0o644); err != nil {
 		t.Fatalf("write custom constitution: %v", err)
 	}
 
-	// Re-run with --force: constitution should be overwritten.
+	// Re-run with --force: constitution should be protected (skipped).
 	buf.Reset()
 	result, err := Run(Options{
 		TargetDir: dir,
@@ -441,27 +442,34 @@ func TestRun_ConstitutionOverwrittenWithForce(t *testing.T) {
 	}
 
 	constitutionOut := ".specify/memory/constitution.md"
-	foundOverwritten := false
-	for _, f := range result.Overwritten {
+
+	// Constitution MUST be in Skipped.
+	foundSkipped := false
+	for _, f := range result.Skipped {
 		if f == constitutionOut {
-			foundOverwritten = true
+			foundSkipped = true
 			break
 		}
 	}
-	if !foundOverwritten {
-		t.Errorf("expected %s in result.Overwritten", constitutionOut)
+	if !foundSkipped {
+		t.Errorf("expected %s in result.Skipped, got Skipped=%v", constitutionOut, result.Skipped)
 	}
 
-	// Content should be the starter constitution, not "user content".
+	// Constitution MUST NOT be in Overwritten.
+	for _, f := range result.Overwritten {
+		if f == constitutionOut {
+			t.Errorf("constitution must not be in result.Overwritten")
+			break
+		}
+	}
+
+	// Content should be the user's customized content, not the starter.
 	got, err := os.ReadFile(constitutionPath)
 	if err != nil {
 		t.Fatalf("read constitution after force: %v", err)
 	}
-	if strings.Contains(string(got), "user content") {
-		t.Error("constitution was not overwritten by --force")
-	}
-	if !strings.Contains(string(got), "### I. Autonomous Collaboration") {
-		t.Error("constitution missing principle heading after --force overwrite")
+	if string(got) != customContent {
+		t.Errorf("constitution content changed; got %q, want %q", string(got), customContent)
 	}
 }
 
@@ -555,12 +563,34 @@ func TestRun_ForceOverwrites(t *testing.T) {
 		t.Fatalf("force Run() error: %v", err)
 	}
 
-	if len(result.Overwritten) != len(expectedAssetPaths) {
+	// Protected files (isNeverOverwrite) are skipped even with --force,
+	// so Overwritten count is total assets minus protected files.
+	neverOverwriteCount := 0
+	for _, p := range expectedAssetPaths {
+		if isNeverOverwrite(p) {
+			neverOverwriteCount++
+		}
+	}
+	wantOverwritten := len(expectedAssetPaths) - neverOverwriteCount
+	if len(result.Overwritten) != wantOverwritten {
 		t.Errorf("expected %d overwritten files, got %d",
-			len(expectedAssetPaths), len(result.Overwritten))
+			wantOverwritten, len(result.Overwritten))
 	}
 	if len(result.Created) != 0 {
 		t.Errorf("expected no created files with force, got %d", len(result.Created))
+	}
+	// Protected files should be in Skipped.
+	if neverOverwriteCount > 0 {
+		foundProtected := false
+		for _, f := range result.Skipped {
+			if f == ".specify/memory/constitution.md" {
+				foundProtected = true
+				break
+			}
+		}
+		if !foundProtected {
+			t.Error("expected protected constitution in result.Skipped with --force")
+		}
 	}
 }
 
@@ -801,6 +831,33 @@ func TestIsToolOwned(t *testing.T) {
 		got := isToolOwned(tt.path)
 		if got != tt.expected {
 			t.Errorf("isToolOwned(%q) = %v, want %v", tt.path, got, tt.expected)
+		}
+	}
+}
+
+func TestIsNeverOverwrite(t *testing.T) {
+	tests := []struct {
+		path     string
+		expected bool
+	}{
+		// Protected: constitution
+		{"specify/memory/constitution.md", true},
+		// Not protected: filesystem path with leading dot (not asset path)
+		{".specify/memory/constitution.md", false},
+		// Not protected: tool-owned command
+		{"opencode/commands/uf.init.md", false},
+		// Not protected: user-owned agent
+		{"opencode/agents/cobalt-crush-dev.md", false},
+		// Not protected: convention pack
+		{"opencode/uf/packs/default.md", false},
+		// Not protected: empty path
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		got := isNeverOverwrite(tt.path)
+		if got != tt.expected {
+			t.Errorf("isNeverOverwrite(%q) = %v, want %v", tt.path, got, tt.expected)
 		}
 	}
 }

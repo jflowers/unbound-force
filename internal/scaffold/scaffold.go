@@ -174,6 +174,13 @@ func Run(opts Options) (*Result, error) {
 		}
 
 		// File exists
+
+		// Protected files are never overwritten, even with --force.
+		if isNeverOverwrite(relPath) {
+			result.Skipped = append(result.Skipped, outRel)
+			return nil
+		}
+
 		if opts.Force {
 			// Force mode -- overwrite everything
 			if err := os.WriteFile(outPath, out, 0o644); err != nil {
@@ -426,6 +433,16 @@ func isToolOwned(relPath string) bool {
 		return !strings.Contains(base, "-custom")
 	}
 	return false
+}
+
+// isNeverOverwrite returns true if the file must never be
+// overwritten, even with --force. These are governance
+// artifacts that users customize and must not lose.
+// The predicate performs exact string comparison on the
+// embedded asset path (without leading dot). Path
+// normalization is the caller's responsibility.
+func isNeverOverwrite(relPath string) bool {
+	return relPath == "specify/memory/constitution.md"
 }
 
 // isDivisorAsset returns true if the asset belongs to the
