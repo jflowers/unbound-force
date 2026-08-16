@@ -33,6 +33,7 @@ dist/
 .uf/dewey/*.lock
 .uf/dewey/cache/
 .uf/dewey/dewey.log
+.uf/dewey/config.yaml
 .uf/replicator/*.db
 .uf/replicator/*.db-shm
 .uf/replicator/*.db-wal
