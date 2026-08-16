@@ -860,6 +860,164 @@ func configureOpencodeJSON(opts *Options) []subToolResult {
 	}}
 }
 
+// dcpConfigContent is the canonical .opencode/dcp.jsonc content.
+// JSONC (JSON with Comments) enables <protect> tag preservation
+// during DCP context compression. The comments explain why the
+// setting exists so developers encountering the file understand
+// its purpose.
+const dcpConfigContent = `{
+  "$schema": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
+  // Enable <protect> tag preservation during DCP compression.
+  // Slash command files in .opencode/commands/ use <protect> tags
+  // to mark execution-critical sections (guardrails, checklists,
+  // mandatory gates) that must survive context pruning.
+  "compress": {
+    "protectTags": true
+  }
+}
+`
+
+// configureDCPConfig creates or updates .opencode/dcp.jsonc with the
+// protectTags setting that enables <protect> tag preservation during
+// DCP context compression. Without this config, <protect> tags
+// scaffolded in slash commands are inert.
+//
+// Follows the configureOpencodeJSON() pattern:
+//   - Idempotent: skips if file exists with correct config
+//   - Additive: adds protectTags if file exists but lacks it
+//   - Respects DryRun and Force flags
+//   - Uses injectable ReadFile/WriteFile for testability
+//   - Returns []subToolResult describing the outcome
+//
+// Design decision: generates the file programmatically rather than
+// embedding it, because the content is a fixed 10-line JSONC snippet
+// that doesn't vary across projects. Uses JSONC write / JSON read
+// strategy — writes comments for developer experience, strips them
+// before json.Unmarshal for updates.
+func configureDCPConfig(opts *Options) []subToolResult {
+	if opts.ReadFile == nil {
+		opts.ReadFile = os.ReadFile
+	}
+	if opts.WriteFile == nil {
+		opts.WriteFile = os.WriteFile
+	}
+
+	if opts.DryRun {
+		return []subToolResult{{
+			name:   "dcp.jsonc",
+			action: "dry-run",
+		}}
+	}
+
+	dcpDir := filepath.Join(opts.TargetDir, ".opencode")
+	dcpPath := filepath.Join(dcpDir, "dcp.jsonc")
+	data, readErr := opts.ReadFile(dcpPath)
+
+	if readErr != nil {
+		if !os.IsNotExist(readErr) {
+			return []subToolResult{{
+				name:   "dcp.jsonc",
+				action: "error",
+				detail: fmt.Sprintf("read failed: %v", readErr),
+			}}
+		}
+		// File does not exist — ensure parent directory exists, then create it.
+		if mkErr := os.MkdirAll(dcpDir, 0o755); mkErr != nil {
+			return []subToolResult{{
+				name:   "dcp.jsonc",
+				action: "error",
+				detail: fmt.Sprintf("mkdir failed: %v", mkErr),
+			}}
+		}
+		if writeErr := opts.WriteFile(dcpPath, []byte(dcpConfigContent), 0o644); writeErr != nil {
+			return []subToolResult{{
+				name:   "dcp.jsonc",
+				action: "error",
+				detail: fmt.Sprintf("write failed: %v", writeErr),
+			}}
+		}
+		return []subToolResult{{
+			name:   "dcp.jsonc",
+			action: "created",
+		}}
+	}
+
+	// File exists — check if it already has protectTags.
+	if opts.Force {
+		if writeErr := opts.WriteFile(dcpPath, []byte(dcpConfigContent), 0o644); writeErr != nil {
+			return []subToolResult{{
+				name:   "dcp.jsonc",
+				action: "error",
+				detail: fmt.Sprintf("write failed: %v", writeErr),
+			}}
+		}
+		return []subToolResult{{
+			name:   "dcp.jsonc",
+			action: "overwritten",
+		}}
+	}
+
+	// Strip JSONC comments before unmarshalling.
+	stripped := stripJSONCComments(data)
+
+	var config map[string]json.RawMessage
+	if jsonErr := json.Unmarshal(stripped, &config); jsonErr != nil {
+		return []subToolResult{{
+			name:   "dcp.jsonc",
+			action: "error",
+			detail: "malformed JSON",
+		}}
+	}
+
+	// Check if compress.protectTags already exists.
+	if compressRaw, ok := config["compress"]; ok {
+		var compressMap map[string]json.RawMessage
+		if json.Unmarshal(compressRaw, &compressMap) == nil {
+			if _, hasProtect := compressMap["protectTags"]; hasProtect {
+				return []subToolResult{{
+					name:   "dcp.jsonc",
+					action: "already configured",
+				}}
+			}
+		}
+	}
+
+	// protectTags is missing — overwrite with the canonical content.
+	// This replaces the entire file (including any user-added keys)
+	// because JSON round-trip through json.Marshal would strip JSONC
+	// comments. The trade-off is acceptable: the DCP config is simple
+	// and unlikely to have user-customized keys (see design D3).
+	if writeErr := opts.WriteFile(dcpPath, []byte(dcpConfigContent), 0o644); writeErr != nil {
+		return []subToolResult{{
+			name:   "dcp.jsonc",
+			action: "error",
+			detail: fmt.Sprintf("write failed: %v", writeErr),
+		}}
+	}
+	return []subToolResult{{
+		name:   "dcp.jsonc",
+		action: "updated",
+	}}
+}
+
+// stripJSONCComments removes single-line // comments from JSONC
+// content. It handles comments at the start of a line or after
+// whitespace, but does NOT handle comments inside string values
+// or block comments (/* ... */). This is sufficient for the
+// simple dcp.jsonc format used by this scaffold.
+func stripJSONCComments(data []byte) []byte {
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		result = append(result, line)
+	}
+	return []byte(strings.Join(result, "\n"))
+}
+
 // gitignoreBlock is the standard Unbound Force ignore block appended
 // to .gitignore by ensureGitignore(). The marker comment on the first
 // line is used for idempotency detection — if it already exists in
@@ -1373,6 +1531,10 @@ func initSubTools(opts *Options) []subToolResult {
 	// Configure opencode.json with Dewey MCP server and Replicator MCP
 	// entries. Runs after all sub-tool initialization steps.
 	collect(configureOpencodeJSON(opts)...)
+
+	// Configure .opencode/dcp.jsonc with protectTags to enable
+	// <protect> tag preservation during DCP context compression.
+	collect(configureDCPConfig(opts)...)
 
 	return results
 }

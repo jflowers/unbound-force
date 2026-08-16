@@ -1272,6 +1272,9 @@ var knownNonEmbeddedFiles = map[string]bool{
 	// Dewey-scaffolded commands — created by dewey init
 	".opencode/commands/dewey-index.md":   true,
 	".opencode/commands/dewey-reindex.md": true,
+	// DCP config — generated programmatically by configureDCPConfig(),
+	// not embedded as a scaffold asset
+	".opencode/dcp.jsonc": true,
 }
 
 func TestCanonicalSources_AreEmbedded(t *testing.T) {
@@ -2224,10 +2227,10 @@ func TestInitSubTools_DeweyAvailable(t *testing.T) {
 
 	results := initSubTools(opts)
 
-	// Should have 3 results: dewey init + dewey index + opencode.json.
+	// Should have 4 results: dewey init + dewey index + opencode.json + dcp.jsonc.
 	// (.uf/config.yaml is no longer created by uf init — use uf config init)
-	if len(results) != 3 {
-		t.Fatalf("expected 3 results, got %d: %v", len(results), results)
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d: %v", len(results), results)
 	}
 
 	if results[0].name != ".uf/dewey/" || results[0].action != "initialized" {
@@ -2238,6 +2241,9 @@ func TestInitSubTools_DeweyAvailable(t *testing.T) {
 	}
 	if results[2].name != "opencode.json" || results[2].action != "created" {
 		t.Errorf("expected opencode.json created, got %s %s", results[2].name, results[2].action)
+	}
+	if results[3].name != "dcp.jsonc" || results[3].action != "created" {
+		t.Errorf("expected dcp.jsonc created, got %s %s", results[3].name, results[3].action)
 	}
 
 	// Verify commands were called.
@@ -2268,13 +2274,16 @@ func TestInitSubTools_DeweyNotAvailable(t *testing.T) {
 
 	results := initSubTools(opts)
 
-	// Should have 1 result: opencode.json skipped.
+	// Should have 2 results: opencode.json skipped + dcp.jsonc created.
 	// (.uf/config.yaml is no longer created by uf init)
-	if len(results) != 1 {
-		t.Errorf("expected 1 result, got %d: %v", len(results), results)
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d: %v", len(results), results)
 	}
 	if len(results) > 0 && results[0].name != "opencode.json" {
 		t.Errorf("expected opencode.json result, got %s", results[0].name)
+	}
+	if len(results) > 1 && results[1].name != "dcp.jsonc" {
+		t.Errorf("expected dcp.jsonc result, got %s", results[1].name)
 	}
 
 	// No commands should have been called.
@@ -2300,14 +2309,17 @@ func TestInitSubTools_DeweyAlreadyInitialized(t *testing.T) {
 
 	results := initSubTools(opts)
 
-	// Should have 1 result: opencode.json created
+	// Should have 2 results: opencode.json created + dcp.jsonc created.
 	// (.uf/dewey/ already exists, dewey in PATH → mcp.dewey added).
 	// (.uf/config.yaml no longer created by uf init)
-	if len(results) != 1 {
-		t.Errorf("expected 1 result, got %d: %v", len(results), results)
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d: %v", len(results), results)
 	}
 	if len(results) > 0 && results[0].name != "opencode.json" {
 		t.Errorf("expected opencode.json result, got %s", results[0].name)
+	}
+	if len(results) > 1 && results[1].name != "dcp.jsonc" {
+		t.Errorf("expected dcp.jsonc result, got %s", results[1].name)
 	}
 
 	// dewey init should NOT have been called.
@@ -2334,10 +2346,10 @@ func TestInitSubTools_DeweyInitFails(t *testing.T) {
 
 	results := initSubTools(opts)
 
-	// Should have 2 results: dewey init failed + opencode.json created.
+	// Should have 3 results: dewey init failed + opencode.json created + dcp.jsonc created.
 	// (.uf/config.yaml no longer created by uf init)
-	if len(results) != 2 {
-		t.Fatalf("expected 2 results, got %d: %v", len(results), results)
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d: %v", len(results), results)
 	}
 
 	if results[0].name != ".uf/dewey/" || results[0].action != "failed" {
@@ -2345,6 +2357,9 @@ func TestInitSubTools_DeweyInitFails(t *testing.T) {
 	}
 	if results[1].name != "opencode.json" || results[1].action != "created" {
 		t.Errorf("expected opencode.json created, got %s %s", results[1].name, results[1].action)
+	}
+	if results[2].name != "dcp.jsonc" || results[2].action != "created" {
+		t.Errorf("expected dcp.jsonc created, got %s %s", results[2].name, results[2].action)
 	}
 
 	// dewey index should NOT have been called.
@@ -3730,6 +3745,253 @@ func TestConfigureOpencodeJSON_SkipBoth(t *testing.T) {
 	}
 }
 
+// --- configureDCPConfig tests ---
+
+func TestConfigureDCPConfig_Create(t *testing.T) {
+	dir := t.TempDir()
+	// Create .opencode directory (parent of dcp.jsonc).
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir .opencode: %v", err)
+	}
+
+	opts := &Options{TargetDir: dir}
+	results := configureDCPConfig(opts)
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].name != "dcp.jsonc" {
+		t.Errorf("expected name 'dcp.jsonc', got %q", results[0].name)
+	}
+	if results[0].action != "created" {
+		t.Errorf("expected action 'created', got %q", results[0].action)
+	}
+
+	// Verify file content matches dcpConfigContent.
+	data, err := os.ReadFile(filepath.Join(dir, ".opencode", "dcp.jsonc"))
+	if err != nil {
+		t.Fatalf("read dcp.jsonc: %v", err)
+	}
+	if string(data) != dcpConfigContent {
+		t.Errorf("file content does not match dcpConfigContent\ngot:\n%s\nwant:\n%s", data, dcpConfigContent)
+	}
+}
+
+func TestConfigureDCPConfig_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir .opencode: %v", err)
+	}
+
+	// Write the canonical content.
+	dcpPath := filepath.Join(dir, ".opencode", "dcp.jsonc")
+	if err := os.WriteFile(dcpPath, []byte(dcpConfigContent), 0o644); err != nil {
+		t.Fatalf("write dcp.jsonc: %v", err)
+	}
+
+	opts := &Options{TargetDir: dir}
+	results := configureDCPConfig(opts)
+
+	if results[0].action != "already configured" {
+		t.Errorf("expected action 'already configured', got %q", results[0].action)
+	}
+
+	// Verify file is unchanged.
+	data, _ := os.ReadFile(dcpPath)
+	if string(data) != dcpConfigContent {
+		t.Error("file should be unchanged when already configured")
+	}
+}
+
+func TestConfigureDCPConfig_AddProtectTags(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir .opencode: %v", err)
+	}
+
+	// Existing file with $schema but no protectTags.
+	existing := `{
+  "$schema": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
+  "compress": {
+    "someOtherSetting": 42
+  }
+}
+`
+	dcpPath := filepath.Join(dir, ".opencode", "dcp.jsonc")
+	if err := os.WriteFile(dcpPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write dcp.jsonc: %v", err)
+	}
+
+	opts := &Options{TargetDir: dir}
+	results := configureDCPConfig(opts)
+
+	if results[0].action != "updated" {
+		t.Errorf("expected action 'updated', got %q", results[0].action)
+	}
+
+	// Verify file now has canonical content (overwritten for comment preservation).
+	data, _ := os.ReadFile(dcpPath)
+	if string(data) != dcpConfigContent {
+		t.Errorf("file should have canonical content after update\ngot:\n%s", data)
+	}
+}
+
+func TestConfigureDCPConfig_DryRun(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir .opencode: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		DryRun:    true,
+	}
+
+	results := configureDCPConfig(opts)
+	if results[0].action != "dry-run" {
+		t.Errorf("expected action 'dry-run', got %q", results[0].action)
+	}
+
+	// Verify no file was created.
+	dcpPath := filepath.Join(dir, ".opencode", "dcp.jsonc")
+	if _, err := os.Stat(dcpPath); !os.IsNotExist(err) {
+		t.Error("dcp.jsonc should not exist in dry-run mode")
+	}
+}
+
+func TestConfigureDCPConfig_Force(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir .opencode: %v", err)
+	}
+
+	// Write a modified version of the file.
+	modified := `{
+  "$schema": "https://example.com/old-schema.json",
+  "compress": {
+    "protectTags": false
+  }
+}
+`
+	dcpPath := filepath.Join(dir, ".opencode", "dcp.jsonc")
+	if err := os.WriteFile(dcpPath, []byte(modified), 0o644); err != nil {
+		t.Fatalf("write dcp.jsonc: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		Force:     true,
+	}
+
+	results := configureDCPConfig(opts)
+	if results[0].action != "overwritten" {
+		t.Errorf("expected action 'overwritten', got %q", results[0].action)
+	}
+
+	// Verify file has canonical content.
+	data, _ := os.ReadFile(dcpPath)
+	if string(data) != dcpConfigContent {
+		t.Errorf("file should have canonical content after force\ngot:\n%s", data)
+	}
+}
+
+func TestConfigureDCPConfig_ReadError(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile: func(path string) ([]byte, error) {
+			return nil, fmt.Errorf("permission denied")
+		},
+	}
+
+	results := configureDCPConfig(opts)
+	if results[0].action != "error" {
+		t.Errorf("expected action 'error', got %q", results[0].action)
+	}
+	if !strings.Contains(results[0].detail, "read failed") {
+		t.Errorf("expected detail to contain 'read failed', got %q", results[0].detail)
+	}
+}
+
+func TestConfigureDCPConfig_MalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir .opencode: %v", err)
+	}
+
+	dcpPath := filepath.Join(dir, ".opencode", "dcp.jsonc")
+	if err := os.WriteFile(dcpPath, []byte("{invalid json content"), 0o644); err != nil {
+		t.Fatalf("write dcp.jsonc: %v", err)
+	}
+
+	opts := &Options{TargetDir: dir}
+	results := configureDCPConfig(opts)
+
+	if results[0].action != "error" {
+		t.Errorf("expected action 'error', got %q", results[0].action)
+	}
+	if results[0].detail != "malformed JSON" {
+		t.Errorf("expected detail 'malformed JSON', got %q", results[0].detail)
+	}
+
+	// Verify file is not modified.
+	data, _ := os.ReadFile(dcpPath)
+	if string(data) != "{invalid json content" {
+		t.Error("malformed file should not be modified")
+	}
+}
+
+func TestConfigureDCPConfig_WriteError(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile: func(path string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+		WriteFile: func(path string, data []byte, perm os.FileMode) error {
+			return fmt.Errorf("disk full")
+		},
+	}
+
+	results := configureDCPConfig(opts)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].action != "error" {
+		t.Errorf("expected action 'error', got %q", results[0].action)
+	}
+	if !strings.Contains(results[0].detail, "write failed") {
+		t.Errorf("expected detail to contain 'write failed', got %q", results[0].detail)
+	}
+}
+
+// --- stripJSONCComments tests ---
+
+func TestStripJSONCComments_RemovesLineComments(t *testing.T) {
+	input := `{
+  "$schema": "https://example.com/schema.json",
+  // This is a comment
+  // Another comment
+  "compress": {
+    "protectTags": true
+  }
+}
+`
+	expected := `{
+  "$schema": "https://example.com/schema.json",
+  "compress": {
+    "protectTags": true
+  }
+}
+`
+	result := stripJSONCComments([]byte(input))
+	if string(result) != expected {
+		t.Errorf("stripJSONCComments result mismatch\ngot:\n%s\nwant:\n%s", result, expected)
+	}
+}
+
 // --- Dewey force re-index tests ---
 
 func TestInitSubTools_DeweyForceReindex(t *testing.T) {
@@ -3983,12 +4245,15 @@ func TestInitSubTools_AllToolsSkippedByConfig(t *testing.T) {
 		t.Errorf("expected no commands when all tools are skipped, got: %v", rec.calls)
 	}
 
-	// Only result should be opencode.json skipped (nothing to configure).
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result (opencode.json), got %d: %v", len(results), results)
+	// Should have 2 results: opencode.json skipped + dcp.jsonc created.
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results (opencode.json + dcp.jsonc), got %d: %v", len(results), results)
 	}
 	if results[0].name != "opencode.json" {
 		t.Errorf("expected opencode.json result, got %s", results[0].name)
+	}
+	if results[1].name != "dcp.jsonc" {
+		t.Errorf("expected dcp.jsonc result, got %s", results[1].name)
 	}
 }
 

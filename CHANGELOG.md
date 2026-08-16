@@ -35,6 +35,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Fixes: #428)
 
 ### Added
+- scaffold-dcp-config: `uf init` now creates `.opencode/dcp.jsonc`
+  with `protectTags: true`, enabling `<protect>` tag preservation
+  during DCP context compression. Without this config, `<protect>`
+  tags scaffolded in slash commands were inert. Follows the
+  idempotent `configureOpencodeJSON()` pattern: skips if already
+  configured, adds `protectTags` if missing, respects `--dry-run`
+  and `--force` flags.
+  (Spec: openspec/changes/scaffold-dcp-config/, Fixes: #502)
 - mandatory-gate-hardening: Add mandatory confirmation
   gates with session-resume guards to 4 command files
   (uf.address-feedback Phase 4 entry, uf.review-pr

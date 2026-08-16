@@ -703,7 +703,113 @@ func checkScaffoldedFiles(opts *Options) CheckGroup {
 		})
 	}
 
+	// Check .opencode/dcp.jsonc content — verifies that DCP's
+	// protectTags feature is configured so <protect> tags in
+	// scaffolded commands are honored during context compression.
+	group.Results = append(group.Results, checkDCPConfig(opts))
+
 	return group
+}
+
+// checkDCPConfig reads .opencode/dcp.jsonc and verifies that
+// compress.protectTags is set to true. Returns Fail if the file
+// is missing, Warn if it exists but protectTags is not enabled
+// or the file is malformed, and Pass if correctly configured.
+func checkDCPConfig(opts *Options) CheckResult {
+	readFile := opts.ReadFile
+	if readFile == nil {
+		readFile = os.ReadFile
+	}
+
+	dcpPath := filepath.Join(opts.TargetDir, ".opencode", "dcp.jsonc")
+	data, err := readFile(dcpPath)
+	if err != nil {
+		return CheckResult{
+			Name:        ".opencode/dcp.jsonc",
+			Severity:    Fail,
+			Message:     "not found",
+			InstallHint: "Run: uf init",
+		}
+	}
+
+	// Strip JSONC comments before parsing — same approach as
+	// scaffold's stripJSONCComments but inlined to avoid
+	// cross-package coupling for a trivial function.
+	stripped := stripDCPComments(data)
+
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(stripped, &parsed); err != nil {
+		return CheckResult{
+			Name:        ".opencode/dcp.jsonc",
+			Severity:    Warn,
+			Message:     "malformed config",
+			InstallHint: "Run: uf init --force",
+		}
+	}
+
+	compressRaw, ok := parsed["compress"]
+	if !ok {
+		return CheckResult{
+			Name:        ".opencode/dcp.jsonc",
+			Severity:    Warn,
+			Message:     "protectTags not enabled",
+			InstallHint: "Run: uf init --force",
+		}
+	}
+
+	var compress map[string]json.RawMessage
+	if err := json.Unmarshal(compressRaw, &compress); err != nil {
+		return CheckResult{
+			Name:        ".opencode/dcp.jsonc",
+			Severity:    Warn,
+			Message:     "malformed compress section",
+			InstallHint: "Run: uf init --force",
+		}
+	}
+
+	ptRaw, ok := compress["protectTags"]
+	if !ok {
+		return CheckResult{
+			Name:        ".opencode/dcp.jsonc",
+			Severity:    Warn,
+			Message:     "protectTags not enabled",
+			InstallHint: "Run: uf init --force",
+		}
+	}
+
+	var protectTags bool
+	if err := json.Unmarshal(ptRaw, &protectTags); err != nil || !protectTags {
+		return CheckResult{
+			Name:        ".opencode/dcp.jsonc",
+			Severity:    Warn,
+			Message:     "protectTags not enabled",
+			InstallHint: "Run: uf init --force",
+		}
+	}
+
+	return CheckResult{
+		Name:     ".opencode/dcp.jsonc",
+		Severity: Pass,
+		Message:  "protectTags enabled",
+	}
+}
+
+// stripDCPComments removes full-line // comments from JSONC content.
+// This is intentionally simple — it only handles lines where the
+// trimmed content starts with //. Sufficient for the small, well-known
+// dcp.jsonc format. Inlined here to avoid cross-package coupling with
+// the scaffold package's stripJSONCComments.
+func stripDCPComments(data []byte) []byte {
+	lines := strings.Split(string(data), "\n")
+	var result []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		result = append(result, line)
+	}
+	return []byte(strings.Join(result, "\n"))
 }
 
 // checkDirWithCount checks a directory exists and counts files

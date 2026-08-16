@@ -630,6 +630,7 @@ func TestCheckScaffoldedFiles(t *testing.T) {
 	createFile(t, dir, ".opencode/uf/packs/go.md", "# Go pack")
 	createFile(t, dir, ".specify/config.yaml", "# config")
 	createFile(t, dir, "AGENTS.md", "# Agents")
+	createFile(t, dir, ".opencode/dcp.jsonc", `{"compress":{"protectTags":true}}`)
 
 	opts := &Options{
 		TargetDir: dir,
@@ -651,6 +652,9 @@ func TestCheckScaffoldedFiles(t *testing.T) {
 	}
 	if r := results[".specify/"]; r.Severity != Pass {
 		t.Errorf("specify severity = %v, want Pass", r.Severity)
+	}
+	if r := results[".opencode/dcp.jsonc"]; r.Severity != Pass {
+		t.Errorf("dcp.jsonc severity = %v, want Pass", r.Severity)
 	}
 	// AGENTS.md check moved to checkAgentContext; verify it is
 	// NOT in this group.
@@ -719,6 +723,109 @@ func TestCheckScaffoldedFiles_LegacyCommandDir(t *testing.T) {
 	}
 	if !strings.Contains(r.InstallHint, "uf init") {
 		t.Errorf("legacy command install hint = %q, want 'uf init'", r.InstallHint)
+	}
+}
+
+func TestCheckDCPConfig_Pass(t *testing.T) {
+	dir := t.TempDir()
+	content := `{
+  "$schema": "https://raw.githubusercontent.com/Opencode-DCP/opencode-dynamic-context-pruning/master/dcp.schema.json",
+  // Enable <protect> tag preservation during DCP compression.
+  // Slash command files in .opencode/commands/ use <protect> tags
+  // to mark execution-critical sections (guardrails, checklists,
+  // mandatory gates) that must survive context pruning.
+  "compress": {
+    "protectTags": true
+  }
+}`
+	createFile(t, dir, ".opencode/dcp.jsonc", content)
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+	}
+
+	result := checkDCPConfig(opts)
+
+	if result.Severity != Pass {
+		t.Errorf("severity = %v, want Pass", result.Severity)
+	}
+	if result.Name != ".opencode/dcp.jsonc" {
+		t.Errorf("name = %q, want %q", result.Name, ".opencode/dcp.jsonc")
+	}
+	if result.Message != "protectTags enabled" {
+		t.Errorf("message = %q, want %q", result.Message, "protectTags enabled")
+	}
+}
+
+func TestCheckDCPConfig_Missing(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+	}
+
+	result := checkDCPConfig(opts)
+
+	if result.Severity != Fail {
+		t.Errorf("severity = %v, want Fail", result.Severity)
+	}
+	if result.Message != "not found" {
+		t.Errorf("message = %q, want %q", result.Message, "not found")
+	}
+	if !strings.Contains(result.InstallHint, "uf init") {
+		t.Errorf("install hint = %q, want 'uf init'", result.InstallHint)
+	}
+}
+
+func TestCheckDCPConfig_NoProtectTags(t *testing.T) {
+	dir := t.TempDir()
+	content := `{
+  "$schema": "https://example.com/dcp.schema.json",
+  "compress": {
+    "someOtherSetting": 42
+  }
+}`
+	createFile(t, dir, ".opencode/dcp.jsonc", content)
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+	}
+
+	result := checkDCPConfig(opts)
+
+	if result.Severity != Warn {
+		t.Errorf("severity = %v, want Warn", result.Severity)
+	}
+	if result.Message != "protectTags not enabled" {
+		t.Errorf("message = %q, want %q", result.Message, "protectTags not enabled")
+	}
+	if !strings.Contains(result.InstallHint, "uf init --force") {
+		t.Errorf("install hint = %q, want 'uf init --force'", result.InstallHint)
+	}
+}
+
+func TestCheckDCPConfig_MalformedJSON(t *testing.T) {
+	dir := t.TempDir()
+	createFile(t, dir, ".opencode/dcp.jsonc", "not valid json {{{")
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+	}
+
+	result := checkDCPConfig(opts)
+
+	if result.Severity != Warn {
+		t.Errorf("severity = %v, want Warn", result.Severity)
+	}
+	if result.Message != "malformed config" {
+		t.Errorf("message = %q, want %q", result.Message, "malformed config")
+	}
+	if !strings.Contains(result.InstallHint, "uf init --force") {
+		t.Errorf("install hint = %q, want 'uf init --force'", result.InstallHint)
 	}
 }
 
@@ -997,6 +1104,7 @@ func TestDoctorRun_AllPass(t *testing.T) {
 	createFile(t, dir, ".specify/config.yaml", "# config")
 	createFile(t, dir, "AGENTS.md", completeAGENTSmd())
 	createFile(t, dir, "opencode.json", `{"mcp":{"replicator":{"type":"local","command":["replicator","serve"],"enabled":true}}}`)
+	createFile(t, dir, ".opencode/dcp.jsonc", `{"compress":{"protectTags":true}}`)
 	if err := os.MkdirAll(filepath.Join(dir, ".uf", "replicator"), 0755); err != nil {
 		t.Fatalf("mkdir .uf/replicator: %v", err)
 	}
