@@ -12,6 +12,10 @@
   spec-review: passed
   reviewers: 9/9 APPROVE
   auto-fixes: applied (5 MEDIUM, 6 LOW consolidated)
+
+  code-review: passed
+  code-reviewers: 9/9 APPROVE
+  code-auto-fixes: applied (2 MEDIUM, 2 LOW)
 -->
 
 ## 1. Add Scope Filter to Pre-flight Skill

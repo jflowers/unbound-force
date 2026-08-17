@@ -1,6 +1,6 @@
 ---
 name: pre-flight
-description: "Shared pre-flight skill for CI detection and local tool execution. Supports hard-gate, ci-aware, and soft-gate execution policies."
+description: "Shared pre-flight skill for CI detection, scope filtering, and local tool execution. Supports hard-gate, ci-aware, and soft-gate execution policies."
 ---
 <!-- scaffolded by uf vdev -->
 # Skill: Pre-flight Checks
@@ -14,9 +14,9 @@ an execution policy.
 
 | Mode | Behavior | Typical consumer |
 |------|----------|-----------------|
-| `hard-gate` | Run all detected tools. Stop on first failure. | `/unleash` (phase checkpoints) |
+| `hard-gate` | Run all detected in-scope tools. Stop on first failure. | `/unleash` (phase checkpoints) |
 | `ci-aware` | Build CI coverage matrix against PR check results. Skip tools CI already verified. Run the rest. | `/review-pr` |
-| `soft-gate` | Run all detected tools. Classify failures as branch-caused vs pre-existing. Gate only on branch-caused failures. | `/review-council` |
+| `soft-gate` | Run all detected in-scope tools. Classify failures as branch-caused vs pre-existing. Gate only on branch-caused failures. | `/review-council` |
 
 The consuming command specifies which mode to use.
 
@@ -253,9 +253,9 @@ The coverage matrix is still displayed for visibility.
 
 Run only the tools marked "Run locally = Yes" in the
 coverage matrix. Tools marked "No (no in-scope files)"
-are skipped — they count as PASS for verdict computation
-but are not executed. Their display status is
-"SKIP (scope)".
+are scope-skipped — they count as PASS for verdict
+computation but are not executed. Their display status
+is "SKIP (scope)".
 
 ### hard-gate mode
 

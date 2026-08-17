@@ -6,15 +6,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Changed
-- pre-flight-scope-filter: Add file-scope filtering to
-  pre-flight skill. Tools are now skipped when the branch
-  diff contains no files matching their extension scope
-  (e.g., Go tools skip on YAML-only branches). Adds
-  Phase 2b between tool detection and CI coverage matrix
-  with tool-to-extension mapping, always-run designation
-  for meta-tools (`make check`, `pre-commit`), and
-  fail-open behavior on git errors. Scope-skipped tools
-  count as PASS for verdict and display as "SKIP (scope)".
+- pre-flight-scope-filter: Pre-flight checks now skip
+  tools when the branch diff contains no files matching
+  their extension scope (e.g., Go tools skip on YAML-only
+  branches). Adds Phase 2b file-scope filtering between
+  tool detection and CI coverage matrix with
+  tool-to-extension mapping, always-run designation for
+  meta-tools (`make check`, `pre-commit`), and fail-open
+  behavior on git errors. Scope-skipped tools count as
+  PASS for verdict and display as "SKIP (scope)".
   (Spec: openspec/changes/pre-flight-scope-filter/,
   Fixes: #434)
 - adopt-org-infra-release-workflows: Replace inline
