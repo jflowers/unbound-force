@@ -116,6 +116,82 @@ and proceed to Phase 3.
 
 ---
 
+## Phase 2b: Scope Filter
+
+After detecting available tools, determine which tools are
+relevant to the current branch by intersecting the branch
+diff with each tool's file-extension scope.
+
+### Branch diff computation
+
+Compute the list of files changed on the current branch:
+
+```bash
+git diff --name-only main...HEAD
+```
+
+If this command fails (e.g., detached HEAD, missing remote,
+no `main` branch), emit a warning that includes the git error
+message explaining why the scope filter was bypassed. Mark
+all detected tools as "In scope" and proceed (fail-open).
+
+If the diff returns an empty file list (no commits ahead of
+`main`), emit a warning: "no files changed on branch — scope
+filter has nothing to match". Mark all non-always-run tools
+as "Skipped (no in-scope files)" and always-run tools as
+"In scope".
+
+### Tool-to-extension scope mapping
+
+| Tool | In-scope extensions |
+|------|-------------------|
+| `go test` | `*.go`, `go.mod`, `go.sum` |
+| `golangci-lint` | `*.go`, `go.mod`, `go.sum` |
+| `ruff` | `*.py`, `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements*.txt` |
+| `pytest` | `*.py`, `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements*.txt` |
+| `yamllint` | `*.yml`, `*.yaml` |
+
+### Always-run tools
+
+The following tools MUST NOT be skipped by the scope filter
+regardless of the branch diff:
+
+- `make check` (or `make lint`)
+- `pre-commit`
+
+These meta-tools aggregate multiple concerns that may not
+map cleanly to file extensions.
+
+### Scope evaluation
+
+For each detected and available tool:
+
+1. If the tool is in the always-run list → mark "In scope"
+2. If the tool is NOT in the scope mapping table → mark
+   "In scope" (unknown tools default to always-run)
+3. If ANY file in the branch diff matches the tool's
+   in-scope extensions → mark "In scope"
+4. If NO files in the branch diff match → mark "Skipped
+   (no in-scope files)"
+
+### Output
+
+Log the diff file list and the per-tool scope decision:
+
+```
+Branch diff (git diff --name-only main...HEAD):
+  - .github/workflows/ci.yml
+  - config/settings.yaml
+
+Scope filter results:
+  - go test: Skipped (no in-scope files)
+  - golangci-lint: Skipped (no in-scope files)
+  - yamllint: In scope (matched: *.yml, *.yaml)
+  - Make (make check): In scope (always run)
+```
+
+---
+
 ## Phase 3: CI Coverage Matrix
 
 Build and display a coverage matrix that maps each
@@ -131,6 +207,12 @@ names to CI check names by matching on the tool's purpose
 (e.g., `go test` maps to a CI check containing "test",
 `golangci-lint` maps to a check containing "lint").
 
+Tools marked "Skipped (no in-scope files)" in Phase 2b
+appear in the matrix with "Run locally?" set to
+"No (no in-scope files)". These tools are not evaluated
+against CI status — the scope filter decision takes
+precedence.
+
 ### Decision rules (ci-aware mode)
 
 | CI status | Run locally? | Rationale |
@@ -142,12 +224,16 @@ names to CI check names by matching on the tool's purpose
 
 ### Decision rules (hard-gate mode)
 
-In hard-gate mode, ALL detected and available tools are
-marked "Run locally = Yes" regardless of CI status. The
-CI status column in the matrix shows the actual status if
-available, or "N/A" if CI results were not provided. The
-coverage matrix is still displayed for visibility, but
-skip decisions are not applied.
+In hard-gate mode, ALL detected, available, and in-scope
+tools are marked "Run locally = Yes" regardless of CI
+status. Tools marked "Skipped (no in-scope files)" in
+Phase 2b are marked "No (no in-scope files)" — scope
+filtering takes precedence over hard-gate's default of
+running everything.
+
+The CI status column in the matrix shows the actual status
+if available, or "N/A" if CI results were not provided.
+The coverage matrix is still displayed for visibility.
 
 ### Display format
 
@@ -155,9 +241,10 @@ skip decisions are not applied.
 ### CI Coverage Matrix
 | Local tool | CI check | CI status | Run locally? |
 |------------|----------|-----------|--------------|
-| go test | Local CI / test | PASS | No |
-| golangci-lint | CI Checks / lint | PASS | No |
+| go test | Local CI / test | PASS | No (no in-scope files) |
+| golangci-lint | CI Checks / lint | PASS | No (no in-scope files) |
 | yamllint | (none) | NONE | Yes |
+| Make (make check) | Local CI / check | PASS | Yes (always run) |
 ```
 
 ---
@@ -165,12 +252,15 @@ skip decisions are not applied.
 ## Phase 4: Execution
 
 Run only the tools marked "Run locally = Yes" in the
-coverage matrix.
+coverage matrix. Tools marked "No (no in-scope files)"
+are skipped — they count as PASS for verdict computation
+but are not executed. Their display status is
+"SKIP (scope)".
 
 ### hard-gate mode
 
-Execute each tool in order. If any tool exits with a
-non-zero exit code:
+Execute each in-scope tool in order. If any tool exits
+with a non-zero exit code:
 
 1. **STOP immediately** — do not run remaining tools.
 2. Report the failure as a CRITICAL finding with the
@@ -178,7 +268,8 @@ non-zero exit code:
 3. The consuming command MUST NOT proceed to AI review
    or implementation.
 
-If all tools pass, report success.
+If all in-scope tools pass (and scope-skipped tools count
+as PASS), report success.
 
 ### ci-aware mode
 
@@ -190,8 +281,9 @@ Record all exit codes and output.
   for AI review. Do NOT stop — the consuming command
   decides how to handle failures.
 
-If no tools are marked "Yes" (all covered by CI): report
-"All tools covered by CI — no local execution needed."
+If no tools are marked "Yes" (all covered by CI or
+scope-skipped): report "All tools covered by CI or
+out of scope — no local execution needed."
 
 ### soft-gate mode
 
@@ -358,7 +450,12 @@ After classifying all failures:
 
 ## Phase 5: Result Format
 
-Present results in a standardized format.
+Present results in a standardized format. Scope-skipped
+tools (those marked "No (no in-scope files)" by Phase
+2b) appear in the execution results table with exit
+code "-" and status "SKIP (scope)". They count as PASS
+for the verdict but are visually distinguished from tools
+that were actually executed.
 
 ### hard-gate and ci-aware modes
 
@@ -373,12 +470,16 @@ Present results in a standardized format.
 ### Execution Results
 | Tool | Command | Exit code | Status |
 |------|---------|-----------|--------|
+| go test | go test ./... | 0 | PASS |
+| golangci-lint | golangci-lint run | - | SKIP (scope) |
+| Make | make check | 0 | PASS |
 | ...  | ...     | ...       | ...    |
 
 ### Verdict
 - **Mode**: hard-gate | ci-aware
 - **Result**: PASS | FAIL
 - **Failures**: [list if any]
+- **Scope-skipped**: [list of tools skipped by scope filter]
 ```
 
 ### soft-gate mode
