@@ -18,6 +18,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
   scopes.
   (Spec: openspec/changes/pre-flight-file-scope-filter/,
   Fixes: #434)
+- triage-mandatory-gate: Add `>>> MANDATORY GATE <<<` to
+  `uf.triage-issue` Phase 4 entry. Agents now stop and
+  require explicit human confirmation before executing
+  mutations (labels, comments, child issues). Includes
+  compressed-context resume guard and mutation safety
+  reiteration.
+  (Spec: openspec/changes/triage-mandatory-gate/,
+  Fixes: #473)
 - adopt-org-infra-release-workflows: Replace inline
   release preflight and GoReleaser jobs with org-infra
   reusable workflow callers (`reusable_release_preflight`

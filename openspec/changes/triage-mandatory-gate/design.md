@@ -46,10 +46,6 @@ in a separate section far from the Phase 4 entry point.
   question tool references remain as defense-in-depth)
 - Adding gates to other phases (Phase 1-3 are read-only)
 - Changing the triage artifact format (Phase 4.5)
-- Adding an `>>> END MANDATORY GATE <<<` closing marker
-  (the entire remainder of Phase 4 is gated; closing markers
-  are used in `uf.finale` for conditional gates that have
-  ungated content following them)
 
 ## Decisions
 
