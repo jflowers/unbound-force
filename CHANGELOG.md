@@ -23,6 +23,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
   Fixes: #479)
 
 ### Changed
+- add-todowrite-to-pipelines: Pipeline commands
+  (/uf.unleash, /uf.finale, /uf.review-council,
+  /uf.address-feedback) now use TodoWrite for live
+  session progress visibility alongside the existing
+  Edit tool execution checklist.
+  (Spec: openspec/changes/add-todowrite-to-pipelines/,
+  Fixes: #504)
 - reconcile-speckit-uf-refs: `uf init` Step 6 now injects
   Dewey (`dewey_semantic_search`) and
   `.specify/memory/constitution.md` references into the
