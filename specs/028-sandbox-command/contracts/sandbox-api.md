@@ -166,12 +166,40 @@ func DetectPlatform(opts Options) PlatformConfig
 | Fedora amd64 | amd64 | false (disabled) | (none) |
 | Ubuntu amd64 | amd64 | false | (none) |
 
+### parseDevcontainerPorts
+
+```go
+// parseDevcontainerPorts reads forwardPorts from
+// .devcontainer/devcontainer.json and returns port
+// mappings after JSONC stripping, validation, and
+// deduplication.
+func parseDevcontainerPorts(
+	opts Options,
+	excludedPorts map[int]bool,
+) []portMapping
+```
+
+**Behavior**: Reads `.devcontainer/devcontainer.json`
+via `opts.ReadFile`. Strips JSONC comments (`//` and
+`/* */`) and trailing commas before unmarshaling.
+Parses `forwardPorts` entries as numeric ports (8080)
+or `"host:container"` strings (`"8080:3000"`). Validates
+port ranges (1–65535), rejects fractional and overflow
+values, deduplicates against `excludedPorts` and within
+the array (first entry wins). Returns nil when the file
+is absent, unreadable, or contains no `forwardPorts`.
+
+**Called from**: `buildRunArgs` (ephemeral path,
+excludes `DefaultServerPort`) and
+`buildPersistentRunArgs` (persistent path, excludes
+`DefaultServerPort` and demo ports).
+
 ### buildRunArgs
 
 ```go
 // buildRunArgs constructs the podman run argument list from
 // Options and PlatformConfig.
-func buildRunArgs(opts Options, platform PlatformConfig) []string
+func buildRunArgs(opts Options, platform PlatformConfig, gatewayActive bool, gatewayPort int) []string
 ```
 
 **Returns**: Complete argument list for `podman run`,
@@ -180,6 +208,12 @@ including `-d`, `--name`, `-p`, `-v`, `-e`, `--memory`,
 user-provided `--image` and resource limits) are passed
 as discrete `exec.Command` arguments — never shell-
 interpolated — preventing command injection.
+
+**Devcontainer port forwarding**: After publishing
+`DefaultServerPort`, calls `parseDevcontainerPorts` to
+read `forwardPorts` from `.devcontainer/devcontainer.json`
+and appends `-p host:container` flags for each port not
+already covered by `DefaultServerPort`.
 
 ### waitForHealth
 

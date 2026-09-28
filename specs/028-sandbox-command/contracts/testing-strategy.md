@@ -15,7 +15,7 @@ real containers, no network access.
 | Function | Test approach | Key assertions |
 |----------|--------------|----------------|
 | `DetectPlatform()` | Inject `ExecCmd` returning mock `getenforce` output | Correct SELinux detection per platform |
-| `buildRunArgs()` | Pure function, no injection needed | Correct flag construction for each mode/platform combo |
+| `buildRunArgs()` | Inject `ReadFile` for devcontainer port scenarios | Correct flag construction for each mode/platform combo |
 | `Start()` | Inject `LookPath`, `ExecCmd`, `HTTPGet` | Prerequisite checks, container start, health polling, attach |
 | `Stop()` | Inject `ExecCmd` | Correct podman stop/rm sequence, idempotent on missing |
 | `Attach()` | Inject `LookPath`, `ExecInteractive` | OpenCode check, correct attach URL |
@@ -48,6 +48,25 @@ Examples:
 - `TestBuildRunArgs_Direct`
 - `TestBuildRunArgs_SELinux`
 - `TestBuildRunArgs_CustomImage`
+- `TestBuildRunArgs_DevcontainerPorts`
+- `TestBuildRunArgs_DevcontainerHostContainerMapping`
+- `TestBuildPersistentRunArgs_DevcontainerPorts`
+- `TestBuildPersistentRunArgs_DevcontainerPortsAbsentFile`
+- `TestBuildPersistentRunArgs_DevcontainerHostContainerMapping`
+- `TestBuildPersistentRunArgs_DevcontainerDemoDedup`
+- `TestParseDevcontainerPorts_HappyPath`
+- `TestParseDevcontainerPorts_NoFile`
+- `TestParseDevcontainerPorts_NoForwardPorts`
+- `TestParseDevcontainerPorts_StringPorts`
+- `TestParseDevcontainerPorts_JSONC`
+- `TestParseDevcontainerPorts_UnterminatedBlockComment`
+- `TestParseDevcontainerPorts_InvalidRange`
+- `TestParseDevcontainerPorts_AllExcluded`
+- `TestParseDevcontainerPorts_TrailingComma`
+- `TestParseDevcontainerPorts_DuplicateHostPorts`
+- `TestParseDevcontainerPorts_FractionalPort`
+- `TestParseDevcontainerPorts_ExponentOverflow`
+- `TestStripJSONComments_UnterminatedBlockNoLeak`
 - `TestWaitForHealth_ImmediateSuccess`
 - `TestWaitForHealth_DelayedSuccess`
 - `TestWaitForHealth_Timeout`
