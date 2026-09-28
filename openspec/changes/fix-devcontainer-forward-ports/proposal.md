@@ -56,8 +56,8 @@ devcontainer spec.
   integration in `buildPersistentRunArgs()` (~10 lines)
 - `internal/sandbox/sandbox_test.go` — 15 new test
   functions (~410 lines)
-- `docs/cli-reference.md` — notes for `uf sandbox init`,
-  `uf sandbox create`, `uf sandbox start`
+- `docs/cli-reference.md` — notes for `uf sandbox create`,
+  `uf sandbox start`
 - `docs/configuration.md` — note about automatic
   forwardPorts reading
 - `CHANGELOG.md` — Unreleased/Fixed entry

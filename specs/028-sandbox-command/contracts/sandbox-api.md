@@ -199,7 +199,7 @@ excludes `DefaultServerPort`) and
 ```go
 // buildRunArgs constructs the podman run argument list from
 // Options and PlatformConfig.
-func buildRunArgs(opts Options, platform PlatformConfig) []string
+func buildRunArgs(opts Options, platform PlatformConfig, gatewayActive bool, gatewayPort int) []string
 ```
 
 **Returns**: Complete argument list for `podman run`,
