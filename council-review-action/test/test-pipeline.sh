@@ -880,6 +880,75 @@ fi
 
 rm -rf "${RUN_DIR}"
 
+# ── Test 36: uf.review-pr.md — workflow-gate marker exception ────
+echo "Test 36: uf.review-pr.md — marker exception clause present and scoped"
+
+REVIEW_PR_CMD="${SCRIPT_DIR}/../../.opencode/commands/uf.review-pr.md"
+if [[ ! -f "${REVIEW_PR_CMD}" ]]; then
+  echo "  FAIL: uf.review-pr.md not found at ${REVIEW_PR_CMD}"
+  FAIL=$((FAIL + 1))
+else
+  CMD_CONTENT=$(cat "${REVIEW_PR_CMD}")
+  MARKER_PASS=0
+  MARKER_FAIL=0
+
+  if echo "${CMD_CONTENT}" | grep -qF '<!-- code-review: passed -->'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing <!-- code-review: passed --> marker"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if echo "${CMD_CONTENT}" | grep -qF '<!-- spec-review: passed -->'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing <!-- spec-review: passed --> marker"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if echo "${CMD_CONTENT}" | grep -qF 'openspec/changes/*/tasks.md'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing openspec path pattern"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if echo "${CMD_CONTENT}" | grep -qF 'specs/*/tasks.md'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing specs path pattern"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if echo "${CMD_CONTENT}" | grep -qF 'coverage-threshold: lowered'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing negative control example"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if echo "${CMD_CONTENT}" | grep -qF 'do NOT flag those markers as gatekeeping violations'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing suppression instruction"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if echo "${CMD_CONTENT}" | grep -qF 'MUST still flag'; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing MUST-still-flag guard"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
+  if [[ "${MARKER_FAIL}" -eq 0 ]]; then
+    echo "  PASS: marker exception clause present and scoped (${MARKER_PASS}/7 checks)"
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+  fi
+fi
+
 # ── Summary ──────────────────────────────────────────────────
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
