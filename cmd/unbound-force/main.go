@@ -96,7 +96,7 @@ commands, OpenSpec schema, convention packs) are updated if
 their content has changed.
 
 Use --divisor to deploy only The Divisor review agents,
-the /review-council command, and convention packs.
+the /uf.review-council command, and convention packs.
 
 Use --lang to specify the project language for convention
 pack selection (auto-detected from go.mod, package.json,
