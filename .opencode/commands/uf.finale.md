@@ -410,6 +410,34 @@ gh pr view --json number,url 2>/dev/null
   sections SHOULD contain a brief explanatory note
   rather than fabricated content.
 
+  d2. **Originating issue trailer**: After generating
+  the PR body sections, detect the change directory
+  from the branch name and read the
+  `originating_issue` field:
+
+  - `opsx/<name>` → read
+    `openspec/changes/<name>/.openspec.yaml`
+  - `NNN-*` → read the Speckit spec's
+    `proposal.md` frontmatter
+
+  Parse the YAML with a shell-friendly approach
+  (e.g., `grep` + `sed` or `yq` if available).
+
+  When `originating_issue` is present, insert
+  `Closes #<N>` immediately after the `## Summary`
+  section (before `## How to Test`). When absent,
+  emit no `Closes` line.
+
+  If on an `opsx/*` branch with no
+  `originating_issue` set, emit a soft warning:
+
+  > "Note: no `originating_issue` found in
+  > `.openspec.yaml`. Consider adding it manually
+  > to enable automatic `Closes #N` in the PR body."
+
+  This is a soft warning, not a hard gate. Proceed
+  regardless.
+
   Append the attribution footer as the last line of
   the PR body:
 
