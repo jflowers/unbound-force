@@ -5,6 +5,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
 
 ## Unreleased
 
+### Added
+- issue-pr-traceability: OpenSpec changes now support an
+  optional `originating_issue` field in `.openspec.yaml`.
+  `/uf.finale` reads the field and emits `Closes #<N>`
+  after `## Summary` in the PR body when present. Absence
+  of the field is backward compatible (no `Closes` line
+  emitted). (Spec: openspec/changes/issue-pr-traceability/,
+  Closes: #554)
+
 ### Fixed
 - content-portability-guardrails: Add Content Portability
   rules (CP-001, CP-002, CP-003) to the default convention

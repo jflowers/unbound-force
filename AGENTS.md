@@ -260,6 +260,12 @@ be committed/pushed before implementation begins.
 
 **Branches**: Speckit: `NNN-<name>`. OpenSpec: `opsx/<name>`.
 
+**Originating issue**: OpenSpec changes MAY include
+`originating_issue: <N>` in `.openspec.yaml` to thread a
+GitHub issue number through to the PR body. `/uf.finale`
+reads the field and emits `Closes #<N>` after `## Summary`
+when present. The field is optional and backward compatible.
+
 **Task bookkeeping**: Mark checkboxes `[x]` immediately on
 completion. `[P]` marks parallel-eligible tasks.
 
