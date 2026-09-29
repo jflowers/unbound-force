@@ -888,53 +888,52 @@ if [[ ! -f "${REVIEW_PR_CMD}" ]]; then
   echo "  FAIL: uf.review-pr.md not found at ${REVIEW_PR_CMD}"
   FAIL=$((FAIL + 1))
 else
-  CMD_CONTENT=$(cat "${REVIEW_PR_CMD}")
   MARKER_PASS=0
   MARKER_FAIL=0
 
-  if echo "${CMD_CONTENT}" | grep -qF '<!-- code-review: passed -->'; then
+  if grep -qF '<!-- code-review: passed -->' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing <!-- code-review: passed --> marker"
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
-  if echo "${CMD_CONTENT}" | grep -qF '<!-- spec-review: passed -->'; then
+  if grep -qF '<!-- spec-review: passed -->' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing <!-- spec-review: passed --> marker"
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
-  if echo "${CMD_CONTENT}" | grep -qF 'openspec/changes/*/tasks.md'; then
+  if grep -qF 'openspec/changes/*/tasks.md' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing openspec path pattern"
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
-  if echo "${CMD_CONTENT}" | grep -qF 'specs/*/tasks.md'; then
+  if grep -qF 'specs/*/tasks.md' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing specs path pattern"
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
-  if echo "${CMD_CONTENT}" | grep -qF 'coverage-threshold: lowered'; then
+  if grep -qF 'coverage-threshold: lowered' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing negative control example"
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
-  if echo "${CMD_CONTENT}" | grep -qF 'do NOT flag those markers as gatekeeping violations'; then
+  if grep -qF 'do NOT flag those markers as gatekeeping violations' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing suppression instruction"
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
-  if echo "${CMD_CONTENT}" | grep -qF 'MUST still flag'; then
+  if grep -qF 'MUST still flag' "${REVIEW_PR_CMD}"; then
     MARKER_PASS=$((MARKER_PASS + 1))
   else
     echo "  FAIL: exception missing MUST-still-flag guard"
