@@ -288,6 +288,10 @@ MUST include, without weakening existing instructions:
 - all changed paths and the exact base/head input context;
 - `AGENTS.md`, constitution, active convention packs, and severity;
 - review-context and available Gaze/pre-flight evidence;
+- originating-issue context (issue number, resolution source,
+  acceptance criteria) when the originating issue was resolved
+  in Phase 1c; this is especially critical for the Guard persona
+  (`divisor-guard`);
 - the identical delimited sibling evidence and its provenance;
 - the changed-line and downstream-impact confinement rule;
 - a prohibition on issue creation and on changing tools, permissions,
@@ -483,17 +487,32 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
          using the resolved branch or PR head name and
          immutable changed-file list.
       2. Protocol 2 (Issue Linking) — **conditional**.
+         The review-context skill now resolves the
+         originating issue from `.openspec.yaml` first
+         (priority 1), falling back to PR body parsing
+         (priority 2), or no originating issue (priority 3).
          - If an **explicit PR number** was provided
            via `$ARGUMENTS` (see PR Number Argument
            above): fetch the PR body via
            `gh pr view <N> --json body --jq '.body'`
-           and run Protocol 2 to extract linked issues
-           and acceptance criteria. Pass the results
-           to the Guard persona in Step 2 for
-           concrete drift detection.
+           and run Protocol 2 to resolve the originating
+           issue and extract linked issues and acceptance
+           criteria. Pass the resolved originating-issue
+           context (issue number, resolution source, and
+           acceptance criteria) to the Guard persona in
+           Step 2 for concrete drift detection and
+           deviation governance evaluation.
          - If **no explicit PR number** was provided:
-           **skip**. Auto-detected PRs (from Step 7)
-           are not available at Phase 1c time.
+           check for `.openspec.yaml` in the active
+           change directory. If it contains an
+           `originating_issue` field, resolve the
+           originating issue from it and fetch the issue
+           via `gh issue view <N> --json title,body`.
+           Pass the resolved context to the Guard persona
+           in Step 2. If no `.openspec.yaml` or no
+           `originating_issue` field: **skip** Protocol 2.
+           Auto-detected PRs (from Step 7) are not
+           available at Phase 1c time.
       3. Protocol 3 (Path-Based Focus Heuristics) —
          retain the skill's focus heuristics for prompt
          emphasis. Pass raw immutable diff statistics to
@@ -533,7 +552,15 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    Preserve the existing review prompt instructions: review all changed
    files for quality, correctness, behavioral constraints, security,
    spec alignment, and convention compliance. Include the Phase 1c
-   Review Context and, when available, the Phase 1b Gaze Report. Require
+   Review Context and, when available, the Phase 1b Gaze Report.
+   When the originating issue was resolved in Phase 1c Protocol 2,
+   include the Originating-Issue Context (issue number, resolution
+   source, and acceptance criteria) as required by the shared protocol.
+   Instruct the Guard persona (`divisor-guard`) to evaluate each
+   acceptance criterion against the changes: flag unmet criteria with
+   documented governance as `IMPLEMENTATION_DEVIATION` (severity HIGH,
+   COMMENT verdict when governance is adequate); flag unmet criteria
+   with missing governance as a standard alignment finding. Require
    the structured output defined by the shared protocol.
 
    **Checkpoint**: Mark `Step 2` complete in the EXECUTION CHECKLIST
