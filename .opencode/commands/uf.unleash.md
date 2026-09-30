@@ -669,6 +669,12 @@ memory.
    Display the learnings in the output so they are not
    lost.
 
+> POLICY NOTE: Learnings stored via `dewey_store_learning`
+> produce files (`.uf/dewey/learnings/*.md`,
+> `.uf/dewey/compiled/*.md`) that are part of the feature
+> PR scope and MUST be committed on the feature branch.
+> See the Commit scope rule in `AGENTS.md`.
+
 > CHECKPOINT: Mark Step 9 complete in the execution
 > checklist before proceeding. Proceed immediately to
 > Step 10. Do NOT ask for confirmation.

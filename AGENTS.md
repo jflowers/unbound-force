@@ -182,7 +182,10 @@ These rules are non-negotiable. Violations are CRITICAL severity.
   assess documentation impact: `CHANGELOG.md` for change
   entries, `AGENTS.md` for structural updates (project
   structure, conventions, build commands), `README.md` for
-  description changes.
+  description changes. Retrospective learnings
+  (`.uf/dewey/learnings/*.md`, `.uf/dewey/compiled/*.md`)
+  satisfy this gate as intentional knowledge-capture
+  artifacts.
 - **Documentation gate**: MUST file a documentation issue
   against the current repo for user-facing changes before
   PR merge. Exempt: internal refactoring, test-only,
@@ -190,12 +193,15 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 - **Zero-waste**: No orphaned specs, unused standards, or
   aspirational documents that do not map to actionable work.
 - **Commit scope**: Only commit files directly related to the
-  active spec or change. Tooling scaffolds (`uf init`,
-  convention pack updates, command directory renames, schema
-  template updates) MUST be committed on a separate branch
-  (e.g., `chore/uf.init-sync`), not mixed into feature
-  branches. Never use `git add -A` or `git add .` on feature
-  branches — stage files explicitly.
+  active spec or change. Dewey learnings
+  (`.uf/dewey/learnings/*.md` and `.uf/dewey/compiled/*.md`)
+  produced during the change's workflow are directly related
+  to the active change and MUST be included in the feature
+  PR. Tooling scaffolds (`uf init`, convention pack updates,
+  command directory renames, schema template updates) MUST be
+  committed on a separate branch (e.g., `chore/uf.init-sync`),
+  not mixed into feature branches. Never use `git add -A` or
+  `git add .` on feature branches — stage files explicitly.
 
 ### PR Review Commands
 
