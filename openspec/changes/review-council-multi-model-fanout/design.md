@@ -316,7 +316,7 @@ as `INCONCLUSIVE` before dispatch.
 
 ### D3: Use a closed reviewer manifest and executable planner
 
-The advisor skill owns change profiling and invokes an auto-discovered
+The advisor skill owns change profiling and invokes the registered
 `review-dispatch` policy plugin. That plugin exposes
 `plan_review_dispatch` and `finalize_review_dispatch`. The first tool
 parses the matrix and reviewer manifest, applies relevance, tiers,

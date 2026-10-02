@@ -52,7 +52,7 @@
 ## 2. Dispatch Runtime and Artifact
 
 - [x] 2.1 Port the canonical and scaffolded `dispatch-advisor` skill
-  and add the auto-discovered `review-dispatch` policy plugin. Expose
+  and add the `review-dispatch` policy plugin registered in `opencode.json`. Expose
   `plan_review_dispatch` for matrix and reviewer-manifest parsing,
   relevance, total tiering, stable plans, limits, opt-in fan-out, and
   fail-closed full-panel behavior. Commands MUST consume this tool
