@@ -266,8 +266,84 @@ jobs:
           patch_checksums "$CASK_FILE"
           patch_checksums "$FORMULA_FILE"
 
-          # Push both cask and formula to the Homebrew tap
+          # Transform the generated legacy hook before the Cask enters the tap.
+          case "$(uname -m)" in
+            arm64) TRANSFORMER_ARCH=arm64 ;;
+            x86_64) TRANSFORMER_ARCH=amd64 ;;
+            *)
+              echo "::error::Unsupported runner architecture"
+              exit 1
+              ;;
+          esac
+          TRANSFORMER_DIR="$(mktemp -d)"
+          TRANSFORMER_ARCHIVE="./signed/unbound-force_${VERSION}_darwin_${TRANSFORMER_ARCH}.tar.gz"
+          STAGED_TAP=""
+          BREW_PREFIX=""
+          SMOKE_TEST_CASK_INSTALLED=false
+          cleanup() {
+            local status=$? cleanup_status=0
+            if [ "$SMOKE_TEST_CASK_INSTALLED" = true ]; then
+              brew uninstall --cask --force unbound-force || cleanup_status=$?
+              rm -f "$BREW_PREFIX/bin/uf" || cleanup_status=$?
+            fi
+            rm -rf "$STAGED_TAP" "$TRANSFORMER_DIR" || cleanup_status=$?
+            if [ "$status" -ne 0 ]; then
+              return "$status"
+            fi
+            return "$cleanup_status"
+          }
+          trap cleanup EXIT
+          TRANSFORMER_SHA=$(awk -v filename="$(basename "$TRANSFORMER_ARCHIVE")" '$2 == filename { print $1 }' checksums.txt)
+          TRANSFORMER_ACTUAL_SHA=$(shasum -a 256 "$TRANSFORMER_ARCHIVE" | awk '{print $1}')
+          if [ -z "$TRANSFORMER_SHA" ] || [ "$TRANSFORMER_SHA" != "$TRANSFORMER_ACTUAL_SHA" ]; then
+            echo "::error::Transformer archive checksum verification failed"
+            exit 1
+          fi
+          tar -xzf "$TRANSFORMER_ARCHIVE" -C "$TRANSFORMER_DIR"
+          "$TRANSFORMER_DIR/unbound-force" transform-homebrew-cask \
+            --input "$CASK_FILE" \
+            --output "$CASK_FILE"
+
+          # Reject unexpected transformed Cask content before tap publication.
+          postflight_steps_count=$(grep -c '^postflight_steps do$' "$CASK_FILE" || true)
+          if [ "$postflight_steps_count" -ne 1 ]; then
+            echo "::error::Expected exactly one postflight_steps stanza"
+            exit 1
+          fi
+          if grep -q '^postflight do$' "$CASK_FILE"; then
+            echo "::error::Deprecated postflight stanza remains in Cask"
+            exit 1
+          fi
+          if ! grep -Fqx '    run "/usr/bin/xattr",' "$CASK_FILE" || \
+             ! grep -Fqx '      args: ["-dr", "com.apple.quarantine", "{{staged_path}}/unbound-force"]' "$CASK_FILE" || \
+             ! grep -Fqx '    symlink "unbound-force", "{{HOMEBREW_PREFIX}}/bin/uf", overwrite: true' "$CASK_FILE"; then
+            echo "::error::Required Homebrew install operations are missing"
+            exit 1
+          fi
+          brew audit --cask --strict "$CASK_FILE"
+
+          # Install only from a disposable tap copy before publishing the Cask.
           git clone "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/unbound-force/homebrew-tap.git" tap
+          STAGED_TAP="$(mktemp -d)"
+          cp -R tap/. "$STAGED_TAP"
+          cp "$CASK_FILE" "$STAGED_TAP/Casks/unbound-force.rb"
+          BREW_PREFIX="$(brew --prefix)"
+          if brew list --cask unbound-force >/dev/null 2>&1 || \
+             [ -e "$BREW_PREFIX/bin/unbound-force" ] || \
+             [ -e "$BREW_PREFIX/bin/uf" ]; then
+            echo "::error::Smoke test requires no existing unbound-force Cask or aliases"
+            exit 1
+          fi
+          SMOKE_TEST_CASK_INSTALLED=true
+          brew install --cask "$STAGED_TAP/Casks/unbound-force.rb"
+          test -x "$BREW_PREFIX/bin/unbound-force"
+          test -L "$BREW_PREFIX/bin/uf"
+          test -x "$BREW_PREFIX/bin/uf"
+          brew uninstall --cask --force unbound-force
+          rm -f "$BREW_PREFIX/bin/uf"
+          SMOKE_TEST_CASK_INSTALLED=false
+
+          # Push both cask and formula to the Homebrew tap
           cp "$CASK_FILE" tap/Casks/unbound-force.rb
           mkdir -p tap/Formula
           cp "$FORMULA_FILE" tap/Formula/unbound-force.rb

@@ -85,6 +85,7 @@ unbound-force/
 │   ├── dashboard/                    # Mx F dashboard rendering
 │   ├── doctor/                       # Environment health checks
 │   ├── gateway/                      # LLM reverse proxy (Vertex/Bedrock/Anthropic)
+│   ├── homebrew/                     # Homebrew Cask release-publishing helpers
 │   ├── impediment/                   # Impediment tracking and detection
 │   ├── metrics/                      # Metrics collection and health analysis
 │   ├── orchestration/                # Swarm orchestration engine
