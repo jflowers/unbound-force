@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { chmod, link, mkdir, open, readFile, unlink } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
-import { tool, type Plugin } from "@opencode-ai/plugin"
+import { tool, type PluginModule } from "@opencode-ai/plugin"
 import { z } from "zod"
 
 import { createPrepareLessonLearningTool } from "../../lib/review-dispatch-lesson-proposal.js"
@@ -2269,23 +2269,26 @@ export function createFinalizeReviewDispatchTool(
 }
 
 /** Auto-discovered OpenCode policy plugin for deterministic review planning and finalization. */
-export const ReviewDispatchPlugin = (async (input) => {
-  const projectRoot = input.worktree || input.directory
-  const dependencies: PlannerDependencies = {
-    readText: async (relativePath: string): Promise<string> =>
-      readFile(resolve(projectRoot, relativePath), "utf8"),
-    parseYaml: createBunYamlParser(),
-  }
-  return {
-    tool: {
-      plan_review_dispatch: createPlanReviewDispatchTool(dependencies),
-      finalize_review_dispatch: createFinalizeReviewDispatchTool(createFinalizationDependencies(projectRoot)),
-      acquire_sibling_evidence: createAcquireSiblingEvidenceTool(
-        createSiblingAcquisitionDependencies(projectRoot, createBunYamlParser()),
-      ),
-      prepare_lesson_learning: createPrepareLessonLearningTool(),
-    },
-  }
-}) satisfies Plugin
+export const ReviewDispatchPlugin = {
+  id: "review-dispatch",
+  server: async (input) => {
+    const projectRoot = input.worktree || input.directory
+    const dependencies: PlannerDependencies = {
+      readText: async (relativePath: string): Promise<string> =>
+        readFile(resolve(projectRoot, relativePath), "utf8"),
+      parseYaml: createBunYamlParser(),
+    }
+    return {
+      tool: {
+        plan_review_dispatch: createPlanReviewDispatchTool(dependencies),
+        finalize_review_dispatch: createFinalizeReviewDispatchTool(createFinalizationDependencies(projectRoot)),
+        acquire_sibling_evidence: createAcquireSiblingEvidenceTool(
+          createSiblingAcquisitionDependencies(projectRoot, createBunYamlParser()),
+        ),
+        prepare_lesson_learning: createPrepareLessonLearningTool(),
+      },
+    }
+  },
+} satisfies PluginModule
 
 export default ReviewDispatchPlugin
