@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { tool, type Plugin, type PluginInput, type ToolContext } from "@opencode-ai/plugin"
+import { tool, type PluginInput, type PluginModule, type ToolContext } from "@opencode-ai/plugin"
 import { z } from "zod"
 
 import {
@@ -492,16 +492,19 @@ export function createInvokeAgentTool(dependencies: InvokeAgentDependencies): Re
 }
 
 /** Auto-discovered OpenCode plugin exposing the policy-free invoke_agent tool. */
-export const InvokeAgentPlugin = (async (input) => {
-  const projectRoot = input.worktree || input.directory
-  const dependencies: InvokeAgentDependencies = {
-    client: input.client,
-    readText: async (relativePath: string): Promise<string> =>
-      readFile(resolve(projectRoot, relativePath), "utf8"),
-    parseYaml: createBunYamlParser(),
-    timeoutMilliseconds: DEFAULT_TIMEOUT_MILLISECONDS,
-  }
-  return { tool: { invoke_agent: createInvokeAgentTool(dependencies) } }
-}) satisfies Plugin
+export const InvokeAgentPlugin = {
+  id: "invoke-agent",
+  server: async (input) => {
+    const projectRoot = input.worktree || input.directory
+    const dependencies: InvokeAgentDependencies = {
+      client: input.client,
+      readText: async (relativePath: string): Promise<string> =>
+        readFile(resolve(projectRoot, relativePath), "utf8"),
+      parseYaml: createBunYamlParser(),
+      timeoutMilliseconds: DEFAULT_TIMEOUT_MILLISECONDS,
+    }
+    return { tool: { invoke_agent: createInvokeAgentTool(dependencies) } }
+  },
+} satisfies PluginModule
 
 export default InvokeAgentPlugin
