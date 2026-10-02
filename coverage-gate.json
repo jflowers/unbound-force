@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "scopes": {
+    "helper": {
+      "threshold": 80,
+      "packages": [
+        "internal/scaffold",
+        "internal/doctor",
+        "internal/orchestration",
+        "internal/metrics",
+        "internal/artifacts",
+        "internal/schemas",
+        "cmd/coverage-gate"
+      ]
+    },
+    "artifact": {
+      "threshold": 90,
+      "packages": []
+    },
+    "schema": {
+      "threshold": 90,
+      "packages": []
+    },
+    "config": {
+      "threshold": 90,
+      "packages": [
+        "internal/coveragegate"
+      ]
+    },
+    "mapping": {
+      "threshold": 90,
+      "packages": []
+    },
+    "path": {
+      "threshold": 90,
+      "packages": []
+    }
+  }
+}
