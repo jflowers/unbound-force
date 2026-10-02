@@ -6,6 +6,7 @@
   without ordering constraints.
   Do NOT add [P] when tasks modify the same file —
   parallel workers will cause merge conflicts.
+-->
 
 ## 1. Cask Transformation
 

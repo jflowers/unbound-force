@@ -8,21 +8,21 @@ import (
 	"strings"
 )
 
-const legacyPostflightHook = `postflight do
-  if OS.mac?
-    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/unbound-force"]
-    # Create uf symlink alias for daily-use convenience (FR-002/FR-009).
-    system_command "/bin/ln", args: ["-sf", "#{staged_path}/unbound-force", "#{HOMEBREW_PREFIX}/bin/uf"]
-  end
-end`
+const legacyPostflightHook = `  postflight do
+    if OS.mac?
+      system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/unbound-force"]
+      # Create uf symlink alias for daily-use convenience (FR-002/FR-009).
+      system_command "/bin/ln", args: ["-sf", "#{staged_path}/unbound-force", "#{HOMEBREW_PREFIX}/bin/uf"]
+    end
+  end`
 
-const declarativePostflightSteps = `postflight_steps do
-  on_macos do
-    run "/usr/bin/xattr",
-      args: ["-dr", "com.apple.quarantine", "{{staged_path}}/unbound-force"]
-    symlink "unbound-force", "{{HOMEBREW_PREFIX}}/bin/uf", overwrite: true
-  end
-end`
+const declarativePostflightSteps = `  postflight_steps do
+    on_macos do
+      run "/usr/bin/xattr",
+        args: ["-dr", "com.apple.quarantine", "{{staged_path}}/unbound-force"]
+      symlink "unbound-force", "{{HOMEBREW_PREFIX}}/bin/uf", overwrite: true
+    end
+  end`
 
 // Options configures a generated Cask transformation.
 type Options struct {
