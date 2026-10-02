@@ -140,7 +140,7 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ### Added
 - review-council-multi-model-fanout: Replace single-host
   Divisor delegation with explicit-first multi-model fan-out
-  via two auto-discovered OpenCode plugins
+  via two OpenCode plugins registered in `opencode.json`
   (`.opencode/plugins/invoke-agent` and `review-dispatch`)
   driven by a closed reviewer manifest
   (`.uf/reviewer-capabilities.yaml`) and an explicit-first

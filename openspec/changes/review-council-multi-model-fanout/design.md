@@ -732,16 +732,17 @@ activation and report the detected value plus a Node 22/npm 10
 remediation. `uf doctor` performs the same checks without network
 access.
 
-To avoid auto-discovery of an unloadable plugin, `uf init` MUST:
+To avoid activation of an unloadable plugin, `uf init` MUST:
 
 1. deploy manifest, lock, review policy, and non-plugin assets;
 2. run the deterministic install without lifecycle scripts;
 3. stage both plugin sources outside `.opencode/plugins/`;
 4. run provider-free import and tool-definition probes;
-5. atomically move source into the auto-discovery path; and
-6. rely only on project plugin auto-discovery for activation.
+5. atomically move source into `.opencode/plugins/`; and
+6. register both plugins in `opencode.json` (the project `plugin` array)
+   rather than relying on plugin auto-discovery.
 
-On failure, plugin sources are absent from auto-discovery. Other assets
+On failure, plugin sources are absent from `.opencode/plugins/`. Other assets
 remain and later independent subtools continue. The plugin subtool has
 `name: review-plugins`, `action: failed`, and `activation: inactive`.
 `Result.Status` is `partial`, `FailedSubTools` increases by one, and
@@ -749,7 +750,7 @@ successful file counts remain populated. The CLI prints one failed and
 inactive subtool plus remediation, returns nil, and therefore exits 0.
 Rerun retries safely. Fatal core scaffold I/O still returns an error
 and exits non-zero. `uf doctor` verifies manifest and lock, runtime
-versions, dependencies, auto-discovery state, and plugin load.
+versions, dependencies, registration state, and plugin load.
 
 Version output permits one terminal LF or CRLF, then trims ASCII space
 and tab at both edges. The remaining value MUST match anchored ASCII

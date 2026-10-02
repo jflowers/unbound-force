@@ -350,7 +350,7 @@ describe("lesson proposal validation and learning preparation", () => {
     const original = runtime.Bun
     runtime.Bun = { YAML: { parse: (text: string): unknown => JSON.parse(text) as unknown } }
     try {
-      const hooks = await ReviewDispatchPlugin({ directory: "/tmp/project", worktree: "/tmp/project" } as never)
+      const hooks = await ReviewDispatchPlugin.server({ directory: "/tmp/project", worktree: "/tmp/project" } as never)
       expect(hooks.tool).toHaveProperty("prepare_lesson_learning")
     } finally {
       runtime.Bun = original

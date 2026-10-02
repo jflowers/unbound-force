@@ -76,7 +76,7 @@ unbound-force/
 ├── .opencode/
 │   ├── agents/                       # Hero persona agents (18 active)
 │   ├── commands/                     # Slash commands (48 files)
-│   ├── plugins/                      # Auto-discovered review plugins (invoke-agent, review-dispatch)
+│   ├── plugins/                      # Review plugins registered in opencode.json (invoke-agent, review-dispatch)
 │   ├── lib/                          # Shared TypeScript plugin library
 │   ├── test/                         # TypeScript plugin unit/integration/smoke tests
 │   ├── skill/                        # Swarm skills packages
@@ -166,8 +166,9 @@ imported externally.
 - **Container runtime**: Podman (>= 4.3)
 - **Workspace manager**: DevPod (>= 0.5.0, optional)
 - **Embedding model**: `granite-embedding:30m` via Ollama
-- **TypeScript plugins**: `.opencode/plugins/` auto-discovered
-  review plugins and the `.opencode/lib/` shared library use
+- **TypeScript plugins**: `.opencode/plugins/` review plugins
+  (registered via the `opencode.json` `plugin` array) and the
+  `.opencode/lib/` shared library use
   `@opencode-ai/plugin` 1.4.10 and `zod` 4.1.8 (runtime), and
   `vitest` 5.0.3 + `@vitest/coverage-v8` 5.0.3 (dev), managed
   by `.opencode/package.json` / `package-lock.json`.

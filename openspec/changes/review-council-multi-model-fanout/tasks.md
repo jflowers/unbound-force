@@ -164,7 +164,7 @@
 
 - [x] 4.1 Verify scaffolded manifest and lock assets match task 1.5,
   remain reproducible in fresh targets, and keep both plugin sources
-  outside auto-discovery until installation and both probes pass.
+  outside `.opencode/plugins/` until installation and both probes pass.
   [SC-FR-003]
 - [x] 4.2 Extend asset prefixes, `uf/` mapping, expected paths,
   directory checks, counts, canonical mapping, and byte-drift tests for
@@ -172,21 +172,22 @@
 - [x] 4.3 Implement target-directory npm installation with lifecycle
   scripts disabled, Node 20-24 and npm 10-11 prerequisite validation,
   external staging, provider-free probes, atomic source activation, and
-  project-directory auto-discovery only. Validate anchored ASCII
-  version syntax, CRLF, leading zeroes, Unicode, uint32 overflow, an
-  explicit rejected npm `v10.11.0` fixture, and extra-line failures. Do
-  not add either plugin to `opencode.json`. Use
+  project-directory deployment with explicit `opencode.json` plugin
+  registration. Validate anchored ASCII version syntax, CRLF, leading
+  zeroes, Unicode, uint32 overflow, an explicit rejected npm
+  `v10.11.0` fixture, and extra-line failures. Register both plugins in
+  `opencode.json`. Use
   `npm ci --ignore-scripts --omit=dev` in generated targets. Repository
   plugin tests MUST use the full locked development install.
   [SC-FR-004]
 - [x] 4.4 Add failure cleanup and idempotent retry. An install or load
-  failure leaves no source in auto-discovery but retains repairable
+  failure leaves no source in `.opencode/plugins/` but retains repairable
   assets. Require exit zero, top-level `partial`, one added failed
   subtool, retained file counts, continued independent subtools, an
   inactive review-plugins result, remediation, and safe retry.
   [SC-FR-004]
 - [x] 4.5 Extend `uf doctor` for manifest-lock consistency, dependency
-  presence, exact Node/npm parsing, both auto-discovery states, plugin
+  presence, exact Node/npm parsing, the registration state, plugin
   loads, and repairable versus broken activation states. [SC-FR-005]
 - [x] 4.6 Add isolated scaffold and doctor tests for path mapping,
   inventory, drift, working directory, install command, staging,

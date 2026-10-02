@@ -4055,6 +4055,46 @@ func TestConfigureOpencodeJSON_LegacyPluginMigration_OtherPlugins(t *testing.T) 
 	}
 }
 
+func TestConfigureOpencodeJSON_RegistersReviewPlugins(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create the managed review plugin sources.
+	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset} {
+		targetPath := filepath.Join(dir, mapAssetPath(assetPath))
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			t.Fatalf("mkdir plugin dir: %v", err)
+		}
+		if err := os.WriteFile(targetPath, []byte("// plugin source\n"), 0o644); err != nil {
+			t.Fatalf("write plugin source: %v", err)
+		}
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		LookPath:  stubScaffoldLookPath(map[string]string{}),
+	}
+
+	results := configureOpencodeJSON(opts)
+	if results[0].action != "created" {
+		t.Errorf("expected action 'created', got %q", results[0].action)
+	}
+
+	ocMap := parseOpencodeJSON(t, dir)
+	gotPlugins := getPlugins(t, ocMap)
+	wantPlugins := []string{
+		"./" + mapAssetPath(invokeAgentPluginAsset),
+		"./" + mapAssetPath(reviewDispatchPluginAsset),
+	}
+	if len(gotPlugins) != len(wantPlugins) {
+		t.Fatalf("plugin = %v, want %v", gotPlugins, wantPlugins)
+	}
+	for i := range wantPlugins {
+		if gotPlugins[i] != wantPlugins[i] {
+			t.Errorf("plugin[%d] = %q, want %q", i, gotPlugins[i], wantPlugins[i])
+		}
+	}
+}
+
 func TestConfigureOpencodeJSON_ReplicatorNotInstalled(t *testing.T) {
 	dir := t.TempDir()
 
