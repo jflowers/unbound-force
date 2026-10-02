@@ -115,12 +115,12 @@ probes.
 
 Only after install and both probes MAY it atomically move source to
 `.opencode/plugins/invoke-agent/index.ts` and
-`.opencode/plugins/review-dispatch/index.ts`. The project plugin
-directory MUST be the only activation mechanism. The implementation
-MUST NOT add either plugin to `opencode.json`.
+`.opencode/plugins/review-dispatch/index.ts`. Activation MUST register
+both plugins in `opencode.json` (the project `plugin` array) rather than
+rely on plugin auto-discovery.
 
-On install or probe failure, plugin source MUST be absent from the
-auto-discovery path. Other deployed assets MUST remain. The review
+On install or probe failure, plugin source MUST be absent from
+`.opencode/plugins/`. Other deployed assets MUST remain. The review
 plugins subtool result MUST report `failed` with activation `inactive`
 and a safe remediation command. Independent subtools MUST continue.
 The top-level result MUST set `Status` to `partial`, increment
@@ -139,13 +139,13 @@ Prerequisite and activation tests MUST be network-free.
 - **GIVEN** dependencies install and the load probe passes
 - **WHEN** activation completes
 - **THEN** both plugin sources are atomically placed at runtime paths
-- **AND** no explicit plugin registration is added
+- **AND** both plugins are registered in `opencode.json`
 
 #### Scenario: Offline install failure
 
 - **GIVEN** npm cannot access required cached dependencies
 - **WHEN** installation fails
-- **THEN** no auto-discovered plugin source remains
+- **THEN** no plugin source remains in `.opencode/plugins/`
 - **AND** remediation names `npm ci --ignore-scripts --omit=dev`
 
 #### Scenario: Unsupported Node version
@@ -161,7 +161,7 @@ Prerequisite and activation tests MUST be network-free.
 - **WHEN** `uf init` completes
 - **THEN** the CLI exits zero with top-level status `partial`
 - **AND** `FailedSubTools` increases while file counts remain
-- **AND** review-plugins is failed, inactive, and not auto-discovered
+- **AND** review-plugins is failed, inactive, and not registered
 - **AND** output gives remediation and rerun retries activation
 
 ### Requirement: Plugin Doctor Validation
@@ -170,14 +170,14 @@ Prerequisite and activation tests MUST be network-free.
 
 `uf doctor` MUST check Node and npm discovery and version support,
 manifest and lock agreement, installed dependency presence, both plugin
-imports, and both auto-discovery path states. Runtime checks MUST be
+imports, and the plugin registration state. Runtime checks MUST be
 network-free. It MUST fail when an active plugin cannot load. It MUST
 distinguish an inactive repairable scaffold from a broken active plugin
 and provide remediation.
 
-#### Scenario: Auto-discovered plugin cannot load
+#### Scenario: Registered plugin cannot load
 
-- **GIVEN** either review plugin exists in the auto-discovery path
+- **GIVEN** either review plugin is registered in `opencode.json`
 - **AND** its dependency import fails
 - **WHEN** `uf doctor` runs
 - **THEN** that plugin check fails

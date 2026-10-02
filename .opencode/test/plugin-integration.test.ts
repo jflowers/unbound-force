@@ -132,12 +132,12 @@ describe("plugin integration with a fake OpenCode client", () => {
   it("registers both plugin tool sets on activation", async () => {
     await withBun(async () => {
       const fake = fakeClient()
-      const invokeHooks = await InvokeAgentPlugin({
+      const invokeHooks = await InvokeAgentPlugin.server({
         client: fake.client,
         directory: "/workspace",
         worktree: "/workspace",
       } as PluginInput)
-      const dispatchHooks = await ReviewDispatchPlugin({
+      const dispatchHooks = await ReviewDispatchPlugin.server({
         directory: "/workspace",
         worktree: "/workspace",
       } as PluginInput)
@@ -156,7 +156,7 @@ describe("plugin integration with a fake OpenCode client", () => {
     await withBun(async () => {
       const project = await scratchTargetProject()
       const fake = fakeClient()
-      const hooks = await InvokeAgentPlugin({ client: fake.client, directory: project, worktree: project } as PluginInput)
+      const hooks = await InvokeAgentPlugin.server({ client: fake.client, directory: project, worktree: project } as PluginInput)
 
       const response = await hooks.tool.invoke_agent.execute(
         { agent: "divisor-guard", prompt: "Review this.", model: "provider/model", variant: "high" },
@@ -179,7 +179,7 @@ describe("plugin integration with a fake OpenCode client", () => {
     await withBun(async () => {
       const project = await scratchTargetProject()
       const fake = fakeClient()
-      const hooks = await InvokeAgentPlugin({ client: fake.client, directory: project, worktree: project } as PluginInput)
+      const hooks = await InvokeAgentPlugin.server({ client: fake.client, directory: project, worktree: project } as PluginInput)
 
       const response = await hooks.tool.invoke_agent.execute(
         { agent: "divisor-testing", prompt: "Review tests." },
@@ -209,7 +209,7 @@ describe("plugin integration with a fake OpenCode client", () => {
   it("plans and finalizes through the registered review-dispatch tools", async () => {
     await withBun(async () => {
       const project = await scratchTargetProject()
-      const hooks = await ReviewDispatchPlugin({ directory: project, worktree: project } as PluginInput)
+      const hooks = await ReviewDispatchPlugin.server({ directory: project, worktree: project } as PluginInput)
 
       const planOutput = await hooks.tool.plan_review_dispatch.execute(
         {

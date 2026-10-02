@@ -404,6 +404,12 @@ func mapAssetPath(relPath string) string {
 	}
 }
 
+// regularFileExists reports whether path exists and is a regular file.
+func regularFileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
 // renamedCommands maps old embedded command file paths to
 // their new uf.-prefixed paths. Used by Run() to remove
 // orphaned old-name files after the main scaffold walk.
@@ -810,8 +816,9 @@ type subToolResult struct {
 }
 
 // configureOpencodeJSON creates or updates opencode.json with the Dewey
-// MCP server entry (when dewey is in PATH) and the Replicator MCP entry
-// (when replicator is in PATH). Respects setup.tools.*.method: skip in
+// MCP server entry (when dewey is in PATH), the Replicator MCP entry
+// (when replicator is in PATH), and the managed review plugin entries
+// (when their sources are present). Respects setup.tools.*.method: skip in
 // .uf/config.yaml — tools configured as "skip" are treated as absent.
 // Migrates legacy opencode-swarm-plugin entries from the plugin array.
 // Idempotent by default; Force overwrites stale mcp.dewey entries.
@@ -861,8 +868,14 @@ func configureOpencodeJSON(opts *Options) []subToolResult {
 		hasReplicator = false
 	}
 
+	// Detect whether the managed review plugin sources are present so
+	// OpenCode can load them explicitly (see configureOpencodeJSON plugin
+	// registration below).
+	hasPlugins := regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(invokeAgentPluginAsset))) &&
+		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(reviewDispatchPluginAsset)))
+
 	// Nothing to configure — skip.
-	if !hasDewey && !hasReplicator {
+	if !hasDewey && !hasReplicator && !hasPlugins {
 		return []subToolResult{{
 			name:   "opencode.json",
 			action: "skipped",
@@ -996,30 +1009,59 @@ func configureOpencodeJSON(opts *Options) []subToolResult {
 		}
 	}
 
-	// --- Legacy plugin migration ---
-	// Remove opencode-swarm-plugin from plugin array if present.
-	if pluginRaw, ok := ocMap["plugin"]; ok {
-		var plugins []string
-		if json.Unmarshal(pluginRaw, &plugins) == nil {
-			var filtered []string
-			removed := false
-			for _, p := range plugins {
-				if p == "opencode-swarm-plugin" {
-					removed = true
+	// --- Plugin registration and legacy migration ---
+	// Register the managed review plugins when their sources are present
+	// and migrate legacy opencode-swarm-plugin entries out of the array.
+	// A non-array plugin value (e.g., [name, options] tuples) is left
+	// untouched — only plain string entries are managed.
+	pluginsRaw, hasPluginKey := ocMap["plugin"]
+	var plugins []string
+	pluginEditable := !hasPluginKey
+	if hasPluginKey {
+		pluginEditable = json.Unmarshal(pluginsRaw, &plugins) == nil
+	}
+
+	if pluginEditable {
+		next := make([]string, 0, len(plugins)+2)
+		seen := make(map[string]bool, len(plugins)+2)
+		for _, p := range plugins {
+			if p == "opencode-swarm-plugin" || seen[p] {
+				continue
+			}
+			seen[p] = true
+			next = append(next, p)
+		}
+		if hasPlugins {
+			for _, entry := range []string{
+				"./" + mapAssetPath(invokeAgentPluginAsset),
+				"./" + mapAssetPath(reviewDispatchPluginAsset),
+			} {
+				if seen[entry] {
 					continue
 				}
-				filtered = append(filtered, p)
+				seen[entry] = true
+				next = append(next, entry)
 			}
-			if removed {
-				if len(filtered) == 0 {
-					// Empty plugin array — remove the key entirely.
-					delete(ocMap, "plugin")
-				} else {
-					pluginJSON, _ := json.Marshal(filtered)
-					ocMap["plugin"] = json.RawMessage(pluginJSON)
+		}
+
+		pluginChanged := len(next) != len(plugins)
+		if !pluginChanged {
+			for i := range plugins {
+				if plugins[i] != next[i] {
+					pluginChanged = true
+					break
 				}
-				changed = true
 			}
+		}
+		if pluginChanged {
+			if len(next) == 0 {
+				// Empty plugin array — remove the key entirely.
+				delete(ocMap, "plugin")
+			} else {
+				pluginJSON, _ := json.Marshal(next)
+				ocMap["plugin"] = json.RawMessage(pluginJSON)
+			}
+			changed = true
 		}
 	}
 

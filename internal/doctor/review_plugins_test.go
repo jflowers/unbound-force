@@ -44,6 +44,16 @@ const reviewPluginLockFixture = `{
   }
 }`
 
+// reviewPluginOpencodeJSONFixture mirrors the scaffolded opencode.json
+// plugin-array entries for the two review plugins.
+const reviewPluginOpencodeJSONFixture = `{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "./.opencode/plugins/invoke-agent/index.ts",
+    "./.opencode/plugins/review-dispatch/index.ts"
+  ]
+}`
+
 const invokeAgentSourceFixture = "export default async () => ({ tool: { invoke_agent: {} } })"
 
 const reviewDispatchSourceFixture = `export default async () => ({
@@ -57,7 +67,8 @@ const reviewDispatchSourceFixture = `export default async () => ({
 
 // writeReviewPluginScaffold creates a minimal, consistent review plugin
 // scaffold under dir: package.json, package-lock.json, node_modules for the
-// four declared packages, and both plugin sources.
+// four declared packages, both plugin sources, and the opencode.json
+// registration entries.
 func writeReviewPluginScaffold(t *testing.T, dir string) {
 	t.Helper()
 	createFile(t, dir, ".opencode/package.json", reviewPluginManifestFixture)
@@ -67,6 +78,7 @@ func writeReviewPluginScaffold(t *testing.T, dir string) {
 	}
 	createFile(t, dir, ".opencode/plugins/invoke-agent/index.ts", invokeAgentSourceFixture)
 	createFile(t, dir, ".opencode/plugins/review-dispatch/index.ts", reviewDispatchSourceFixture)
+	createFile(t, dir, "opencode.json", reviewPluginOpencodeJSONFixture)
 }
 
 func reviewPluginDoctorOpts(dir string, lookPath map[string]string, execCmd map[string]string) *Options {
@@ -163,7 +175,7 @@ func TestCheckReviewPlugins_AllPass(t *testing.T) {
 	for _, r := range group.Results {
 		byName[r.Name] = r
 	}
-	for _, name := range []string{"manifest-lock", "dependencies", "node version", "npm version", "auto-discovery", "plugin tools"} {
+	for _, name := range []string{"manifest-lock", "dependencies", "node version", "npm version", "registration", "plugin tools"} {
 		r, ok := byName[name]
 		if !ok {
 			t.Errorf("missing result %q in group", name)
@@ -272,7 +284,7 @@ func TestCheckReviewPluginRuntime_MissingBinary(t *testing.T) {
 	}
 }
 
-func TestCheckPluginAutoDiscovery_States(t *testing.T) {
+func TestCheckPluginRegistration_States(t *testing.T) {
 	tests := []struct {
 		name       string
 		setup      func(t *testing.T, dir string)
@@ -280,13 +292,23 @@ func TestCheckPluginAutoDiscovery_States(t *testing.T) {
 		wantSubstr string
 	}{
 		{
-			name: "active",
+			name: "registered",
+			setup: func(t *testing.T, dir string) {
+				createFile(t, dir, ".opencode/plugins/invoke-agent/index.ts", invokeAgentSourceFixture)
+				createFile(t, dir, ".opencode/plugins/review-dispatch/index.ts", reviewDispatchSourceFixture)
+				createFile(t, dir, "opencode.json", reviewPluginOpencodeJSONFixture)
+			},
+			wantSever:  Pass,
+			wantSubstr: "registered",
+		},
+		{
+			name: "present but not registered",
 			setup: func(t *testing.T, dir string) {
 				createFile(t, dir, ".opencode/plugins/invoke-agent/index.ts", invokeAgentSourceFixture)
 				createFile(t, dir, ".opencode/plugins/review-dispatch/index.ts", reviewDispatchSourceFixture)
 			},
-			wantSever:  Pass,
-			wantSubstr: "active",
+			wantSever:  Fail,
+			wantSubstr: "not registered",
 		},
 		{
 			name:       "inactive",
@@ -307,7 +329,7 @@ func TestCheckPluginAutoDiscovery_States(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			tt.setup(t, dir)
-			result := checkPluginAutoDiscovery(&Options{TargetDir: dir, ReadFile: os.ReadFile})
+			result := checkPluginRegistration(&Options{TargetDir: dir, ReadFile: os.ReadFile})
 			if result.Severity != tt.wantSever {
 				t.Errorf("severity = %v, want %v (message=%q)", result.Severity, tt.wantSever, result.Message)
 			}
@@ -368,8 +390,8 @@ func TestCheckReviewPlugins_RepairableVsBroken(t *testing.T) {
 		)
 		group := checkReviewPlugins(opts)
 		byName := resultMap(group)
-		if r := byName["auto-discovery"]; r.Severity != Warn {
-			t.Errorf("auto-discovery severity = %v, want Warn (repairable)", r.Severity)
+		if r := byName["registration"]; r.Severity != Warn {
+			t.Errorf("registration severity = %v, want Warn (repairable)", r.Severity)
 		}
 		if r := byName["plugin tools"]; r.Severity != Warn {
 			t.Errorf("plugin tools severity = %v, want Warn (repairable)", r.Severity)

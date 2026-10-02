@@ -2080,10 +2080,10 @@ var reviewPluginPackages = []string{
 	"@vitest/coverage-v8",
 }
 
-// reviewPluginTools maps each auto-discovered plugin directory to the tool
-// names its source MUST register. It mirrors the scaffold provider-free
-// tool-definition probe so doctor can verify "plugin loads" without running
-// OpenCode or touching the network.
+// reviewPluginTools maps each review plugin directory to the tool names its
+// source MUST register. It mirrors the scaffold provider-free tool-definition
+// probe so doctor can verify "plugin loads" without running OpenCode or
+// touching the network.
 var reviewPluginTools = []struct {
 	pluginDir string
 	tools     []string
@@ -2095,6 +2095,14 @@ var reviewPluginTools = []struct {
 		"acquire_sibling_evidence",
 		"prepare_lesson_learning",
 	}},
+}
+
+// reviewPluginConfigEntries are the opencode.json plugin-array entries the
+// scaffold writes for the two review plugins. They mirror the scaffold's asset
+// paths, expressed relative to the repo root with a "./" prefix.
+var reviewPluginConfigEntries = []string{
+	"./.opencode/plugins/invoke-agent/index.ts",
+	"./.opencode/plugins/review-dispatch/index.ts",
 }
 
 // npmPackageManifest is the subset of package.json and the package-lock.json
@@ -2128,7 +2136,7 @@ func mergedDependencies(m npmPackageManifest) map[string]string {
 
 // checkReviewPlugins verifies the scaffolded review plugin activation state
 // per SC-FR-005 and design D12: manifest-lock consistency, dependency
-// presence, exact Node/npm versions, auto-discovery state, and plugin tool
+// presence, exact Node/npm versions, registration state, and plugin tool
 // registration. Returns nil when the plugin scaffold is absent so existing
 // projects without the review plugins are unaffected.
 func checkReviewPlugins(opts *Options) *CheckGroup {
@@ -2145,7 +2153,7 @@ func checkReviewPlugins(opts *Options) *CheckGroup {
 	group.Results = append(group.Results, checkReviewPluginDependencies(opts))
 	group.Results = append(group.Results, checkReviewPluginRuntime(opts, "node", true))
 	group.Results = append(group.Results, checkReviewPluginRuntime(opts, "npm", false))
-	group.Results = append(group.Results, checkPluginAutoDiscovery(opts))
+	group.Results = append(group.Results, checkPluginRegistration(opts))
 	group.Results = append(group.Results, checkPluginToolRegistration(opts))
 	return group
 }
@@ -2321,40 +2329,69 @@ func checkReviewPluginRuntime(opts *Options, name string, allowVPrefix bool) Che
 	}
 }
 
-// checkPluginAutoDiscovery reports the activation state of the two review
-// plugin sources. Pass when both sources are present (active), Warn when
-// neither is present (inactive but repairable), and Warn when exactly one is
-// present (a partially-activated state that a rerun can repair).
-func checkPluginAutoDiscovery(opts *Options) CheckResult {
+// checkPluginRegistration reports the activation state of the two review
+// plugin sources and their opencode.json registration. Pass when both sources
+// are present AND both are registered in the opencode.json plugin array, Warn
+// when the sources are absent (inactive but repairable via uf init), Warn when
+// exactly one source is present (a partially-activated state), and Fail when
+// both sources are present but either entry is missing from opencode.json (a
+// broken activation state).
+func checkPluginRegistration(opts *Options) CheckResult {
+	readFile := opts.ReadFile
+	if readFile == nil {
+		readFile = os.ReadFile
+	}
 	pluginsDir := filepath.Join(opts.TargetDir, ".opencode", "plugins")
 	invokePresent := isRegularFile(filepath.Join(pluginsDir, "invoke-agent", "index.ts"))
 	reviewPresent := isRegularFile(filepath.Join(pluginsDir, "review-dispatch", "index.ts"))
 
 	switch {
 	case invokePresent && reviewPresent:
-		return CheckResult{
-			Name:     "auto-discovery",
-			Severity: Pass,
-			Message:  "both plugin sources active",
-		}
 	case !invokePresent && !reviewPresent:
 		return CheckResult{
-			Name:        "auto-discovery",
+			Name:        "registration",
 			Severity:    Warn,
 			Message:     "plugin sources inactive (activation pending or failed)",
 			InstallHint: "Run: uf init",
 		}
 	default:
 		return CheckResult{
-			Name:        "auto-discovery",
+			Name:        "registration",
 			Severity:    Warn,
 			Message:     "partial activation (one plugin source missing)",
 			InstallHint: "Run: uf init",
 		}
 	}
+
+	registered := make(map[string]bool)
+	if data, err := readFile(filepath.Join(opts.TargetDir, "opencode.json")); err == nil {
+		var cfg struct {
+			Plugin []string `json:"plugin"`
+		}
+		if json.Unmarshal(data, &cfg) == nil {
+			for _, p := range cfg.Plugin {
+				registered[p] = true
+			}
+		}
+	}
+	for _, entry := range reviewPluginConfigEntries {
+		if !registered[entry] {
+			return CheckResult{
+				Name:        "registration",
+				Severity:    Fail,
+				Message:     fmt.Sprintf("plugin source not registered in opencode.json: %s", entry),
+				InstallHint: "Run: uf init",
+			}
+		}
+	}
+	return CheckResult{
+		Name:     "registration",
+		Severity: Pass,
+		Message:  "both plugin sources present and registered",
+	}
 }
 
-// checkPluginToolRegistration verifies that each auto-discovered plugin source
+// checkPluginToolRegistration verifies that each registered plugin source
 // registers the expected tools. Returns Pass when every expected tool name is
 // present, Warn when a source is absent (inactive), and Fail when a present
 // source is missing a required tool (a hard-broken activation state).
@@ -2371,7 +2408,7 @@ func checkPluginToolRegistration(opts *Options) CheckResult {
 		indexPath := filepath.Join(pluginsDir, spec.pluginDir, "index.ts")
 		data, err := readFile(indexPath)
 		if err != nil {
-			continue // absent source is reported by checkPluginAutoDiscovery
+			continue // absent source is reported by checkPluginRegistration
 		}
 		sourcesPresent++
 		source := string(data)

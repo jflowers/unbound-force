@@ -2,6 +2,7 @@ package scaffold
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -334,11 +335,23 @@ func TestRun_InstallsProbesAndAtomicallyActivatesReviewPlugins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read opencode.json: %v", err)
 	}
-	if !bytes.Equal(gotConfig, config) {
-		t.Errorf("opencode.json changed during auto-discovery activation:\n%s", gotConfig)
+	var gotOC map[string]json.RawMessage
+	if err := json.Unmarshal(gotConfig, &gotOC); err != nil {
+		t.Fatalf("parse opencode.json: %v", err)
 	}
-	if bytes.Contains(gotConfig, []byte("invoke-agent")) || bytes.Contains(gotConfig, []byte("review-dispatch")) {
-		t.Error("opencode.json must not register either review plugin")
+	gotPlugins := getPlugins(t, gotOC)
+	wantPlugins := []string{
+		"user-owned-plugin",
+		"./" + mapAssetPath(invokeAgentPluginAsset),
+		"./" + mapAssetPath(reviewDispatchPluginAsset),
+	}
+	if len(gotPlugins) != len(wantPlugins) {
+		t.Fatalf("plugin array = %v, want %v", gotPlugins, wantPlugins)
+	}
+	for i := range wantPlugins {
+		if gotPlugins[i] != wantPlugins[i] {
+			t.Errorf("plugin[%d] = %q, want %q", i, gotPlugins[i], wantPlugins[i])
+		}
 	}
 }
 

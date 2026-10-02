@@ -53,12 +53,12 @@ describe("provider-free scratch-repository smoke test", () => {
     await withBun(async () => {
       const project = await scratchProject()
 
-      const invokeHooks = await InvokeAgentPlugin({
+      const invokeHooks = await InvokeAgentPlugin.server({
         client: { session: {} },
         directory: project,
         worktree: project,
       } as unknown as PluginInput)
-      const dispatchHooks = await ReviewDispatchPlugin({
+      const dispatchHooks = await ReviewDispatchPlugin.server({
         client: { session: {} },
         directory: project,
         worktree: project,
@@ -77,7 +77,7 @@ describe("provider-free scratch-repository smoke test", () => {
   it("produces a deterministic plan from scratch-repository policy files", async () => {
     await withBun(async () => {
       const project = await scratchProject()
-      const dispatchHooks = await ReviewDispatchPlugin({
+      const dispatchHooks = await ReviewDispatchPlugin.server({
         client: { session: {} },
         directory: project,
         worktree: project,
@@ -102,7 +102,7 @@ describe("provider-free scratch-repository smoke test", () => {
   it("never emits the invoke_agent permission contract into child requests", async () => {
     await withBun(async () => {
       const project = await scratchProject()
-      const hooks = await InvokeAgentPlugin({
+      const hooks = await InvokeAgentPlugin.server({
         client: { session: {} },
         directory: project,
         worktree: project,
