@@ -815,6 +815,63 @@ type subToolResult struct {
 	output []byte // captured stdout+stderr from CombinedOutput()
 }
 
+// configurePluginEntries registers the managed review plugin sources when
+// present and migrates legacy opencode-swarm-plugin entries out of the
+// plugin array. A non-array plugin value (e.g., [name, options] tuples) is
+// left untouched — only plain string entries are managed. It returns true
+// when the plugin array changed.
+func configurePluginEntries(ocMap map[string]json.RawMessage, hasPlugins bool) bool {
+	pluginsRaw, hasPluginKey := ocMap["plugin"]
+	var plugins []string
+	pluginEditable := !hasPluginKey
+	if hasPluginKey {
+		pluginEditable = json.Unmarshal(pluginsRaw, &plugins) == nil
+	}
+	if !pluginEditable {
+		return false
+	}
+	next := make([]string, 0, len(plugins)+2)
+	seen := make(map[string]bool, len(plugins)+2)
+	for _, p := range plugins {
+		if p == "opencode-swarm-plugin" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		next = append(next, p)
+	}
+	if hasPlugins {
+		for _, entry := range []string{
+			"./" + mapAssetPath(invokeAgentPluginAsset),
+			"./" + mapAssetPath(reviewDispatchPluginAsset),
+		} {
+			if seen[entry] {
+				continue
+			}
+			seen[entry] = true
+			next = append(next, entry)
+		}
+	}
+	pluginChanged := len(next) != len(plugins)
+	if !pluginChanged {
+		for i := range plugins {
+			if plugins[i] != next[i] {
+				pluginChanged = true
+				break
+			}
+		}
+	}
+	if pluginChanged {
+		if len(next) == 0 {
+			// Empty plugin array — remove the key entirely.
+			delete(ocMap, "plugin")
+		} else {
+			pluginJSON, _ := json.Marshal(next)
+			ocMap["plugin"] = json.RawMessage(pluginJSON)
+		}
+	}
+	return pluginChanged
+}
+
 // configureOpencodeJSON creates or updates opencode.json with the Dewey
 // MCP server entry (when dewey is in PATH), the Replicator MCP entry
 // (when replicator is in PATH), and the managed review plugin entries
@@ -1010,59 +1067,8 @@ func configureOpencodeJSON(opts *Options) []subToolResult {
 	}
 
 	// --- Plugin registration and legacy migration ---
-	// Register the managed review plugins when their sources are present
-	// and migrate legacy opencode-swarm-plugin entries out of the array.
-	// A non-array plugin value (e.g., [name, options] tuples) is left
-	// untouched — only plain string entries are managed.
-	pluginsRaw, hasPluginKey := ocMap["plugin"]
-	var plugins []string
-	pluginEditable := !hasPluginKey
-	if hasPluginKey {
-		pluginEditable = json.Unmarshal(pluginsRaw, &plugins) == nil
-	}
-
-	if pluginEditable {
-		next := make([]string, 0, len(plugins)+2)
-		seen := make(map[string]bool, len(plugins)+2)
-		for _, p := range plugins {
-			if p == "opencode-swarm-plugin" || seen[p] {
-				continue
-			}
-			seen[p] = true
-			next = append(next, p)
-		}
-		if hasPlugins {
-			for _, entry := range []string{
-				"./" + mapAssetPath(invokeAgentPluginAsset),
-				"./" + mapAssetPath(reviewDispatchPluginAsset),
-			} {
-				if seen[entry] {
-					continue
-				}
-				seen[entry] = true
-				next = append(next, entry)
-			}
-		}
-
-		pluginChanged := len(next) != len(plugins)
-		if !pluginChanged {
-			for i := range plugins {
-				if plugins[i] != next[i] {
-					pluginChanged = true
-					break
-				}
-			}
-		}
-		if pluginChanged {
-			if len(next) == 0 {
-				// Empty plugin array — remove the key entirely.
-				delete(ocMap, "plugin")
-			} else {
-				pluginJSON, _ := json.Marshal(next)
-				ocMap["plugin"] = json.RawMessage(pluginJSON)
-			}
-			changed = true
-		}
+	if configurePluginEntries(ocMap, hasPlugins) {
+		changed = true
 	}
 
 	// Nothing changed — already configured.

@@ -146,6 +146,8 @@ export interface CommandResult {
 export interface CommandOptions {
   readonly cwd?: string
   readonly env?: Readonly<Record<string, string>>
+  readonly timeout?: number
+  readonly signal?: AbortSignal
 }
 
 /** Minimal filesystem metadata used by acquisition. */
@@ -334,12 +336,14 @@ function candidateDeclarations(sibling: SiblingDeclaration, projectRoot: string)
   return candidates
 }
 
+const GIT_COMMAND_TIMEOUT_MS = 60_000
+
 async function runGit(
   dependencies: SiblingAcquisitionDependencies,
   args: readonly string[],
   cwd?: string,
 ): Promise<CommandResult> {
-  return dependencies.runCommand("git", args, { cwd, env: CREDENTIAL_DISABLED_ENV })
+  return dependencies.runCommand("git", args, { cwd, env: CREDENTIAL_DISABLED_ENV, timeout: GIT_COMMAND_TIMEOUT_MS })
 }
 
 function rejection(
@@ -849,6 +853,8 @@ export function createSiblingAcquisitionDependencies(
             env: { ...process.env, ...options.env },
             encoding: "utf8",
             maxBuffer: 2 * 1024 * 1024,
+            timeout: options.timeout,
+            signal: options.signal,
           },
           (error, stdout, stderr) => {
             if (error !== null) rejectPromise(error)

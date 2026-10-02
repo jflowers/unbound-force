@@ -195,7 +195,7 @@ and provide remediation.
 
 **ID: SC-FR-006** This requirement MUST be satisfied.
 
-The repository MUST track `.uf/coverage-gates.yaml`. Its closed v1
+The repository MUST track `coverage-gate.json`. Its closed v1
 contract MUST map each changed or new Go helper scope to a package and
 optional file or function matcher and a minimum. New Go helper
 scopes MUST be at least 80 percent statements. Pure path, mapping,

@@ -132,7 +132,7 @@ MUST fail planning as `INCONCLUSIVE`. Agent frontmatter MUST NOT carry
 this metadata. An OpenCode-load fixture MUST prove provider options
 stay unchanged.
 
-The auto-discovered `review-dispatch` policy plugin MUST expose
+The `review-dispatch` policy plugin, registered in `opencode.json`, MUST expose
 `plan_review_dispatch`. It MUST own matrix and manifest parsing,
 relevance, limits, and byte-stable plan validation. A malformed plan
 MUST stop dispatch as `INCONCLUSIVE` before any child session starts.
@@ -624,7 +624,7 @@ artifact persistence failed, or another condition prevented calculation
 of a valid assessment.
 
 The schema MUST encode structural discriminators, types, required
-fields, and nullability. The auto-discovered `review-dispatch` policy
+fields, and nullability. The `review-dispatch` policy
 plugin MUST expose `finalize_review_dispatch` to enforce cross-field
 mappings, terminal-state rules, count arithmetic, and atomic
 persistence. It MUST include valid, missing-field, extra-property,

@@ -224,7 +224,11 @@ These rules are non-negotiable. Violations are CRITICAL severity.
   PR. Tooling scaffolds (`uf init`, convention pack updates,
   command directory renames, schema template updates) MUST be
   committed on a separate branch (e.g., `chore/uf.init-sync`),
-  not mixed into feature branches. Never use `git add -A` or
+  not mixed into feature branches. Scaffold assets and tests
+  required by and traced to an active approved change MAY ship
+  with that feature; unrelated scaffold refreshes still require
+  a separate branch, and explicit staging remains mandatory.
+  Never use `git add -A` or
   `git add .` on feature branches — stage files explicitly.
 
 ### PR Review Commands

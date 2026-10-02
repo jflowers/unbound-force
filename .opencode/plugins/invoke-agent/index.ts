@@ -35,6 +35,7 @@ const InvokeAgentInputSchema = z
     model: ModelSchema.optional(),
     variant: VariantSchema.optional(),
     read_only: z.boolean().optional(),
+    timeout: z.number().int().positive().max(1_800_000).optional(),
   })
   .strict()
   .superRefine((input, context) => {
@@ -310,9 +311,10 @@ export async function invokeAgent(
   }
 
   const input = parsed.data
+  const timeoutMilliseconds = input.timeout ?? dependencies.timeoutMilliseconds
   let provenance = initialProvenance(input)
   try {
-    validateTimeout(dependencies.timeoutMilliseconds)
+    validateTimeout(timeoutMilliseconds)
     await validateReviewAgent(input, dependencies)
   } catch (error: unknown) {
     return failedResult(provenance, "invalid_invocation", errorText(error), false)
@@ -349,7 +351,7 @@ export async function invokeAgent(
     abortCause = "timeout"
     linkedAbort.abort(new Error("invoke_agent run timed out"))
     abortChild()
-  }, dependencies.timeoutMilliseconds)
+  }, timeoutMilliseconds)
 
   if (context.abort.aborted) {
     cancelFromParent()

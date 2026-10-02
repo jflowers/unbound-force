@@ -87,7 +87,7 @@ contracts would leave partially configured or unobservable behavior.
 ## Impact
 
 The change affects `.opencode/commands/`, `.opencode/skills/`, two new
-auto-discovered local plugins, `.uf/` review configuration, schemas,
+plugins registered in `opencode.json`, `.uf/` review configuration, schemas,
 artifact writing, doctor checks, and the Go scaffold and tests. A
 closed reviewer-capabilities manifest classifies all nine Divisor
 personas without adding unknown OpenCode agent frontmatter.
@@ -123,7 +123,7 @@ reducing supply chain risk. All four packages are MIT licensed and
 maintained by their respective OpenCode, Zod, and Vitest projects.
 Exact versions and npm lockfile integrity hashes constrain resolution.
 Implementation MUST re-verify SPDX licenses and integrity entries.
-Rollback removes both auto-discovered plugins, scripts, and new direct
+Rollback removes both registered plugins, scripts, and new direct
 dependencies, restores host-model Task dispatch, and restores the
 tracked lock whose baseline SHA256 is
 `b628c764236019785a620deadc06373949236ce84fb38bc68a39f619411874e3`,

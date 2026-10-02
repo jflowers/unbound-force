@@ -31,6 +31,8 @@ node_modules/
 .uf/config.yaml
 .uf/workflows/
 .uf/artifacts/
+.uf/sibling-clones/
+.uf/sibling-cache/
 .uf/dewey/config.yaml
 .uf/dewey/graph.db
 .uf/dewey/graph.db-shm
