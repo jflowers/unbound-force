@@ -60,6 +60,24 @@ jobs:
             exit 1
           fi
 
+      - name: Enforce Scope Coverage Gate
+        run: go run ./cmd/coverage-gate -manifest coverage-gate.json -profile coverage.out
+
+  plugin-tests:
+    name: Plugin Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Run plugin tests
+        run: make plugin-test
+
   council-review-action-tests:
     name: Council Review Pipeline Tests
     runs-on: ubuntu-latest
