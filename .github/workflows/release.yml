@@ -305,18 +305,18 @@ jobs:
             --output "$CASK_FILE"
 
           # Reject unexpected transformed Cask content before tap publication.
-          postflight_steps_count=$(grep -c '^postflight_steps do$' "$CASK_FILE" || true)
+          postflight_steps_count=$(grep -Fxc '  postflight_steps do' "$CASK_FILE" || true)
           if [ "$postflight_steps_count" -ne 1 ]; then
             echo "::error::Expected exactly one postflight_steps stanza"
             exit 1
           fi
-          if grep -q '^postflight do$' "$CASK_FILE"; then
+          if grep -Fqx '  postflight do' "$CASK_FILE"; then
             echo "::error::Deprecated postflight stanza remains in Cask"
             exit 1
           fi
-          if ! grep -Fqx '    run "/usr/bin/xattr",' "$CASK_FILE" || \
-             ! grep -Fqx '      args: ["-dr", "com.apple.quarantine", "{{staged_path}}/unbound-force"]' "$CASK_FILE" || \
-             ! grep -Fqx '    symlink "unbound-force", "{{HOMEBREW_PREFIX}}/bin/uf", overwrite: true' "$CASK_FILE"; then
+          if ! grep -Fqx '      run "/usr/bin/xattr",' "$CASK_FILE" || \
+             ! grep -Fqx '        args: ["-dr", "com.apple.quarantine", "{{staged_path}}/unbound-force"]' "$CASK_FILE" || \
+             ! grep -Fqx '      symlink "unbound-force", "{{HOMEBREW_PREFIX}}/bin/uf", overwrite: true' "$CASK_FILE"; then
             echo "::error::Required Homebrew install operations are missing"
             exit 1
           fi

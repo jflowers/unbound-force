@@ -23,7 +23,7 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 		{"Cask checksum patching", "patch_checksums \"$CASK_FILE\""},
 		{"transformer archive checksum validation", "TRANSFORMER_ACTUAL_SHA=$(shasum -a 256 \"$TRANSFORMER_ARCHIVE\" | awk '{print $1}')"},
 		{"Cask transformation", "\"$TRANSFORMER_DIR/unbound-force\" transform-homebrew-cask"},
-		{"semantic validation", "postflight_steps_count=$(grep -c '^postflight_steps do$' \"$CASK_FILE\" || true)"},
+		{"semantic validation", "postflight_steps_count=$(grep -Fxc '  postflight_steps do' \"$CASK_FILE\" || true)"},
 		{"Homebrew static validation", "brew audit --cask --strict \"$CASK_FILE\""},
 		{"staged Cask smoke test", "brew install --cask \"$STAGED_TAP/Casks/unbound-force.rb\""},
 		{"canonical tap copy", "cp \"$CASK_FILE\" tap/Casks/unbound-force.rb"},
@@ -55,10 +55,30 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 	for _, validation := range []string{
 		"if [ -z \"$TRANSFORMER_SHA\" ] || [ \"$TRANSFORMER_SHA\" != \"$TRANSFORMER_ACTUAL_SHA\" ]; then",
 		"if [ \"$postflight_steps_count\" -ne 1 ]; then",
-		"if grep -q '^postflight do$' \"$CASK_FILE\"; then",
-		"if ! grep -Fqx '    run \"/usr/bin/xattr\",' \"$CASK_FILE\" || \\",
+		"if grep -Fqx '  postflight do' \"$CASK_FILE\"; then",
+		"if ! grep -Fqx '      run \"/usr/bin/xattr\",' \"$CASK_FILE\" || \\",
 	} {
 		assertValidationFailureExits(t, workflow, validation)
+	}
+}
+
+func TestReleaseWorkflow_ValidationMatchesTransformerOutput(t *testing.T) {
+	t.Parallel()
+
+	workflow := releaseWorkflowRunBlock(t)
+	legacyLines := strings.Split(legacyPostflightHook, "\n")
+	declarativeLines := strings.Split(declarativePostflightSteps, "\n")
+	checks := []string{
+		"postflight_steps_count=$(grep -Fxc '" + declarativeLines[0] + "' \"$CASK_FILE\" || true)",
+		"if grep -Fqx '" + legacyLines[0] + "' \"$CASK_FILE\"; then",
+		"grep -Fqx '" + declarativeLines[2] + "' \"$CASK_FILE\"",
+		"grep -Fqx '" + declarativeLines[3] + "' \"$CASK_FILE\"",
+		"grep -Fqx '" + declarativeLines[4] + "' \"$CASK_FILE\"",
+	}
+	for _, check := range checks {
+		if !strings.Contains(workflow, check) {
+			t.Errorf("release workflow validation missing transformer output check %q", check)
+		}
 	}
 }
 
