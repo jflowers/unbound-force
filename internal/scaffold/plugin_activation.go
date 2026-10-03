@@ -1,6 +1,7 @@
 package scaffold
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"os"
@@ -292,11 +293,25 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 		source := filepath.Join(stageRoot, "plugins", plugin.name)
 		target := filepath.Join(pluginsDirectory, plugin.name)
 		if _, statErr := os.Stat(target); statErr == nil {
-			if err := opts.RemoveAll(source); err != nil {
-				return nil, fmt.Errorf("remove staged %s plugin source: %w", plugin.name, err)
+			needsRefresh := opts.Force
+			if !needsRefresh {
+				stagedContent, readErr := os.ReadFile(filepath.Join(source, "index.ts"))
+				if readErr == nil {
+					installedContent, readErr2 := os.ReadFile(filepath.Join(target, "index.ts"))
+					needsRefresh = readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
+				}
 			}
-			activated = append(activated, mapAssetPath(plugin.asset))
-			continue
+			if needsRefresh {
+				if err := opts.RemoveAll(target); err != nil {
+					return nil, fmt.Errorf("remove stale %s plugin for refresh: %w", plugin.name, err)
+				}
+			} else {
+				if err := opts.RemoveAll(source); err != nil {
+					return nil, fmt.Errorf("remove staged %s plugin source: %w", plugin.name, err)
+				}
+				activated = append(activated, mapAssetPath(plugin.asset))
+				continue
+			}
 		}
 		if err := opts.Rename(source, target); err != nil {
 			return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
