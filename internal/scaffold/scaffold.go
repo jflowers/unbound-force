@@ -64,6 +64,7 @@ type Options struct {
 	ExecCmdInDir func(string, string, ...string) ([]byte, error) // Runs a command in an explicit directory
 	ReadFile     func(string) ([]byte, error)                    // Reads a file (default: os.ReadFile)
 	Stat         func(string) (os.FileInfo, error)                 // Gets file info (default: os.Stat)
+	Lstat        func(string) (os.FileInfo, error)                 // Gets file info without following symlinks (default: os.Lstat)
 	WriteFile    func(string, []byte, os.FileMode) error         // Writes a file (default: os.WriteFile)
 	MkdirTemp    func(string, string) (string, error)            // Creates a temporary directory (default: os.MkdirTemp)
 	MkdirAll     func(string, os.FileMode) error                 // Creates directories (default: os.MkdirAll)
