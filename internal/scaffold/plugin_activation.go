@@ -292,12 +292,12 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 	for _, plugin := range assetsToActivate {
 		source := filepath.Join(stageRoot, "plugins", plugin.name)
 		target := filepath.Join(pluginsDirectory, plugin.name)
-		if _, statErr := os.Stat(target); statErr == nil {
+		if _, statErr := opts.Stat(target); statErr == nil {
 			needsRefresh := opts.Force
 			if !needsRefresh {
-				stagedContent, readErr := os.ReadFile(filepath.Join(source, "index.ts"))
+				stagedContent, readErr := opts.ReadFile(filepath.Join(source, "index.ts"))
 				if readErr == nil {
-					installedContent, readErr2 := os.ReadFile(filepath.Join(target, "index.ts"))
+					installedContent, readErr2 := opts.ReadFile(filepath.Join(target, "index.ts"))
 					needsRefresh = readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
 				}
 			}
@@ -329,6 +329,12 @@ func normalizePluginActivationOptions(opts *Options) {
 	}
 	if opts.ExecCmdInDir == nil {
 		opts.ExecCmdInDir = defaultExecCmdInDir
+	}
+	if opts.ReadFile == nil {
+		opts.ReadFile = os.ReadFile
+	}
+	if opts.Stat == nil {
+		opts.Stat = os.Stat
 	}
 	if opts.WriteFile == nil {
 		opts.WriteFile = os.WriteFile
