@@ -174,13 +174,14 @@ func TestRun_InstallsProbesAndAtomicallyActivatesReviewPlugins(t *testing.T) {
 			installedPluginsDir := filepath.Join(opencodeDir, "plugins")
 			invokeDest := filepath.Join(installedPluginsDir, "invoke-agent", "index.ts")
 			reviewDest := filepath.Join(installedPluginsDir, "review-dispatch", "index.ts")
-			if path == invokeDest {
+			switch path {
+			case invokeDest:
 				if renameCount == 0 {
 					assertPluginsAbsent("before atomic activation")
 				}
 				events = append(events, "activate invoke-agent")
 				renameCount++
-			} else if path == reviewDest {
+			case reviewDest:
 				if renameCount == 0 {
 					assertPluginsAbsent("before atomic activation")
 				}
