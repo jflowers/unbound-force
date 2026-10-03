@@ -406,142 +406,297 @@ func TestRun_IdempotentRetryAfterPluginFailure(t *testing.T) {
 }
 
 func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
-	// Test the three branches of the idempotency guard by directly testing the logic
-	// rather than running the full activation function
+	// Test the three branches of the idempotency guard by actually calling atomicallyActivateReviewPlugins
+	// rather than testing the logic directly
 	
 	tempDir := t.TempDir()
-	
-	// Create test directories and files
-	stagedBase := filepath.Join(tempDir, "stage")
 	pluginsDir := filepath.Join(tempDir, ".opencode", "plugins")
-	stagedPluginDir := filepath.Join(stagedBase, "plugins", "invoke-agent")
-	installedPluginDir := filepath.Join(pluginsDir, "invoke-agent")
-	
-	if err := os.MkdirAll(stagedPluginDir, 0o755); err != nil {
-		t.Fatalf("mkdir staged plugin dir: %v", err)
-	}
-	if err := os.MkdirAll(installedPluginDir, 0o755); err != nil {
-		t.Fatalf("mkdir installed plugin dir: %v", err)
-	}
-	
-	stagedFile := filepath.Join(stagedPluginDir, "index.ts")
-	installedFile := filepath.Join(installedPluginDir, "index.ts")
 	
 	// Test case 1: Force refresh
 	t.Run("Force refresh", func(t *testing.T) {
-		if err := os.WriteFile(stagedFile, []byte("// staged content"), 0o644); err != nil {
-			t.Fatalf("write staged file: %v", err)
+		// Create staged plugin directories and files
+		stagedBase := filepath.Join(tempDir, "stage1")
+		stagedInvokeAgentDir := filepath.Join(stagedBase, "plugins", "invoke-agent")
+		stagedReviewDispatchDir := filepath.Join(stagedBase, "plugins", "review-dispatch")
+		
+		if err := os.MkdirAll(stagedInvokeAgentDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged invoke-agent plugin dir: %v", err)
 		}
-		if err := os.WriteFile(installedFile, []byte("// installed content"), 0o644); err != nil {
-			t.Fatalf("write installed file: %v", err)
+		if err := os.MkdirAll(stagedReviewDispatchDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged review-dispatch plugin dir: %v", err)
+		}
+		
+		if err := os.WriteFile(filepath.Join(stagedInvokeAgentDir, "index.ts"), []byte("// invoke-agent content"), 0o644); err != nil {
+			t.Fatalf("write staged invoke-agent index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stagedReviewDispatchDir, "index.ts"), []byte("// review-dispatch content"), 0o644); err != nil {
+			t.Fatalf("write staged review-dispatch index.ts: %v", err)
+		}
+		
+		// Debug: Check if the source directories exist
+		if _, err := os.Stat(stagedInvokeAgentDir); err != nil {
+			t.Fatalf("staged invoke-agent directory does not exist: %v", err)
+		}
+		if _, err := os.Stat(stagedReviewDispatchDir); err != nil {
+			t.Fatalf("staged review-dispatch directory does not exist: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(stagedInvokeAgentDir, "index.ts")); err != nil {
+			t.Fatalf("staged invoke-agent index.ts does not exist: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(stagedReviewDispatchDir, "index.ts")); err != nil {
+			t.Fatalf("staged review-dispatch index.ts does not exist: %v", err)
+		}
+		
+		// Print the actual paths for debugging
+		t.Logf("stageRoot: %s", stagedBase)
+		t.Logf("stagedInvokeAgentDir: %s", stagedInvokeAgentDir)
+		t.Logf("stagedReviewDispatchDir: %s", stagedReviewDispatchDir)
+		
+		// Create installed plugin directories and files with different content
+		installedInvokeAgentDir := filepath.Join(pluginsDir, "invoke-agent")
+		installedReviewDispatchDir := filepath.Join(pluginsDir, "review-dispatch")
+		
+		if err := os.MkdirAll(installedInvokeAgentDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed invoke-agent plugin dir: %v", err)
+		}
+		if err := os.MkdirAll(installedReviewDispatchDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed review-dispatch plugin dir: %v", err)
+		}
+		
+		if err := os.WriteFile(filepath.Join(installedInvokeAgentDir, "index.ts"), []byte("// old invoke-agent content"), 0o644); err != nil {
+			t.Fatalf("write installed invoke-agent index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(installedReviewDispatchDir, "index.ts"), []byte("// old review-dispatch content"), 0o644); err != nil {
+			t.Fatalf("write installed review-dispatch index.ts: %v", err)
 		}
 		
 		// Create options with Force=true
 		opts := &Options{
 			TargetDir: tempDir,
 			Force:     true,
-			Stat: func(name string) (os.FileInfo, error) {
-				if name == installedPluginDir {
-					return os.Stat(name)
-				}
-				return nil, os.ErrNotExist
-			},
-			ReadFile: func(name string) ([]byte, error) {
-				if name == stagedFile {
-					return []byte("// staged content"), nil
-				}
-				if name == installedFile {
-					return []byte("// installed content"), nil
-				}
-				return nil, fmt.Errorf("unexpected file: %s", name)
-			},
-			RemoveAll: func(name string) error {
-				return os.RemoveAll(name)
-			},
-			Rename: func(oldname, newname string) error {
-				return os.Rename(oldname, newname)
-			},
-			MkdirAll: func(path string, perm os.FileMode) error {
-				return os.MkdirAll(path, perm)
-			},
+			Stat:      os.Stat,
+			Lstat:     os.Lstat,
+			ReadFile:  os.ReadFile,
+			RemoveAll: os.RemoveAll,
+			Rename:    os.Rename,
+			MkdirAll:  os.MkdirAll,
 		}
 		
-		// In force mode, needsRefresh should be true
-		needsRefresh := opts.Force
-		if !needsRefresh {
-			t.Error("expected needsRefresh to be true in force mode")
+		// Ensure the plugins directory exists before calling the function
+		if err := os.MkdirAll(pluginsDir, 0o755); err != nil {
+			t.Fatalf("mkdir plugins directory: %v", err)
+		}
+		
+		// Call the actual function
+		activated, err := atomicallyActivateReviewPlugins(opts, stagedBase)
+		if err != nil {
+			t.Fatalf("atomicallyActivateReviewPlugins failed: %v", err)
+		}
+		
+		// Verify that plugins were activated
+		if len(activated) != 2 {
+			t.Errorf("expected 2 activated plugins, got %d", len(activated))
+		}
+		
+		// Verify that staged directories were removed
+		if _, err := os.Stat(stagedInvokeAgentDir); !os.IsNotExist(err) {
+			t.Error("staged invoke-agent directory should have been removed")
+		}
+		if _, err := os.Stat(stagedReviewDispatchDir); !os.IsNotExist(err) {
+			t.Error("staged review-dispatch directory should have been removed")
+		}
+		
+		// Verify that installed files now have the new content
+		invokeContent, err := os.ReadFile(filepath.Join(installedInvokeAgentDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed invoke-agent content: %v", err)
+		}
+		if string(invokeContent) != "// invoke-agent content" {
+			t.Error("installed invoke-agent content was not updated")
+		}
+		
+		reviewContent, err := os.ReadFile(filepath.Join(installedReviewDispatchDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed review-dispatch content: %v", err)
+		}
+		if string(reviewContent) != "// review-dispatch content" {
+			t.Error("installed review-dispatch content was not updated")
 		}
 	})
 	
 	// Test case 2: Content diff refresh
 	t.Run("Content diff refresh", func(t *testing.T) {
-		if err := os.WriteFile(stagedFile, []byte("// staged content v2"), 0o644); err != nil {
-			t.Fatalf("write staged file: %v", err)
+		// Recreate staged plugin directories and files
+		stagedBase := filepath.Join(tempDir, "stage2")
+		stagedInvokeAgentDir := filepath.Join(stagedBase, "plugins", "invoke-agent")
+		stagedReviewDispatchDir := filepath.Join(stagedBase, "plugins", "review-dispatch")
+		
+		if err := os.MkdirAll(stagedInvokeAgentDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged invoke-agent plugin dir: %v", err)
 		}
-		if err := os.WriteFile(installedFile, []byte("// installed content v1"), 0o644); err != nil {
-			t.Fatalf("write installed file: %v", err)
+		if err := os.MkdirAll(stagedReviewDispatchDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged review-dispatch plugin dir: %v", err)
 		}
 		
-		// Create test functions for ReadFile
-		testReadFile := func(name string) ([]byte, error) {
-			if name == stagedFile {
-				return []byte("// staged content v2"), nil
-			}
-			if name == installedFile {
-				return []byte("// installed content v1"), nil
-			}
-			return nil, fmt.Errorf("unexpected file: %s", name)
+		if err := os.WriteFile(filepath.Join(stagedInvokeAgentDir, "index.ts"), []byte("// new invoke-agent content"), 0o644); err != nil {
+			t.Fatalf("write staged invoke-agent index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stagedReviewDispatchDir, "index.ts"), []byte("// new review-dispatch content"), 0o644); err != nil {
+			t.Fatalf("write staged review-dispatch index.ts: %v", err)
 		}
 		
-		// Check content diff logic
-		stagedContent, readErr := testReadFile(stagedFile)
-		if readErr != nil {
-			t.Fatalf("read staged content: %v", readErr)
-		}
-		installedContent, readErr2 := testReadFile(installedFile)
-		if readErr2 != nil {
-			t.Fatalf("read installed content: %v", readErr2)
-		}
-		needsRefresh := readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
+		// Create installed plugin directories and files with different content
+		installedInvokeAgentDir := filepath.Join(pluginsDir, "invoke-agent")
+		installedReviewDispatchDir := filepath.Join(pluginsDir, "review-dispatch")
 		
-		if !needsRefresh {
-			t.Error("expected needsRefresh to be true when content differs")
+		if err := os.MkdirAll(installedInvokeAgentDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed invoke-agent plugin dir: %v", err)
+		}
+		if err := os.MkdirAll(installedReviewDispatchDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed review-dispatch plugin dir: %v", err)
+		}
+		
+		if err := os.WriteFile(filepath.Join(installedInvokeAgentDir, "index.ts"), []byte("// old invoke-agent content"), 0o644); err != nil {
+			t.Fatalf("write installed invoke-agent index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(installedReviewDispatchDir, "index.ts"), []byte("// old review-dispatch content"), 0o644); err != nil {
+			t.Fatalf("write installed review-dispatch index.ts: %v", err)
+		}
+		
+		// Create options with Force=false
+		opts := &Options{
+			TargetDir: tempDir,
+			Force:     false,
+			Stat:      os.Stat,
+			Lstat:     os.Lstat,
+			ReadFile:  os.ReadFile,
+			RemoveAll: os.RemoveAll,
+			Rename:    os.Rename,
+			MkdirAll:  os.MkdirAll,
+		}
+		
+		// Call the actual function
+		activated, err := atomicallyActivateReviewPlugins(opts, stagedBase)
+		if err != nil {
+			t.Fatalf("atomicallyActivateReviewPlugins failed: %v", err)
+		}
+		
+		// Verify that plugins were activated
+		if len(activated) != 2 {
+			t.Errorf("expected 2 activated plugins, got %d", len(activated))
+		}
+		
+		// Verify that staged directories were removed
+		if _, err := os.Stat(stagedInvokeAgentDir); !os.IsNotExist(err) {
+			t.Error("staged invoke-agent directory should have been removed")
+		}
+		if _, err := os.Stat(stagedReviewDispatchDir); !os.IsNotExist(err) {
+			t.Error("staged review-dispatch directory should have been removed")
+		}
+		
+		// Verify that installed files now have the new content
+		invokeContent, err := os.ReadFile(filepath.Join(installedInvokeAgentDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed invoke-agent content: %v", err)
+		}
+		if string(invokeContent) != "// new invoke-agent content" {
+			t.Error("installed invoke-agent content was not updated")
+		}
+		
+		reviewContent, err := os.ReadFile(filepath.Join(installedReviewDispatchDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed review-dispatch content: %v", err)
+		}
+		if string(reviewContent) != "// new review-dispatch content" {
+			t.Error("installed review-dispatch content was not updated")
 		}
 	})
 	
 	// Test case 3: Identical skip
 	t.Run("Identical skip", func(t *testing.T) {
-		if err := os.WriteFile(stagedFile, []byte("// identical content"), 0o644); err != nil {
-			t.Fatalf("write staged file: %v", err)
+		// Recreate staged plugin directories and files
+		stagedBase := filepath.Join(tempDir, "stage3")
+		stagedInvokeAgentDir := filepath.Join(stagedBase, "plugins", "invoke-agent")
+		stagedReviewDispatchDir := filepath.Join(stagedBase, "plugins", "review-dispatch")
+		
+		if err := os.MkdirAll(stagedInvokeAgentDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged invoke-agent plugin dir: %v", err)
 		}
-		if err := os.WriteFile(installedFile, []byte("// identical content"), 0o644); err != nil {
-			t.Fatalf("write installed file: %v", err)
+		if err := os.MkdirAll(stagedReviewDispatchDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged review-dispatch plugin dir: %v", err)
 		}
 		
-		// Create test functions for ReadFile
-		testReadFile := func(name string) ([]byte, error) {
-			if name == stagedFile {
-				return []byte("// identical content"), nil
-			}
-			if name == installedFile {
-				return []byte("// identical content"), nil
-			}
-			return nil, fmt.Errorf("unexpected file: %s", name)
+		if err := os.WriteFile(filepath.Join(stagedInvokeAgentDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
+			t.Fatalf("write staged invoke-agent index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stagedReviewDispatchDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
+			t.Fatalf("write staged review-dispatch index.ts: %v", err)
 		}
 		
-		// Check content diff logic
-		stagedContent, readErr := testReadFile(stagedFile)
-		if readErr != nil {
-			t.Fatalf("read staged content: %v", readErr)
-		}
-		installedContent, readErr2 := testReadFile(installedFile)
-		if readErr2 != nil {
-			t.Fatalf("read installed content: %v", readErr2)
-		}
-		needsRefresh := readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
+		// Create installed plugin directories and files with identical content
+		installedInvokeAgentDir := filepath.Join(pluginsDir, "invoke-agent")
+		installedReviewDispatchDir := filepath.Join(pluginsDir, "review-dispatch")
 		
-		if needsRefresh {
-			t.Error("expected needsRefresh to be false when content is identical")
+		if err := os.MkdirAll(installedInvokeAgentDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed invoke-agent plugin dir: %v", err)
+		}
+		if err := os.MkdirAll(installedReviewDispatchDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed review-dispatch plugin dir: %v", err)
+		}
+		
+		if err := os.WriteFile(filepath.Join(installedInvokeAgentDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
+			t.Fatalf("write installed invoke-agent index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(installedReviewDispatchDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
+			t.Fatalf("write installed review-dispatch index.ts: %v", err)
+		}
+		
+		// Create options with Force=false
+		opts := &Options{
+			TargetDir: tempDir,
+			Force:     false,
+			Stat:      os.Stat,
+			Lstat:     os.Lstat,
+			ReadFile:  os.ReadFile,
+			RemoveAll: os.RemoveAll,
+			Rename:    os.Rename,
+			MkdirAll:  os.MkdirAll,
+		}
+		
+		// Call the actual function
+		activated, err := atomicallyActivateReviewPlugins(opts, stagedBase)
+		if err != nil {
+			t.Fatalf("atomicallyActivateReviewPlugins failed: %v", err)
+		}
+		
+		// Verify that plugins were activated
+		if len(activated) != 2 {
+			t.Errorf("expected 2 activated plugins, got %d", len(activated))
+		}
+		
+		// Verify that staged directories were removed (they should be removed in the skip case too)
+		if _, err := os.Stat(stagedInvokeAgentDir); !os.IsNotExist(err) {
+			t.Error("staged invoke-agent directory should have been removed")
+		}
+		if _, err := os.Stat(stagedReviewDispatchDir); !os.IsNotExist(err) {
+			t.Error("staged review-dispatch directory should have been removed")
+		}
+		
+		// Verify that installed files still have the original content
+		invokeContent, err := os.ReadFile(filepath.Join(installedInvokeAgentDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed invoke-agent content: %v", err)
+		}
+		if string(invokeContent) != "// identical content" {
+			t.Error("installed invoke-agent content should not have changed")
+		}
+		
+		reviewContent, err := os.ReadFile(filepath.Join(installedReviewDispatchDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed review-dispatch content: %v", err)
+		}
+		if string(reviewContent) != "// identical content" {
+			t.Error("installed review-dispatch content should not have changed")
 		}
 	})
 }

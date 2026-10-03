@@ -217,6 +217,44 @@ describe("finalize review dispatch semantics", () => {
     expect(result.artifact_path).not.toBeNull()
   })
 
+  it("accepts a local input context with uncommitted flag set to false", async () => {
+    const directory = await scratchDirectory()
+    const payload = emptySuccessfulPayload()
+    payload.input_context = {
+      kind: "local",
+      pr_number: null,
+      base_ref: "main",
+      base_sha: COMMIT,
+      head_ref: "feature/review-fanout",
+      head_sha: COMMIT,
+      uncommitted: false,
+    }
+
+    const result = await finalize(payload, dependencies(directory))
+
+    expect(result.status).toBe("success")
+    expect(result.artifact_path).not.toBeNull()
+  })
+
+  it("accepts a local input context with uncommitted flag omitted", async () => {
+    const directory = await scratchDirectory()
+    const payload = emptySuccessfulPayload()
+    payload.input_context = {
+      kind: "local",
+      pr_number: null,
+      base_ref: "main",
+      base_sha: COMMIT,
+      head_ref: "feature/review-fanout",
+      head_sha: COMMIT,
+      // uncommitted flag is omitted
+    }
+
+    const result = await finalize(payload, dependencies(directory))
+
+    expect(result.status).toBe("success")
+    expect(result.artifact_path).not.toBeNull()
+  })
+
   it("accepts every terminal state when exact counts reconcile", async () => {
     const directory = await scratchDirectory()
     const payload = emptySuccessfulPayload()
