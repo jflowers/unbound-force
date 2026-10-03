@@ -9,7 +9,7 @@ import {
   createBunYamlParser,
   parseReviewerManifest,
   type YamlParser,
-} from "../review-dispatch/index.js"
+} from "../../lib/reviewer-manifest.js"
 
 const MANIFEST_PATH = ".uf/reviewer-capabilities.yaml"
 const MAX_PROMPT_BYTES = 128 * 1024
@@ -28,6 +28,7 @@ const ModelSchema = z
     return separator > 0 && separator < value.length - 1
   }, "model must contain non-empty provider and model-id values separated by the first slash")
 const VariantSchema = z.string().max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
+const TimeoutSchema = z.number().int().positive().max(1_800_000)
 const InvokeAgentInputSchema = z
   .object({
     agent: AgentSchema,
@@ -35,7 +36,7 @@ const InvokeAgentInputSchema = z
     model: ModelSchema.optional(),
     variant: VariantSchema.optional(),
     read_only: z.boolean().optional(),
-    timeout: z.number().int().positive().max(1_800_000).optional(),
+    timeout: TimeoutSchema.optional(),
   })
   .strict()
   .superRefine((input, context) => {
@@ -479,6 +480,7 @@ export function createInvokeAgentTool(dependencies: InvokeAgentDependencies): Re
       model: ModelSchema.optional().describe("Optional direct provider/model-id selected by the dispatch plan."),
       variant: VariantSchema.optional().describe("Optional direct-model runtime variant."),
       read_only: z.boolean().optional().describe("Invocation provenance only; does not alter permissions."),
+      timeout: TimeoutSchema.optional().describe("Optional run timeout in milliseconds (bounded to 1_800_000)."),
     },
     async execute(args, context): Promise<{ readonly output: string; readonly metadata: Record<string, unknown> }> {
       const result = await invokeAgent(args, context, dependencies)
