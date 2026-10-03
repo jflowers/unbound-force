@@ -310,41 +310,30 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 				needsRefresh = readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
 			}
 			if needsRefresh {
-				// More atomic refresh: backup existing, move staged, restore on failure
-				backup := target + ".backup"
-				var backupCreated bool
-				
-				// Create backup of existing target if it exists
-				if _, err := opts.Stat(target); err == nil {
-					if err := opts.Rename(target, backup); err != nil {
-						return nil, fmt.Errorf("backup existing %s plugin: %w", plugin.name, err)
-					}
-					backupCreated = true
+				// Copy the staged plugin source to the target location
+				// using read+write instead of os.Rename for cross-filesystem
+				// robustness (os.Rename of directories can fail with ENOENT
+				// on some CI runner filesystem configurations).
+				srcIndex := filepath.Join(source, "index.ts")
+				content, readErr := opts.ReadFile(srcIndex)
+				if readErr != nil {
+					return nil, fmt.Errorf("read staged %s plugin source: %w", plugin.name, readErr)
 				}
-				
-				// Try to move staged plugin to target location
-				if err := opts.Rename(source, target); err != nil {
-					// If rename failed and we have a backup, try to restore it
-					if backupCreated {
-						if restoreErr := opts.Rename(backup, target); restoreErr != nil {
-							return nil, fmt.Errorf("failed to activate %s plugin and failed to restore backup: %w (original error: %v)", plugin.name, restoreErr, err)
-						}
-						// Successfully restored, return the original error
-						return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
-					}
-					// No backup to restore, just return the error
-					return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
+				if err := opts.RemoveAll(target); err != nil {
+					return nil, fmt.Errorf("remove existing %s plugin directory: %w", plugin.name, err)
 				}
-				
-				// If we successfully moved the plugin, clean up the backup
-				if backupCreated {
-					if err := opts.RemoveAll(backup); err != nil {
-						// Log but don't fail - the activation was successful
-						// This is a cleanup error, not a critical failure
-						// We could log this with a proper logger, but for now we'll just ignore it
-						_ = err // Explicitly ignore the error to satisfy the linter
-					}
+				if err := opts.MkdirAll(target, 0o755); err != nil {
+					return nil, fmt.Errorf("create %s plugin directory: %w", plugin.name, err)
 				}
+				destIndex := filepath.Join(target, "index.ts")
+				if err := opts.WriteFile(destIndex, content, 0o644); err != nil {
+					return nil, fmt.Errorf("write installed %s plugin source: %w", plugin.name, err)
+				}
+				if err := opts.RemoveAll(source); err != nil {
+					return nil, fmt.Errorf("remove staged %s plugin source: %w", plugin.name, err)
+				}
+				activated = append(activated, mapAssetPath(plugin.asset))
+				continue
 			} else {
 				if err := opts.RemoveAll(source); err != nil {
 					return nil, fmt.Errorf("remove staged %s plugin source: %w", plugin.name, err)
@@ -353,8 +342,20 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 				continue
 			}
 		}
-		if err := opts.Rename(source, target); err != nil {
-			return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
+		srcIndex := filepath.Join(source, "index.ts")
+		content, readErr := opts.ReadFile(srcIndex)
+		if readErr != nil {
+			return nil, fmt.Errorf("read staged %s plugin source: %w", plugin.name, readErr)
+		}
+		if err := opts.MkdirAll(target, 0o755); err != nil {
+			return nil, fmt.Errorf("create %s plugin directory: %w", plugin.name, err)
+		}
+		destIndex := filepath.Join(target, "index.ts")
+		if err := opts.WriteFile(destIndex, content, 0o644); err != nil {
+			return nil, fmt.Errorf("write installed %s plugin source: %w", plugin.name, err)
+		}
+		if err := opts.RemoveAll(source); err != nil {
+			return nil, fmt.Errorf("remove staged %s plugin source: %w", plugin.name, err)
 		}
 		activated = append(activated, mapAssetPath(plugin.asset))
 	}

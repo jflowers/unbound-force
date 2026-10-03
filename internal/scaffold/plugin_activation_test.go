@@ -170,24 +170,28 @@ func TestRun_InstallsProbesAndAtomicallyActivatesReviewPlugins(t *testing.T) {
 			stageRoot, err = os.MkdirTemp(dir, pattern)
 			return stageRoot, err
 		},
+		WriteFile: func(path string, data []byte, perm os.FileMode) error {
+			installedPluginsDir := filepath.Join(opencodeDir, "plugins")
+			invokeDest := filepath.Join(installedPluginsDir, "invoke-agent", "index.ts")
+			reviewDest := filepath.Join(installedPluginsDir, "review-dispatch", "index.ts")
+			if path == invokeDest {
+				if renameCount == 0 {
+					assertPluginsAbsent("before atomic activation")
+				}
+				events = append(events, "activate invoke-agent")
+				renameCount++
+			} else if path == reviewDest {
+				if renameCount == 0 {
+					assertPluginsAbsent("before atomic activation")
+				}
+				events = append(events, "activate review-dispatch")
+				renameCount++
+			}
+			return os.WriteFile(path, data, perm)
+		},
 		Rename: func(source, destination string) error {
-			if renameCount == 0 {
-				assertPluginsAbsent("before atomic activation")
-			} else if _, err := os.Stat(filepath.Join(destination, "index.ts")); !os.IsNotExist(err) {
-				t.Fatalf("activation destination %q already contains source: %v", destination, err)
-			}
-			if stageRoot == "" || !strings.HasPrefix(source, stageRoot+string(filepath.Separator)) {
-				t.Fatalf("activation source %q is outside stage %q", source, stageRoot)
-			}
-			if strings.HasPrefix(stageRoot, filepath.Join(opencodeDir, "plugins")+string(filepath.Separator)) {
-				t.Fatalf("stage %q is inside auto-discovery", stageRoot)
-			}
-			if _, err := os.Stat(filepath.Join(source, "index.ts")); err != nil {
-				t.Fatalf("staged source is incomplete: %v", err)
-			}
-			events = append(events, "activate "+filepath.Base(destination))
-			renameCount++
-			return os.Rename(source, destination)
+			t.Fatalf("unexpected Rename call: %s -> %s", source, destination)
+			return nil
 		},
 	}
 
@@ -477,6 +481,7 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 			Stat:      os.Stat,
 			Lstat:     os.Lstat,
 			ReadFile:  os.ReadFile,
+			WriteFile: os.WriteFile,
 			RemoveAll: os.RemoveAll,
 			Rename:    os.Rename,
 			MkdirAll:  os.MkdirAll,
@@ -570,6 +575,7 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 			Stat:      os.Stat,
 			Lstat:     os.Lstat,
 			ReadFile:  os.ReadFile,
+			WriteFile: os.WriteFile,
 			RemoveAll: os.RemoveAll,
 			Rename:    os.Rename,
 			MkdirAll:  os.MkdirAll,
