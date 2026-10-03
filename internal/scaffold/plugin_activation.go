@@ -201,6 +201,7 @@ func stageReviewPluginSources(opts *Options, stageRoot string) error {
 		reviewDispatchPluginAsset,
 		"opencode/lib/review-dispatch-lesson-proposal.ts",
 		"opencode/lib/review-dispatch-sibling-evidence.ts",
+		"opencode/lib/reviewer-manifest.ts",
 	}
 	for _, assetPath := range assetPaths {
 		content, err := assetContent(assetPath)

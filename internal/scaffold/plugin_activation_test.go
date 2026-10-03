@@ -245,6 +245,7 @@ func TestRun_InstallsProbesAndAtomicallyActivatesReviewPlugins(t *testing.T) {
 					filepath.Join(stageRoot, "plugins", "review-dispatch", "index.ts"),
 					filepath.Join(stageRoot, "lib", "review-dispatch-lesson-proposal.ts"),
 					filepath.Join(stageRoot, "lib", "review-dispatch-sibling-evidence.ts"),
+					filepath.Join(stageRoot, "lib", "reviewer-manifest.ts"),
 				} {
 					if _, err := os.Stat(stagedPath); err != nil {
 						t.Fatalf("probe ran before staged input %s existed: %v", stagedPath, err)

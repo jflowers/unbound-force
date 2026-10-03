@@ -15,6 +15,7 @@ const MANIFEST_PATH = ".uf/reviewer-capabilities.yaml"
 const MAX_PROMPT_BYTES = 128 * 1024
 const DEFAULT_TIMEOUT_MILLISECONDS = 600_000
 const MAX_ERROR_LENGTH = 4_096
+const CLEANUP_ABORT_TIMEOUT_MS = 5_000
 
 const AgentSchema = z.string().max(128).regex(/^divisor-[a-z0-9-]{1,63}$/)
 const PromptSchema = z
@@ -332,14 +333,18 @@ export async function invokeAgent(
     }
     const id = childID
     cleanupAbort = cleanupAbort.then(async () => {
+      const cleanupController = new AbortController()
+      const cleanupTimeout = setTimeout(() => cleanupController.abort(), CLEANUP_ABORT_TIMEOUT_MS)
       try {
         await dependencies.client.session.abort({
           path: { id },
           query: { directory: context.directory },
-          signal: new AbortController().signal,
+          signal: cleanupController.signal,
         })
       } catch {
         // Cleanup is best-effort because the primary cancellation result remains authoritative.
+      } finally {
+        clearTimeout(cleanupTimeout)
       }
     })
   }

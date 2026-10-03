@@ -1475,6 +1475,7 @@ func TestIsToolOwned(t *testing.T) {
 		// Tool-owned: review-dispatch acquisition module
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
+		{"opencode/lib/reviewer-manifest.ts", true},
 		// Tool-owned: canonical review policy
 		{"uf/reviewer-capabilities.yaml", true},
 		// User-owned: model policy is a supported project extension point
@@ -2133,6 +2134,7 @@ func TestIsDivisorAsset(t *testing.T) {
 		// Divisor acquisition implementation
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
+		{"opencode/lib/reviewer-manifest.ts", true},
 		// Divisor review eligibility policy
 		{"uf/reviewer-capabilities.yaml", true},
 		{"uf/review-matrix.yaml", true},
