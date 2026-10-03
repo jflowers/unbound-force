@@ -222,7 +222,8 @@
         "base_ref": { "$ref": "#/$defs/ref" },
         "base_sha": { "$ref": "#/$defs/sha1" },
         "head_ref": { "$ref": "#/$defs/ref" },
-        "head_sha": { "$ref": "#/$defs/sha1" }
+        "head_sha": { "$ref": "#/$defs/sha1" },
+        "uncommitted": { "type": "boolean" }
       }
     },
     "issueContext": {

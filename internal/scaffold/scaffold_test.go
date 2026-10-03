@@ -685,11 +685,12 @@ var expectedAssetPaths = []string{
 	"opencode/skills/pre-flight/SKILL.md",
 	"opencode/skills/review-context/SKILL.md",
 	"opencode/skills/speckit-workflow/SKILL.md",
-	// Review dispatch plugins and policy modules (4)
+	// Review dispatch plugins and policy modules (5)
 	"opencode/plugins/invoke-agent/index.ts",
 	"opencode/plugins/review-dispatch/index.ts",
 	"opencode/lib/review-dispatch-lesson-proposal.ts",
 	"opencode/lib/review-dispatch-sibling-evidence.ts",
+	"opencode/lib/reviewer-manifest.ts",
 	// Reproducible plugin package inputs (2)
 	"opencode/package-lock.json",
 	"opencode/package.json",
@@ -721,6 +722,7 @@ var task42CanonicalAssets = []struct {
 	{asset: reviewDispatchPluginAsset, source: ".opencode/plugins/review-dispatch/index.ts"},
 	{asset: "opencode/lib/review-dispatch-lesson-proposal.ts", source: ".opencode/lib/review-dispatch-lesson-proposal.ts"},
 	{asset: "opencode/lib/review-dispatch-sibling-evidence.ts", source: ".opencode/lib/review-dispatch-sibling-evidence.ts"},
+	{asset: "opencode/lib/reviewer-manifest.ts", source: ".opencode/lib/reviewer-manifest.ts"},
 	{asset: "opencode/package-lock.json", source: ".opencode/package-lock.json"},
 	{asset: "opencode/package.json", source: ".opencode/package.json"},
 	{asset: "uf/review-matrix.yaml", source: ".uf/review-matrix.yaml"},
