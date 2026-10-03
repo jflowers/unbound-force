@@ -31,15 +31,16 @@ func TestRunInit_FreshDir(t *testing.T) {
 
 	// Verify the summary includes a non-trivial, correct file count.
 	// The exact count is environment-dependent: review plugin activation
-	// appends the two plugin sources to the created set only when
+	// appends the two plugin sources plus the shared reviewer-manifest
+	// module to the created set only when
 	// Node/npm/OpenCode are present and the install plus probes succeed
-	// (61 files). Otherwise the sources remain activation-gated and only 59
+	// (62 files). Otherwise the sources remain activation-gated and only 60
 	// files are processed. The scaffold-level asset inventory and drift tests
 	// pin the exact asset list, so this CLI check asserts either valid count.
 	// (devcontainer excluded — OS-specific, generated per-user by
 	// uf sandbox init.)
-	if !strings.Contains(output, "59 files processed") && !strings.Contains(output, "61 files processed") {
-		t.Errorf("expected '59 files processed' or '61 files processed' in output, got:\n%s", output)
+	if !strings.Contains(output, "60 files processed") && !strings.Contains(output, "62 files processed") {
+		t.Errorf("expected '60 files processed' or '62 files processed' in output, got:\n%s", output)
 	}
 
 	// Verify a user-owned file was created

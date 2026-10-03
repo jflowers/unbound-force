@@ -382,6 +382,19 @@ describe("invoke_agent cancellation, timeout, and responses", () => {
     expect(fake.calls.aborts).toHaveLength(1)
   })
 
+  it("honors a model-supplied timeout through the rawInput boundary", async () => {
+    const fake = fakeClient({ hangPrompt: true })
+    const result = await invokeAgent(
+      explicitInput({ timeout: 5 }),
+      toolContext(),
+      dependencies(fake.client, manifestFixture, 60_000),
+    )
+
+    expect(result.status).toBe("failed")
+    expect(result.error).toMatchObject({ code: "timeout", retryable: true })
+    expect(fake.calls.aborts).toHaveLength(1)
+  })
+
   it("extracts ordered non-ignored text and sums all reported finish usage", async () => {
     const fake = fakeClient({
       parts: [
