@@ -293,17 +293,57 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 		source := filepath.Join(stageRoot, "plugins", plugin.name)
 		target := filepath.Join(pluginsDirectory, plugin.name)
 		if _, statErr := opts.Stat(target); statErr == nil {
-			needsRefresh := opts.Force
-			if !needsRefresh {
+			// Check if target is a symlink - if so, always refresh for security
+			var needsRefresh bool
+			if linfo, lstatErr := opts.Lstat(target); lstatErr == nil && (linfo.Mode()&os.ModeSymlink != 0) {
+				needsRefresh = true
+			} else if opts.Force {
+				needsRefresh = true
+			} else {
+				// Read staged content - if this fails, we should error out for security
 				stagedContent, readErr := opts.ReadFile(filepath.Join(source, "index.ts"))
-				if readErr == nil {
-					installedContent, readErr2 := opts.ReadFile(filepath.Join(target, "index.ts"))
-					needsRefresh = readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
+				if readErr != nil {
+					return nil, fmt.Errorf("read staged %s plugin source: %w", plugin.name, readErr)
 				}
+				// Read installed content - if this fails, refresh for safety
+				installedContent, readErr2 := opts.ReadFile(filepath.Join(target, "index.ts"))
+				needsRefresh = readErr2 != nil || !bytes.Equal(stagedContent, installedContent)
 			}
 			if needsRefresh {
-				if err := opts.RemoveAll(target); err != nil {
-					return nil, fmt.Errorf("remove stale %s plugin for refresh: %w", plugin.name, err)
+				// More atomic refresh: backup existing, move staged, restore on failure
+				backup := target + ".backup"
+				var backupCreated bool
+				
+				// Create backup of existing target if it exists
+				if _, err := opts.Stat(target); err == nil {
+					if err := opts.Rename(target, backup); err != nil {
+						return nil, fmt.Errorf("backup existing %s plugin: %w", plugin.name, err)
+					}
+					backupCreated = true
+				}
+				
+				// Try to move staged plugin to target location
+				if err := opts.Rename(source, target); err != nil {
+					// If rename failed and we have a backup, try to restore it
+					if backupCreated {
+						if restoreErr := opts.Rename(backup, target); restoreErr != nil {
+							return nil, fmt.Errorf("failed to activate %s plugin and failed to restore backup: %w (original error: %v)", plugin.name, restoreErr, err)
+						}
+						// Successfully restored, return the original error
+						return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
+					}
+					// No backup to restore, just return the error
+					return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
+				}
+				
+				// If we successfully moved the plugin, clean up the backup
+				if backupCreated {
+					if err := opts.RemoveAll(backup); err != nil {
+						// Log but don't fail - the activation was successful
+						// This is a cleanup error, not a critical failure
+						// We could log this with a proper logger, but for now we'll just ignore it
+						_ = err // Explicitly ignore the error to satisfy the linter
+					}
 				}
 			} else {
 				if err := opts.RemoveAll(source); err != nil {
@@ -335,6 +375,9 @@ func normalizePluginActivationOptions(opts *Options) {
 	}
 	if opts.Stat == nil {
 		opts.Stat = os.Stat
+	}
+	if opts.Lstat == nil {
+		opts.Lstat = os.Lstat
 	}
 	if opts.WriteFile == nil {
 		opts.WriteFile = os.WriteFile
