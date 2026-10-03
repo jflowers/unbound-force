@@ -276,6 +276,9 @@ and `read_only` value. For `explicit` and `advisor` sources, pass the
 plan model and pass its variant only when non-null. For `host`, omit both
 model and variant so the plugin resolves and explicitly replays the
 current assistant model and active variant. Never substitute a default.
+Pass the plan's `limits.per_run_timeout_seconds` (converted to
+milliseconds) as `invoke_agent` `timeout` so the matrix-configured
+per-run bound reaches the plugin instead of the built-in default.
 
 Every child prompt MUST remain within this repository's review scope. It
 MUST include, without weakening existing instructions:
@@ -293,7 +296,12 @@ MUST include, without weakening existing instructions:
 
 Do not truncate required review context to satisfy the invocation bound.
 If the complete required prompt exceeds the plugin limit, record a
-failed non-voting run and apply no-success cause precedence.
+failed non-voting run and apply no-success cause precedence. The
+`invoke_agent` prompt is bounded to 128 KiB UTF-8; on changes whose
+complete immutable diff plus review context exceeds that bound, every
+included run fails the invoke boundary, the dispatch records a
+`UNAVAILABLE` or `INCONCLUSIVE` no-success result, and automated
+progression is blocked rather than silently truncated.
 
 Require each response to contain `**Model**: <family>`, one native council
 verdict, and structured findings with severity, category, description,

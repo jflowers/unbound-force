@@ -69,6 +69,7 @@ func installAndActivateReviewPlugins(opts *Options) ([]string, []byte, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("create external plugin stage: %w", err)
 	}
+	defer func() { _ = opts.RemoveAll(stageRoot) }()
 	if err := stageReviewPluginSources(opts, stageRoot); err != nil {
 		return nil, nil, err
 	}
@@ -78,6 +79,7 @@ func installAndActivateReviewPlugins(opts *Options) ([]string, []byte, error) {
 		return nil, nil, fmt.Errorf("resolve opencode for provider-free plugin probes: %w", err)
 	}
 	probeDirectory := filepath.Join(opencodeDir, "plugins", pluginProbeDirectoryName)
+	defer func() { _ = opts.RemoveAll(probeDirectory) }()
 	if err := runReviewPluginProbe(opts, opencodeDir, opencodePath, probeDirectory, stageRoot, false); err != nil {
 		return nil, nil, fmt.Errorf("probe staged plugin imports: %w", err)
 	}
@@ -289,6 +291,13 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 	for _, plugin := range assetsToActivate {
 		source := filepath.Join(stageRoot, "plugins", plugin.name)
 		target := filepath.Join(pluginsDirectory, plugin.name)
+		if _, statErr := os.Stat(target); statErr == nil {
+			if err := opts.RemoveAll(source); err != nil {
+				return nil, fmt.Errorf("remove staged %s plugin source: %w", plugin.name, err)
+			}
+			activated = append(activated, mapAssetPath(plugin.asset))
+			continue
+		}
 		if err := opts.Rename(source, target); err != nil {
 			return nil, fmt.Errorf("atomically activate %s plugin source: %w", plugin.name, err)
 		}
