@@ -30,6 +30,7 @@ var stealthExcludePaths = []string{
 	".specify/",
 	"openspec/",
 	".uf/",
+	"schemas/",
 	"opencode.json",
 }
 
@@ -714,6 +715,12 @@ func emitStealthSummary(opts *Options) {
 // stealth-mode exclusion block is present in .git/info/exclude, since that
 // block would silently keep scaffolded files out of git.
 func warnStaleStealthExclusion(opts *Options) {
+	if opts.ExecCmd == nil {
+		return
+	}
+	if _, err := opts.LookPath("git"); err != nil {
+		return
+	}
 	p, err := resolveGitInfoExcludePath(opts)
 	if err != nil {
 		return
