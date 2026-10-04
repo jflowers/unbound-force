@@ -55,6 +55,12 @@ The markers are written at `uf.unleash.md` lines 572-595 (code review) and earli
 
 **Rationale**: The gatekeeping rules are correct — agents MUST NOT modify gate values. The problem is a false positive in the detection mechanism, not a flaw in the rule itself. Changing the rule to accommodate the false positive would weaken the gate for all other scenarios.
 
+### D6: Testing strategy — structural verification for prompt-instruction gates
+
+**Decision**: The regression test uses structural verification (grep assertions on the sub-agent prompt text) rather than behavioral end-to-end testing of LLM output. The prompt instruction exception is verified by checking that the gatekeeping exception clause is present in the sub-agent prompt and that the true-positive guardrails (negative controls, path-negative controls, MUST-still-flag guard) are preserved.
+
+**Rationale**: D3 establishes that the exception mechanism is a prompt instruction, not a code-level filter. The sub-agent is an LLM whose output is non-deterministic; behavioral assertions on LLM output are inherently flaky. Structural verification of the prompt text is the achievable and reliable testing tier for this architecture. The test verifies that the correct instruction is present in the prompt, and that the true-positive detection logic is not weakened by the exception. This is consistent with established patterns in the council-review-action test suite (e.g., mandatory-gate-hardening uses grep structural verification for prompt-level gate rules).
+
 ## Risks / Trade-offs
 
 ### R1: Prompt instruction reliability

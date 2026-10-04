@@ -940,8 +940,15 @@ else
     MARKER_FAIL=$((MARKER_FAIL + 1))
   fi
 
+  if grep -qF 'legitimate workflow resumability records' "${REVIEW_PR_CMD}"; then
+    MARKER_PASS=$((MARKER_PASS + 1))
+  else
+    echo "  FAIL: exception missing justification text"
+    MARKER_FAIL=$((MARKER_FAIL + 1))
+  fi
+
   if [[ "${MARKER_FAIL}" -eq 0 ]]; then
-    echo "  PASS: marker exception clause present and scoped (${MARKER_PASS}/7 checks)"
+    echo "  PASS: marker exception clause present and scoped (${MARKER_PASS}/8 checks)"
     PASS=$((PASS + 1))
   else
     FAIL=$((FAIL + 1))
