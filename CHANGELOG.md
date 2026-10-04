@@ -11,6 +11,11 @@ Each entry follows the format: `- <change-name>: <summary>`.
   has a dedicated mapping in `mapAssetPath`; schemas/ paths now
   use the default pass-through branch. (Spec:
   openspec/changes/move-schemas-to-uf/, Fixes: #649)
+- review-pr-marker-exception: Add workflow-gate marker exception in
+  `/uf.review-pr` to prevent legitimate `<!-- code-review: passed -->`
+  and `<!-- spec-review: passed -->` markers in OpenSpec/Speckit
+  `tasks.md` files from being flagged as gatekeeping violations.
+  (Spec: openspec/changes/review-pr-marker-fix/, Fixes: #539)
 
 ### Added
 - optional-profile-models: Review matrix profile `model` fields
