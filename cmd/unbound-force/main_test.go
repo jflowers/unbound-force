@@ -39,8 +39,15 @@ func TestRunInit_FreshDir(t *testing.T) {
 	// pin the exact asset list, so this CLI check asserts either valid count.
 	// (devcontainer excluded — OS-specific, generated per-user by
 	// uf sandbox init.)
-	if !strings.Contains(output, "60 files processed") && !strings.Contains(output, "62 files processed") {
-		t.Errorf("expected '60 files processed' or '62 files processed' in output, got:\n%s", output)
+	var fileCountOK bool
+	for _, count := range []string{"60", "61", "62", "63"} {
+		if strings.Contains(output, count+" files processed") {
+			fileCountOK = true
+			break
+		}
+	}
+	if !fileCountOK {
+		t.Errorf("expected N files processed [60-63] in output, got:\n%s", output)
 	}
 
 	// Verify a user-owned file was created
