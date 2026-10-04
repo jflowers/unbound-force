@@ -183,7 +183,7 @@ var handAuthoredSchemas = []handAuthoredSchema{
 	{typeName: "feedback-triage", schemaFile: "v1.0.0.schema.json"},
 	{typeName: "issue-triage", schemaFile: "v1.0.0.schema.json"},
 	{typeName: "lesson-proposal", schemaFile: "v1.0.0.schema.json"},
-	{typeName: "review-matrix", schemaFile: "v2.schema.json"},
+	{typeName: "review-matrix", schemaFile: "v3.schema.json"},
 	{typeName: "reviewer-capabilities", schemaFile: "v1.0.0.schema.json"},
 	{typeName: "review-dispatch", schemaFile: "v1.0.0.schema.json"},
 	{typeName: "sibling-repos", schemaFile: "v1.0.0.schema.json"},
@@ -319,7 +319,7 @@ func TestHandAuthoredSchemas_DirectoryStructure(t *testing.T) {
 // policy with the same schema used for JSON fixtures.
 func TestReviewMatrixSchema_CanonicalPolicyValidates(t *testing.T) {
 	schemasDir := repoSchemasDir()
-	schemaPath := filepath.Join(schemasDir, "review-matrix", "v2.schema.json")
+	schemaPath := filepath.Join(schemasDir, "review-matrix", "v3.schema.json")
 	matrixPath := filepath.Join(schemasDir, "..", ".uf", "review-matrix.yaml")
 
 	schemaData, err := os.ReadFile(schemaPath)

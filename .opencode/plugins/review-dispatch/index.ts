@@ -58,6 +58,7 @@ import {
 export { createBunYamlParser, parseReviewerManifest, type YamlParser } from "../../lib/reviewer-manifest.js"
 
 const MATRIX_PATH = ".uf/review-matrix.yaml"
+const MATRIX_OVERRIDE_PATH = ".uf/review-matrix.override.yaml"
 const MANIFEST_PATH = ".uf/reviewer-capabilities.yaml"
 const PLAN_VERSION = 1
 const REVIEW_DISPATCH_SCHEMA_VERSION = "1.0.0"
@@ -107,7 +108,7 @@ const TierSchema = z.enum(TIER_VALUES)
 
 const ProfileSchema = z
   .object({
-    model: ModelSchema,
+    model: ModelSchema.optional(),
     variant: VariantSchema.optional(),
   })
   .strict()
@@ -190,7 +191,7 @@ const LimitsSchema = z
 
 const ReviewMatrixSchema = z
   .object({
-    version: z.literal(2),
+    version: z.union([z.literal(2), z.literal(3)]),
     profiles: ProfilesSchema,
     defaults: DefaultsSchema,
     always: AgentProfileMapSchema.optional(),
@@ -201,6 +202,18 @@ const ReviewMatrixSchema = z
   })
   .strict()
   .superRefine((matrix, context) => {
+    // Version 3 makes model optional; version 2 requires it on every profile.
+    if (matrix.version === 2) {
+      for (const [profile, entry] of Object.entries(matrix.profiles)) {
+        if (entry.model === undefined) {
+          context.addIssue({
+            code: "custom",
+            path: ["profiles", profile, "model"],
+            message: `version 2 requires model on every profile; omit for version 3`,
+          })
+        }
+      }
+    }
     for (const [mode, profile] of Object.entries(matrix.defaults)) {
       if (matrix.profiles[profile] === undefined) {
         context.addIssue({
@@ -786,7 +799,7 @@ const ISSUE_KEYWORDS: Readonly<Record<Exclude<ReviewCategory, "standard">, reado
 
 
 /**
- * Parses and closed-validates a version 2 review matrix.
+ * Parses and closed-validates a review matrix.
  * @param text YAML or JSON policy text.
  * @param parser Injected YAML parser.
  * @returns The validated matrix.
@@ -1052,7 +1065,7 @@ function limitsFor(matrix: ReviewMatrix): Limits {
 }
 
 function profilePair(matrix: ReviewMatrix, profileName: string, variant?: string): {
-  readonly model: string
+  readonly model: string | null
   readonly variant: string | null
   readonly tier: Tier | null
 } {
@@ -1061,7 +1074,7 @@ function profilePair(matrix: ReviewMatrix, profileName: string, variant?: string
     throw new Error(`unknown profile ${profileName}`)
   }
   return {
-    model: profile.model,
+    model: profile.model ?? null,
     variant: variant ?? profile.variant ?? null,
     tier: TierSchema.safeParse(profileName).success ? (profileName as Tier) : null,
   }
@@ -1295,6 +1308,117 @@ function failedPlan(
   }
 }
 
+/**
+ * Own-property check that rejects prototype-chain lookups (__proto__, constructor, etc.).
+ */
+function hasOwn(obj: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, key)
+}
+
+/**
+ * Validates that an override object only contains whitelisted keys:
+ * `profiles.<profileName>.[model, variant]` paths.
+ * Any other key or nested path causes a validation failure.
+ * @param override Parsed override YAML object.
+ * @throws Error if non-whitelisted keys are present.
+ */
+function validateOverride(override: unknown): void {
+  // Empty or comments-only override documents parse to null/undefined/empty-object.
+  // These are valid no-ops — use the base matrix as-is.
+  if (override === null || override === undefined) {
+    return
+  }
+  if (typeof override !== "object" || Array.isArray(override)) {
+    throw new Error(
+      "override validation: override must be an object — only profiles.*.model and profiles.*.variant paths are allowed",
+    )
+  }
+  const obj = override as Record<string, unknown>
+  if (Object.keys(obj).length === 0) {
+    return // empty object override is a valid no-op
+  }
+  const allowedTopLevel = new Set(["profiles"])
+  for (const key of Object.keys(obj)) {
+    if (!allowedTopLevel.has(key)) {
+      throw new Error(
+        `override validation: key "${key}" is not permitted — only profiles.*.model and profiles.*.variant paths are allowed`,
+      )
+    }
+  }
+  const profiles = override.profiles
+  if (profiles === undefined || profiles === null) {
+    return // empty override is valid
+  }
+  if (typeof profiles !== "object" || Array.isArray(profiles)) {
+    throw new Error("override validation: profiles must be an object")
+  }
+  const profilesObj = profiles as Record<string, unknown>
+  for (const profileName of Object.keys(profilesObj)) {
+    const profileValue = profilesObj[profileName]
+    if (profileValue === undefined || profileValue === null) {
+      continue
+    }
+    if (typeof profileValue !== "object" || Array.isArray(profileValue)) {
+      throw new Error(`override validation: profiles.${profileName} must be an object`)
+    }
+    const profileObj = profileValue as Record<string, unknown>
+    const allowedProfileKeys = new Set(["model", "variant"])
+    for (const profileKey of Object.keys(profileObj)) {
+      if (!allowedProfileKeys.has(profileKey)) {
+        throw new Error(
+          `override validation: profiles.${profileName}.${profileKey} is not permitted — only model and variant are allowed`,
+        )
+      }
+    }
+  }
+}
+
+/**
+ * Performs nested-path merge of an override into the base review matrix.
+ * Walks the override for `profiles.<profileName>.[model, variant]` paths
+ * and replaces each matching leaf in the base. The top-level `profiles` key
+ * is never used as a wholesale replacement.
+ * @param base The base review matrix loaded from .uf/review-matrix.yaml.
+ * @param override Parsed override YAML object.
+ * @returns A new ReviewMatrix with override values merged in.
+ */
+function mergeOverride(base: ReviewMatrix, override: Record<string, unknown>): ReviewMatrix {
+  const profiles = override.profiles
+  if (profiles === undefined || profiles === null || typeof profiles !== "object" || Array.isArray(profiles)) {
+    return base // no profiles to merge
+  }
+  const profilesObj = profiles as Record<string, unknown>
+  const mergedProfiles: Record<string, unknown> = Object.create(null)
+  for (const profileName of Object.keys(base.profiles)) {
+    mergedProfiles[profileName] = { ...base.profiles[profileName] }
+  }
+  for (const profileName of Object.keys(profilesObj)) {
+    const profileValue = profilesObj[profileName]
+    if (profileValue === undefined || profileValue === null || typeof profileValue !== "object" || Array.isArray(profileValue)) {
+      continue
+    }
+    const profileObj = profileValue as Record<string, unknown>
+    // Use own-property check to reject __proto__, constructor, toString etc.
+    // which would match via the prototype chain but are not base matrix tiers.
+    if (!hasOwn(base.profiles, profileName)) {
+      throw new Error(
+        `override validation: profiles.${profileName} is not a defined tier in the base matrix — only existing profile tiers may be overridden`,
+      )
+    }
+    const existing = base.profiles[profileName]
+    const merged: Record<string, unknown> = { ...existing }
+    if ("model" in profileObj) {
+      // Convert null to undefined — ModelSchema.optional() allows undefined but not null.
+      merged.model = profileObj.model ?? undefined
+    }
+    if ("variant" in profileObj) {
+      merged.variant = profileObj.variant ?? undefined
+    }
+    mergedProfiles[profileName] = merged as typeof existing
+  }
+  return { ...base, profiles: mergedProfiles }
+}
+
 async function loadPolicies(dependencies: PlannerDependencies): Promise<{
   readonly matrix: ReviewMatrix
   readonly manifest: ReviewerManifest
@@ -1303,8 +1427,58 @@ async function loadPolicies(dependencies: PlannerDependencies): Promise<{
     dependencies.readText(MATRIX_PATH),
     dependencies.readText(MANIFEST_PATH),
   ])
+  const baseMatrix = parseReviewMatrix(matrixText, dependencies.parseYaml)
+
+  // Attempt to load override file for per-developer model/variant customization.
+  let overrideText: string | null = null
+  try {
+    overrideText = await dependencies.readText(MATRIX_OVERRIDE_PATH)
+  } catch (error: unknown) {
+    const isNotFound = error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT"
+    if (!isNotFound) {
+      const message = error instanceof Error ? error.message : "unknown error"
+      throw new Error(`INCONCLUSIVE: cannot read override file ${MATRIX_OVERRIDE_PATH}: ${message}`)
+    }
+    // Override file does not exist — use base as-is.
+  }
+
+  // Soft-gate warning: when no profile has a model AND no override file is present,
+  // all runs will use host model resolution.
+  if (overrideText === null) {
+    const hasAnyModel = Object.values(baseMatrix.profiles).some((p) => p.model !== undefined)
+    if (!hasAnyModel) {
+      console.warn(
+        "review-dispatch: no profile has a model field and no .uf/review-matrix.override.yaml is present — " +
+          "all runs will use host model resolution",
+      )
+    }
+  }
+
+  let matrix = baseMatrix
+  if (overrideText !== null) {
+    try {
+      const override = dependencies.parseYaml(overrideText)
+      validateOverride(override)
+      if (override === null || override === undefined || typeof override !== "object" || Array.isArray(override)) {
+        // Empty/comments-only override — use base as-is (valid no-op).
+        matrix = baseMatrix
+      } else {
+        const merged = mergeOverride(baseMatrix, override as Record<string, unknown>)
+        console.debug("review-dispatch: loaded override file", MATRIX_OVERRIDE_PATH)
+        // Re-validate merged result against the schema and use the sanitized clone.
+        matrix = parseReviewMatrix(
+          JSON.stringify(merged),
+          (text: string) => JSON.parse(text) as unknown,
+        )
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "unknown override failure"
+      throw new Error(`INCONCLUSIVE: override file ${MATRIX_OVERRIDE_PATH} is invalid: ${message}`)
+    }
+  }
+
   return {
-    matrix: parseReviewMatrix(matrixText, dependencies.parseYaml),
+    matrix,
     manifest: parseReviewerManifest(manifestText, dependencies.parseYaml),
   }
 }

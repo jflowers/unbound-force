@@ -698,10 +698,11 @@ var expectedAssetPaths = []string{
 	"uf/review-matrix.yaml",
 	"uf/reviewer-capabilities.yaml",
 	"uf/sibling-repos.yaml",
-	// Multi-model review schemas (6)
+	// Multi-model review schemas (7)
 	"schemas/lesson-proposal/v1.0.0.schema.json",
 	"schemas/review-dispatch/v1.0.0.schema.json",
 	"schemas/review-matrix/v2.schema.json",
+	"schemas/review-matrix/v3.schema.json",
 	"schemas/review-verdict/v2.0.0.schema.json",
 	"schemas/reviewer-capabilities/v1.0.0.schema.json",
 	"schemas/sibling-repos/v1.0.0.schema.json",
@@ -730,6 +731,7 @@ var task42CanonicalAssets = []struct {
 	{asset: "schemas/lesson-proposal/v1.0.0.schema.json", source: "schemas/lesson-proposal/v1.0.0.schema.json"},
 	{asset: "schemas/review-dispatch/v1.0.0.schema.json", source: "schemas/review-dispatch/v1.0.0.schema.json"},
 	{asset: "schemas/review-matrix/v2.schema.json", source: "schemas/review-matrix/v2.schema.json"},
+	{asset: "schemas/review-matrix/v3.schema.json", source: "schemas/review-matrix/v3.schema.json"},
 	{asset: "schemas/review-verdict/v2.0.0.schema.json", source: "schemas/review-verdict/v2.0.0.schema.json"},
 	{asset: "schemas/reviewer-capabilities/v1.0.0.schema.json", source: "schemas/reviewer-capabilities/v1.0.0.schema.json"},
 	{asset: "schemas/sibling-repos/v1.0.0.schema.json", source: "schemas/sibling-repos/v1.0.0.schema.json"},
@@ -1484,6 +1486,7 @@ func TestIsToolOwned(t *testing.T) {
 		{"uf/sibling-repos.yaml", false},
 		// Tool-owned: shared multi-model schemas
 		{"schemas/review-matrix/v2.schema.json", true},
+		{"schemas/review-matrix/v3.schema.json", true},
 		{"schemas/reviewer-capabilities/v1.0.0.schema.json", true},
 		{"schemas/sibling-repos/v1.0.0.schema.json", true},
 		{"schemas/lesson-proposal/v1.0.0.schema.json", true},
@@ -2089,6 +2092,7 @@ func TestMapAssetPath_Prefixes(t *testing.T) {
 		{"uf/sibling-repos.yaml", ".uf/sibling-repos.yaml"},
 		// schemas/ remains rooted at schemas/ (no dot prefix)
 		{"schemas/review-matrix/v2.schema.json", "schemas/review-matrix/v2.schema.json"},
+		{"schemas/review-matrix/v3.schema.json", "schemas/review-matrix/v3.schema.json"},
 		// Unknown prefix passes through unchanged (default branch)
 		{"scripts/validate.sh", "scripts/validate.sh"},
 	}
@@ -2142,6 +2146,7 @@ func TestIsDivisorAsset(t *testing.T) {
 		{"uf/sibling-repos.yaml", true},
 		// Divisor contract schemas
 		{"schemas/review-matrix/v2.schema.json", true},
+		{"schemas/review-matrix/v3.schema.json", true},
 		{"schemas/reviewer-capabilities/v1.0.0.schema.json", true},
 		{"schemas/sibling-repos/v1.0.0.schema.json", true},
 		{"schemas/lesson-proposal/v1.0.0.schema.json", true},

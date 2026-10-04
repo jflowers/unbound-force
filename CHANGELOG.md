@@ -6,6 +6,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- optional-profile-models: Review matrix profile `model` fields
+  are now optional — profiles without a model fall back to host
+  model resolution at invocation time. Added
+  `.uf/review-matrix.override.yaml` for per-developer model and
+  variant customization with a whitelist constraint (only
+  `profiles.<tier>.[model, variant]` paths permitted). Bumped
+  review-matrix schema to version 3. (Spec:
+  openspec/changes/optional-profile-models/, Fixes: #636)
 - issue-pr-traceability: OpenSpec changes now support an
   optional `originating_issue` field in `.openspec.yaml`.
   `/uf.finale` reads the field and emits `Closes #<N>`

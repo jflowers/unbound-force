@@ -1,5 +1,9 @@
 # Canonical model policy for Divisor review dispatch.
-version: 2
+# Per-developer model/variant overrides can be placed in
+# .uf/review-matrix.override.yaml (gitignored). Only
+# profiles.*.model and profiles.*.variant paths are
+# permitted in the override file.
+version: 3
 
 profiles:
   lightweight:
