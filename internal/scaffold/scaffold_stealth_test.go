@@ -58,7 +58,10 @@ func (g *stealthGitFake) exec(name string, args ...string) ([]byte, error) {
 		g.restoreCalls = append(g.restoreCalls, args)
 		return nil, nil
 	}
-	return nil, fmt.Errorf("unexpected git command: %q", cmd)
+	if strings.HasPrefix(cmd, "git") {
+		return nil, fmt.Errorf("unexpected git command: %q", cmd)
+	}
+	return nil, nil
 }
 
 func newStealthGitFake() *stealthGitFake {
@@ -71,8 +74,9 @@ func newStealthGitFake() *stealthGitFake {
 }
 
 // newStealthOpts builds Options with the fake git ExecCmd and real os
-// ReadFile/WriteFile/LookPath, targeting dir. Sub-tools are reported
-// unavailable so initSubTools only writes opencode.json + .uf/dcp.jsonc.
+// ReadFile/WriteFile/LookPath, targeting dir. Sub-tools except review
+// plugins are reported unavailable so initSubTools only writes
+// opencode.json + .uf/dcp.jsonc.
 func newStealthOpts(dir string, g *stealthGitFake, stdout *bytes.Buffer) Options {
 	return Options{
 		TargetDir: dir,
@@ -82,7 +86,7 @@ func newStealthOpts(dir string, g *stealthGitFake, stdout *bytes.Buffer) Options
 		ExecCmd:   g.exec,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 }
 
@@ -151,7 +155,7 @@ func TestStealthInit_LeavesTrackedFilesUnmodified(t *testing.T) {
 				ExecCmd:   g.exec,
 				ReadFile:  os.ReadFile,
 				WriteFile: os.WriteFile,
-				LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 			}
 			if _, err := Run(opts); err != nil {
 				t.Fatalf("Run() error: %v", err)
@@ -319,7 +323,7 @@ func TestNormalInit_Regression(t *testing.T) {
 		ExecCmd:   g.exec,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 	if _, err := Run(opts); err != nil {
 		t.Fatalf("Run() error: %v", err)
@@ -442,7 +446,7 @@ func realStealthOpts(dir string, stdout *bytes.Buffer, extra ...func(*Options)) 
 		Stealth:   true,
 		Version:   "1.2.3-test",
 		Stdout:    stdout,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 	for _, fn := range extra {
 		fn(&opts)
@@ -530,7 +534,7 @@ func TestStealthInit_RollbackOnFailure(t *testing.T) {
 		ExecCmd:   g.exec,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 
 	ctx, err := beginStealth(opts)
@@ -608,7 +612,7 @@ func TestStealthInit_RollbackPreExistingCanonicalDir(t *testing.T) {
 		ExecCmd:   g.exec,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 
 	ctx, err := beginStealth(opts)
@@ -675,7 +679,7 @@ func TestStealthInit_RollbackFailure_ReportsResidual(t *testing.T) {
 		ExecCmd:   g.exec,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 
 	ctx, err := beginStealth(opts)
@@ -1029,7 +1033,7 @@ func TestNormalInit_WarnsStaleStealthExclusion(t *testing.T) {
 		ExecCmd:   g.exec,
 		ReadFile:  os.ReadFile,
 		WriteFile: os.WriteFile,
-		LookPath:  func(string) (string, error) { return "", fmt.Errorf("not found") },
+		LookPath:  exec.LookPath,
 	}
 	if _, err := Run(opts); err != nil {
 		t.Fatalf("Run() error: %v", err)
