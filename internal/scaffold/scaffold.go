@@ -239,7 +239,6 @@ func Run(opts Options) (*Result, error) {
 		//   opencode/   -> .opencode/
 		//   openspec/   -> openspec/
 		//   uf/         -> .uf/
-		//   schemas/    -> schemas/
 		outRel := mapAssetPath(relPath)
 		outPath := filepath.Join(opts.TargetDir, outRel)
 
