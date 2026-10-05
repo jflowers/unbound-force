@@ -6,12 +6,9 @@
 version: 3
 
 profiles:
-  lightweight:
-    model: {}
-  standard:
-    model: {}
-  heavy:
-    model: {}
+  lightweight: {}
+  standard: {}
+  heavy: {}
 
 defaults:
   code: standard
