@@ -89,7 +89,8 @@ If Apple Developer ID signing secrets are configured:
    with declarative `postflight_steps`
 8. Semantic checks reject missing, duplicate, or deprecated
    hooks and verify the quarantine removal and `uf` alias
-9. `brew audit --cask --strict` validates the transformed cask
+9. `brew audit --cask --strict` validates the cask via the
+   staging tap (name-based audit required by modern Homebrew)
 10. A staged tap installation verifies the executable and
     `uf` alias, then uninstalls the cask
 11. The validated cask and formula are pushed to the
