@@ -24,7 +24,9 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 		{"transformer archive checksum validation", "TRANSFORMER_ACTUAL_SHA=$(shasum -a 256 \"$TRANSFORMER_ARCHIVE\" | awk '{print $1}')"},
 		{"Cask transformation", "\"$TRANSFORMER_DIR/unbound-force\" transform-homebrew-cask"},
 		{"semantic validation", "postflight_steps_count=$(grep -Fxc '  postflight_steps do' \"$CASK_FILE\" || true)"},
-		{"Homebrew static validation", "brew audit --cask --strict \"$CASK_FILE\""},
+		{"tap registration for audit", "brew tap unbound-force/staging \"$STAGED_TAP\""},
+		{"Homebrew static validation", "brew audit --cask --strict unbound-force/staging/unbound-force"},
+		{"tap cleanup after audit", "brew untap unbound-force/staging\n"},
 		{"staged Cask smoke test", "brew install --cask \"$STAGED_TAP/Casks/unbound-force.rb\""},
 		{"canonical tap copy", "cp \"$CASK_FILE\" tap/Casks/unbound-force.rb"},
 		{"tap publication", "git push"},
@@ -44,7 +46,7 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 
 	for _, command := range []string{
 		"\"$TRANSFORMER_DIR/unbound-force\" transform-homebrew-cask \\",
-		"brew audit --cask --strict \"$CASK_FILE\"",
+		"brew audit --cask --strict unbound-force/staging/unbound-force",
 		"brew install --cask \"$STAGED_TAP/Casks/unbound-force.rb\"",
 		"test -x \"$BREW_PREFIX/bin/unbound-force\"",
 		"test -L \"$BREW_PREFIX/bin/uf\"",

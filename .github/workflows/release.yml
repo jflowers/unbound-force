@@ -286,6 +286,7 @@ jobs:
               brew uninstall --cask --force unbound-force || cleanup_status=$?
               rm -f "$BREW_PREFIX/bin/uf" || cleanup_status=$?
             fi
+            brew untap unbound-force/staging 2>/dev/null || true
             rm -rf "$STAGED_TAP" "$TRANSFORMER_DIR" || cleanup_status=$?
             if [ "$status" -ne 0 ]; then
               return "$status"
@@ -320,13 +321,17 @@ jobs:
             echo "::error::Required Homebrew install operations are missing"
             exit 1
           fi
-          brew audit --cask --strict "$CASK_FILE"
-
-          # Install only from a disposable tap copy before publishing the Cask.
+          # Stage the Cask into a disposable tap copy for audit and smoke test.
           git clone "https://x-access-token:${HOMEBREW_TAP_GITHUB_TOKEN}@github.com/unbound-force/homebrew-tap.git" tap
           STAGED_TAP="$(mktemp -d)"
           cp -R tap/. "$STAGED_TAP"
           cp "$CASK_FILE" "$STAGED_TAP/Casks/unbound-force.rb"
+
+          # Audit requires name-based invocation via a registered tap.
+          brew tap unbound-force/staging "$STAGED_TAP"
+          brew audit --cask --strict unbound-force/staging/unbound-force
+          brew untap unbound-force/staging
+
           BREW_PREFIX="$(brew --prefix)"
           if brew list --cask unbound-force >/dev/null 2>&1 || \
              [ -e "$BREW_PREFIX/bin/unbound-force" ] || \
