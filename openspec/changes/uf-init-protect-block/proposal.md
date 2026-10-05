@@ -36,7 +36,7 @@ compaction in subsequent LLM sessions, creating a cascading risk.
 
 ### Modified Capabilities
 - `/uf.init`: Gains a `<protect>` block around its core instructions
-  (Steps 0-12 and Post-Write Verification). The command's behavior is
+  (Steps 0-12). The command's behavior is
   unchanged; only the wrapping metadata is added.
 
 ### Removed Capabilities
