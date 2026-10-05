@@ -5,6 +5,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
 
 ## Unreleased
 
+### Changed
+- move-schemas-to-uf: Scaffold schema assets relocated from
+  `schemas/` to `uf/schemas/`. The `schemas/` prefix no longer
+  has a dedicated mapping in `mapAssetPath`; schemas/ paths now
+  use the default pass-through branch. (Spec:
+  openspec/changes/move-schemas-to-uf/, Fixes: #649)
+
 ### Added
 - optional-profile-models: Review matrix profile `model` fields
   are now optional — profiles without a model fall back to host

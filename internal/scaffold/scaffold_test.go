@@ -2096,6 +2096,9 @@ func TestMapAssetPath_Prefixes(t *testing.T) {
 		{"uf/schemas/review-matrix/v3.schema.json", ".uf/schemas/review-matrix/v3.schema.json"},
 		// Unknown prefix passes through unchanged (default branch)
 		{"scripts/validate.sh", "scripts/validate.sh"},
+		// schemas/ passes through unchanged (default branch; mapping removed)
+		{"schemas/review-matrix/v2.schema.json", "schemas/review-matrix/v2.schema.json"},
+		{"schemas/review-matrix/v3.schema.json", "schemas/review-matrix/v3.schema.json"},
 	}
 
 	for _, tt := range tests {
