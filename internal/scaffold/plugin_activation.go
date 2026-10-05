@@ -45,6 +45,11 @@ func activateReviewPlugins(opts *Options) pluginActivationResult {
 			output: output,
 		}}
 	}
+	if len(activated) == 0 {
+		return pluginActivationResult{result: subToolResult{
+			name: "review-plugins", action: "skipped", detail: "opencode not found on PATH; npm dependencies installed",
+		}}
+	}
 
 	return pluginActivationResult{
 		result: subToolResult{
@@ -77,7 +82,7 @@ func installAndActivateReviewPlugins(opts *Options) ([]string, []byte, error) {
 
 	opencodePath, err := opts.LookPath("opencode")
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve opencode for provider-free plugin probes: %w", err)
+		return nil, nil, nil
 	}
 	probeDirectory := filepath.Join(opencodeDir, "plugins", pluginProbeDirectoryName)
 	defer func() { _ = opts.RemoveAll(probeDirectory) }()
