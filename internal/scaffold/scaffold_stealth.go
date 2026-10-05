@@ -30,7 +30,6 @@ var stealthExcludePaths = []string{
 	".specify/",
 	"openspec/",
 	".uf/",
-	"schemas/",
 	"opencode.json",
 }
 

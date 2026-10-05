@@ -700,13 +700,13 @@ var expectedAssetPaths = []string{
 	"uf/reviewer-capabilities.yaml",
 	"uf/sibling-repos.yaml",
 	// Multi-model review schemas (7)
-	"schemas/lesson-proposal/v1.0.0.schema.json",
-	"schemas/review-dispatch/v1.0.0.schema.json",
-	"schemas/review-matrix/v2.schema.json",
-	"schemas/review-matrix/v3.schema.json",
-	"schemas/review-verdict/v2.0.0.schema.json",
-	"schemas/reviewer-capabilities/v1.0.0.schema.json",
-	"schemas/sibling-repos/v1.0.0.schema.json",
+	"uf/schemas/lesson-proposal/v1.0.0.schema.json",
+	"uf/schemas/review-dispatch/v1.0.0.schema.json",
+	"uf/schemas/review-matrix/v2.schema.json",
+	"uf/schemas/review-matrix/v3.schema.json",
+	"uf/schemas/review-verdict/v2.0.0.schema.json",
+	"uf/schemas/reviewer-capabilities/v1.0.0.schema.json",
+	"uf/schemas/sibling-repos/v1.0.0.schema.json",
 	// Specify — starter constitution (1)
 	"specify/memory/constitution.md",
 }
@@ -729,13 +729,13 @@ var task42CanonicalAssets = []struct {
 	{asset: "opencode/package.json", source: ".opencode/package.json"},
 	{asset: "uf/review-matrix.yaml", source: ".uf/review-matrix.yaml"},
 	{asset: "uf/reviewer-capabilities.yaml", source: ".uf/reviewer-capabilities.yaml"},
-	{asset: "schemas/lesson-proposal/v1.0.0.schema.json", source: "schemas/lesson-proposal/v1.0.0.schema.json"},
-	{asset: "schemas/review-dispatch/v1.0.0.schema.json", source: "schemas/review-dispatch/v1.0.0.schema.json"},
-	{asset: "schemas/review-matrix/v2.schema.json", source: "schemas/review-matrix/v2.schema.json"},
-	{asset: "schemas/review-matrix/v3.schema.json", source: "schemas/review-matrix/v3.schema.json"},
-	{asset: "schemas/review-verdict/v2.0.0.schema.json", source: "schemas/review-verdict/v2.0.0.schema.json"},
-	{asset: "schemas/reviewer-capabilities/v1.0.0.schema.json", source: "schemas/reviewer-capabilities/v1.0.0.schema.json"},
-	{asset: "schemas/sibling-repos/v1.0.0.schema.json", source: "schemas/sibling-repos/v1.0.0.schema.json"},
+	{asset: "uf/schemas/lesson-proposal/v1.0.0.schema.json", source: ".uf/schemas/lesson-proposal/v1.0.0.schema.json"},
+	{asset: "uf/schemas/review-dispatch/v1.0.0.schema.json", source: ".uf/schemas/review-dispatch/v1.0.0.schema.json"},
+	{asset: "uf/schemas/review-matrix/v2.schema.json", source: ".uf/schemas/review-matrix/v2.schema.json"},
+	{asset: "uf/schemas/review-matrix/v3.schema.json", source: ".uf/schemas/review-matrix/v3.schema.json"},
+	{asset: "uf/schemas/review-verdict/v2.0.0.schema.json", source: ".uf/schemas/review-verdict/v2.0.0.schema.json"},
+	{asset: "uf/schemas/reviewer-capabilities/v1.0.0.schema.json", source: ".uf/schemas/reviewer-capabilities/v1.0.0.schema.json"},
+	{asset: "uf/schemas/sibling-repos/v1.0.0.schema.json", source: ".uf/schemas/sibling-repos/v1.0.0.schema.json"},
 }
 
 func TestSCFR001_CanonicalAssetSurfaceMatchesMirrors(t *testing.T) {
@@ -898,12 +898,12 @@ func TestRun_CreatesFiles(t *testing.T) {
 		".specify/memory",
 		"openspec/specs",
 		"openspec/changes",
-		"schemas/lesson-proposal",
-		"schemas/review-dispatch",
-		"schemas/review-matrix",
-		"schemas/review-verdict",
-		"schemas/reviewer-capabilities",
-		"schemas/sibling-repos",
+		".uf/schemas/lesson-proposal",
+		".uf/schemas/review-dispatch",
+		".uf/schemas/review-matrix",
+		".uf/schemas/review-verdict",
+		".uf/schemas/reviewer-capabilities",
+		".uf/schemas/sibling-repos",
 	}
 	for _, d := range expectedDirs {
 		full := filepath.Join(dir, d)
@@ -1486,13 +1486,13 @@ func TestIsToolOwned(t *testing.T) {
 		// User-owned: active sibling declarations are project-specific
 		{"uf/sibling-repos.yaml", false},
 		// Tool-owned: shared multi-model schemas
-		{"schemas/review-matrix/v2.schema.json", true},
-		{"schemas/review-matrix/v3.schema.json", true},
-		{"schemas/reviewer-capabilities/v1.0.0.schema.json", true},
-		{"schemas/sibling-repos/v1.0.0.schema.json", true},
-		{"schemas/lesson-proposal/v1.0.0.schema.json", true},
-		{"schemas/review-dispatch/v1.0.0.schema.json", true},
-		{"schemas/review-verdict/v2.0.0.schema.json", true},
+		{"uf/schemas/review-matrix/v2.schema.json", true},
+		{"uf/schemas/review-matrix/v3.schema.json", true},
+		{"uf/schemas/reviewer-capabilities/v1.0.0.schema.json", true},
+		{"uf/schemas/sibling-repos/v1.0.0.schema.json", true},
+		{"uf/schemas/lesson-proposal/v1.0.0.schema.json", true},
+		{"uf/schemas/review-dispatch/v1.0.0.schema.json", true},
+		{"uf/schemas/review-verdict/v2.0.0.schema.json", true},
 		// Tool-owned: convention packs (canonical)
 		{"opencode/uf/packs/go.md", true},
 		{"opencode/uf/packs/default.md", true},
@@ -2091,9 +2091,9 @@ func TestMapAssetPath_Prefixes(t *testing.T) {
 		// uf/ maps to .uf/ (dot prefix)
 		{"uf/reviewer-capabilities.yaml", ".uf/reviewer-capabilities.yaml"},
 		{"uf/sibling-repos.yaml", ".uf/sibling-repos.yaml"},
-		// schemas/ remains rooted at schemas/ (no dot prefix)
-		{"schemas/review-matrix/v2.schema.json", "schemas/review-matrix/v2.schema.json"},
-		{"schemas/review-matrix/v3.schema.json", "schemas/review-matrix/v3.schema.json"},
+		// uf/schemas/ maps to .uf/schemas/ via the uf/ → .uf/ prefix rule
+		{"uf/schemas/review-matrix/v2.schema.json", ".uf/schemas/review-matrix/v2.schema.json"},
+		{"uf/schemas/review-matrix/v3.schema.json", ".uf/schemas/review-matrix/v3.schema.json"},
 		// Unknown prefix passes through unchanged (default branch)
 		{"scripts/validate.sh", "scripts/validate.sh"},
 	}
@@ -2146,13 +2146,13 @@ func TestIsDivisorAsset(t *testing.T) {
 		// Divisor sibling evidence template
 		{"uf/sibling-repos.yaml", true},
 		// Divisor contract schemas
-		{"schemas/review-matrix/v2.schema.json", true},
-		{"schemas/review-matrix/v3.schema.json", true},
-		{"schemas/reviewer-capabilities/v1.0.0.schema.json", true},
-		{"schemas/sibling-repos/v1.0.0.schema.json", true},
-		{"schemas/lesson-proposal/v1.0.0.schema.json", true},
-		{"schemas/review-dispatch/v1.0.0.schema.json", true},
-		{"schemas/review-verdict/v2.0.0.schema.json", true},
+		{"uf/schemas/review-matrix/v2.schema.json", true},
+		{"uf/schemas/review-matrix/v3.schema.json", true},
+		{"uf/schemas/reviewer-capabilities/v1.0.0.schema.json", true},
+		{"uf/schemas/sibling-repos/v1.0.0.schema.json", true},
+		{"uf/schemas/lesson-proposal/v1.0.0.schema.json", true},
+		{"uf/schemas/review-dispatch/v1.0.0.schema.json", true},
+		{"uf/schemas/review-verdict/v2.0.0.schema.json", true},
 		// Non-Divisor assets
 		{"opencode/agents/constitution-check.md", false},
 		{"opencode/commands/speckit.specify.md", false},

@@ -314,7 +314,7 @@ defaults.
 | `.uf/sibling-repos.yaml` | Declares the sibling repositories eligible for bounded evidence acquisition. |
 
 Each file has a corresponding JSON Schema under `schemas/` (and a
-scaffold mirror under `internal/scaffold/assets/schemas/`), so invalid
+scaffold mirror under `internal/scaffold/assets/uf/schemas/`), so invalid
 values fail closed at load time rather than silently misrouting review
 fan-out.
 

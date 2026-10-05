@@ -440,7 +440,7 @@ func warnLegacyReviewerFiles(w io.Writer, targetDir string) {
 // knownAssetPrefixes enumerates the valid top-level prefixes
 // in the embedded assets directory. Used by mapAssetPath to
 // detect assets added under unexpected directories.
-var knownAssetPrefixes = []string{"opencode/", "openspec/", "devcontainer/", "specify/", "uf/", "schemas/"}
+var knownAssetPrefixes = []string{"opencode/", "openspec/", "devcontainer/", "specify/", "uf/"}
 
 // mapAssetPath converts an embedded asset relative path to the
 // output path in the target directory. The assets/ directory
@@ -450,7 +450,6 @@ var knownAssetPrefixes = []string{"opencode/", "openspec/", "devcontainer/", "sp
 //	openspec/ -> openspec/  (no dot prefix)
 //	specify/  -> .specify/
 //	uf/       -> .uf/
-//	schemas/  -> schemas/   (no dot prefix)
 func mapAssetPath(relPath string) string {
 	switch {
 	case strings.HasPrefix(relPath, "opencode/"):
@@ -470,9 +469,6 @@ func mapAssetPath(relPath string) string {
 	case strings.HasPrefix(relPath, "uf/"):
 		// Review policy assets live under the shared .uf runtime root.
 		return "." + relPath
-	case strings.HasPrefix(relPath, "schemas/"):
-		// Shared data-model schemas retain their repository-root path.
-		return relPath
 	default:
 		// Unknown prefix — pass through unchanged but this
 		// indicates a new asset directory was added without
@@ -642,7 +638,7 @@ func isToolOwned(relPath string) bool {
 	if strings.HasPrefix(relPath, "openspec/schemas/") {
 		return true
 	}
-	if strings.HasPrefix(relPath, "schemas/") {
+	if strings.HasPrefix(relPath, "uf/schemas/") {
 		return true
 	}
 	if strings.HasPrefix(relPath, "opencode/commands/") {
@@ -732,12 +728,12 @@ func isDivisorAsset(relPath string) bool {
 		relPath == "uf/sibling-repos.yaml" {
 		return true
 	}
-	if strings.HasPrefix(relPath, "schemas/review-matrix/") ||
-		strings.HasPrefix(relPath, "schemas/reviewer-capabilities/") ||
-		strings.HasPrefix(relPath, "schemas/sibling-repos/") ||
-		strings.HasPrefix(relPath, "schemas/lesson-proposal/") ||
-		strings.HasPrefix(relPath, "schemas/review-dispatch/") ||
-		strings.HasPrefix(relPath, "schemas/review-verdict/") {
+	if strings.HasPrefix(relPath, "uf/schemas/review-matrix/") ||
+		strings.HasPrefix(relPath, "uf/schemas/reviewer-capabilities/") ||
+		strings.HasPrefix(relPath, "uf/schemas/sibling-repos/") ||
+		strings.HasPrefix(relPath, "uf/schemas/lesson-proposal/") ||
+		strings.HasPrefix(relPath, "uf/schemas/review-dispatch/") ||
+		strings.HasPrefix(relPath, "uf/schemas/review-verdict/") {
 		return true
 	}
 	return false
