@@ -51,8 +51,8 @@ protection in subsequent LLM sessions.
 
 The `<protect>` block will be placed immediately after the `## Instructions`
 heading (line 24 of the current file) and will extend to the end of the
-last step (Step 12, before the `### Next Steps` section). This wraps all
-12 steps plus the Post-Write Verification section in a single block.
+last step (Step 12, before the `### Next Steps` section). This wraps all 12 steps in a single block. The Post-Write Verification
+section and Next Steps remain outside the protected block.
 
 **Rationale**: A single block is simpler to maintain than per-step blocks,
 and matches the pattern used by `uf.review-council` and `uf.unleash`.

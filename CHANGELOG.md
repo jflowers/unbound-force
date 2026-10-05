@@ -21,6 +21,11 @@ Each entry follows the format: `- <change-name>: <summary>`.
   of the field is backward compatible (no `Closes` line
   emitted). (Spec: openspec/changes/issue-pr-traceability/,
   Closes: #554)
+- uf-init-protect-block: `/uf.init` slash command and scaffold asset
+  now wrap core instructions in `<protect>` blocks to prevent
+  context-compaction-induced instruction loss. Updated insertion
+  logic to respect existing `<protect>` blocks in target files.
+  (Spec: openspec/changes/uf-init-protect-block/, Closes: #540)
 
 ### Fixed
 - content-portability-guardrails: Add Content Portability
