@@ -75,7 +75,7 @@ unbound-force/
 ├── .uf/                              # Review config (review matrix, reviewer manifest, sibling repos)
 ├── .opencode/
 │   ├── agents/                       # Hero persona agents (18 active)
-│   ├── commands/                     # Slash commands (48 files)
+│   ├── commands/                     # Slash commands (49 files)
 │   ├── plugins/                      # Review plugins registered in opencode.json (invoke-agent, review-dispatch)
 │   ├── lib/                          # Shared TypeScript plugin library
 │   ├── test/                         # TypeScript plugin unit/integration/smoke tests

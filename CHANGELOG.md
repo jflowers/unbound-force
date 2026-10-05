@@ -26,6 +26,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
   context-compaction-induced instruction loss. Updated insertion
   logic to respect existing `<protect>` blocks in target files.
   (Spec: openspec/changes/uf-init-protect-block/, Closes: #540)
+- run-pipeline-plan: New `/uf.run-pipeline-plan` slash command
+  that orchestrates a prioritized work plan through the full
+  Unbound Force pipeline (`/opsx-propose` → `/uf.unleash` →
+  `/uf.finale`) with fresh subagent isolation per phase,
+  human gate relay, and per-item progress tracking. Supports
+  plan file and GitHub issue-ref input modes. (Spec:
+  openspec/changes/run-plan-command/)
 
 ### Fixed
 - content-portability-guardrails: Add Content Portability
