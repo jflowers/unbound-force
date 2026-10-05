@@ -7,11 +7,11 @@ version: 3
 
 profiles:
   lightweight:
-    model: opencode-go/qwen3.8-flash
+    model: {}
   standard:
-    model: opencode-go/deepseek-v4-pro
+    model: {}
   heavy:
-    model: opencode-go/grok-4.7
+    model: {}
 
 defaults:
   code: standard
