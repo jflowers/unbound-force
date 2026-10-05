@@ -286,6 +286,7 @@ jobs:
               brew uninstall --cask --force unbound-force || cleanup_status=$?
               rm -f "$BREW_PREFIX/bin/uf" || cleanup_status=$?
             fi
+            brew untap unbound-force/staging 2>/dev/null || true
             rm -rf "$STAGED_TAP" "$TRANSFORMER_DIR" || cleanup_status=$?
             if [ "$status" -ne 0 ]; then
               return "$status"
