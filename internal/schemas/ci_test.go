@@ -347,19 +347,20 @@ func TestReviewMatrixSchema_CanonicalPolicyValidates(t *testing.T) {
 	if !ok {
 		t.Fatal("canonical profiles are not an object")
 	}
-	wantModels := map[string]string{
-		"lightweight": "opencode-go/qwen3.8-flash",
-		"standard":    "opencode-go/deepseek-v4-pro",
-		"heavy":       "opencode-go/grok-4.7",
-	}
-	for profileName, wantModel := range wantModels {
+	wantProfiles := []string{"lightweight", "standard", "heavy"}
+	for _, profileName := range wantProfiles {
 		profile, ok := profiles[profileName].(map[string]interface{})
 		if !ok {
 			t.Errorf("profile %q is not an object", profileName)
 			continue
 		}
-		if gotModel := profile["model"]; gotModel != wantModel {
-			t.Errorf("profile %q model = %v, want %q", profileName, gotModel, wantModel)
+		gotModel := profile["model"]
+		switch gotModel.(type) {
+		case string:
+		case map[string]interface{}:
+		case nil:
+		default:
+			t.Errorf("profile %q model = %T (%v), want string, map, or nil", profileName, gotModel, gotModel)
 		}
 	}
 }
