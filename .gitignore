@@ -71,3 +71,4 @@ internal/**/openspec/
 *.log
 gateway.pid
 /unbound-force
+AGENTS.md
