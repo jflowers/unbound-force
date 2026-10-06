@@ -327,10 +327,11 @@ jobs:
           cp -R tap/. "$STAGED_TAP"
           cp "$CASK_FILE" "$STAGED_TAP/Casks/unbound-force.rb"
 
-          # Audit requires name-based invocation via a registered tap.
+          # Homebrew requires cask operations to use a registered tap (not
+          # filesystem paths).  Register the staged copy once, run audit and
+          # smoke test through the tap, then untap.
           brew tap unbound-force/staging "$STAGED_TAP"
           brew audit --cask --strict unbound-force/staging/unbound-force
-          brew untap unbound-force/staging
 
           BREW_PREFIX="$(brew --prefix)"
           if brew list --cask unbound-force >/dev/null 2>&1 || \
@@ -340,13 +341,14 @@ jobs:
             exit 1
           fi
           SMOKE_TEST_CASK_INSTALLED=true
-          brew install --cask "$STAGED_TAP/Casks/unbound-force.rb"
+          brew install --cask unbound-force/staging/unbound-force
           test -x "$BREW_PREFIX/bin/unbound-force"
           test -L "$BREW_PREFIX/bin/uf"
           test -x "$BREW_PREFIX/bin/uf"
           brew uninstall --cask --force unbound-force
           rm -f "$BREW_PREFIX/bin/uf"
           SMOKE_TEST_CASK_INSTALLED=false
+          brew untap unbound-force/staging
 
           # Push both cask and formula to the Homebrew tap
           cp "$CASK_FILE" tap/Casks/unbound-force.rb
