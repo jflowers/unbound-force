@@ -13,6 +13,14 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/move-schemas-to-uf/, Fixes: #649)
 
 ### Added
+- tier-gated-agent-count: Review dispatch now enforces tier-based
+  agent count caps. Lightweight diffs cap at 2 agents by default;
+  standard and heavy remain uncapped. Always-required agents
+  survive caps via floor enforcement. A HIGH severity advisory
+  warns when a custom heavy cap is applied to security-sensitive
+  diffs. The `--full` flag bypasses all caps. Caps are
+  configurable via `limits.tier_caps` in the review matrix.
+  (Spec: openspec/changes/tier-gated-agent-count/, Closes: #654)
 - optional-profile-models: Review matrix profile `model` fields
   are now optional — profiles without a model fall back to host
   model resolution at invocation time. Added

@@ -244,6 +244,244 @@ describe("issue-content profiling", () => {
     expect(included(plan, "divisor-testing")).toHaveLength(1)
   })
 
+  describe("tier-gated agent caps", () => {
+  it("lightweight change caps included agents at default tier cap of 2", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(),
+    )
+    expect(plan.status).toBe("ready")
+
+    // adversary and guard are always-required — kept under cap of 2
+    // (adversary has 2 explicit runs in code mode, so count unique agents)
+    const uniqueIncluded = [...new Set(
+      plan.entries
+        .filter((e) => e.decision === "include")
+        .map((e) => e.agent),
+    )]
+    expect(uniqueIncluded).toHaveLength(2)
+    expect(uniqueIncluded).toContain("divisor-adversary")
+    expect(uniqueIncluded).toContain("divisor-guard")
+
+    // architect (scope-match) exceeds the cap — tier-capped
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(1)
+    expect(tierCapSkips[0]!.agent).toBe("divisor-architect")
+    expect(tierCapSkips[0]!.decision).toBe("skip")
+    expect(tierCapSkips[0]!.reason).toContain("tier cap")
+    expect(tierCapSkips[0]!.reason).toContain("lightweight")
+  })
+
+  it("standard change does not apply tier cap", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        changed_files: [changedFile("src/feature.ts", 60)], // >50 lines → standard
+      },
+      dependencies(),
+    )
+    expect(plan.status).toBe("ready")
+
+    // All three relevant agents included — standard tier has null cap
+    const includedAgents = plan.entries
+      .filter((e) => e.decision === "include")
+      .map((e) => e.agent)
+    expect(includedAgents).toContain("divisor-adversary")
+    expect(includedAgents).toContain("divisor-architect")
+    expect(includedAgents).toContain("divisor-guard")
+
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(0)
+  })
+
+  it("full flag bypasses tier caps for lightweight changes", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        full: true,
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(),
+    )
+    expect(plan.status).toBe("ready")
+
+    // All agents included — full bypasses tier cap
+    const includedAgents = plan.entries
+      .filter((e) => e.decision === "include")
+      .map((e) => e.agent)
+    expect(includedAgents).toContain("divisor-adversary")
+    expect(includedAgents).toContain("divisor-architect")
+    expect(includedAgents).toContain("divisor-guard")
+
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(0)
+  })
+
+  it("triage mode does not apply tier caps", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "triage",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        issue: { title: "bug: login fails", body: "Login page error", comments: [] },
+      },
+      dependencies(),
+    )
+
+    // No tier-cap skip entries in triage mode
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(0)
+  })
+
+  it("feedback mode does not apply tier caps", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "feedback",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(),
+    )
+
+    // No tier-cap skip entries in feedback mode
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(0)
+  })
+
+  it("custom tier_caps override via matrix limits", async () => {
+    const customMatrix = cloneFixture(matrixFixture) as Record<string, unknown>
+    ;(customMatrix as Record<string, unknown>).limits = {
+      tier_caps: { lightweight: 3 },
+    }
+
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(customMatrix),
+    )
+    expect(plan.status).toBe("ready")
+
+    // All 3 agents fit within custom cap of 3
+    const includedAgents = plan.entries
+      .filter((e) => e.decision === "include")
+      .map((e) => e.agent)
+    expect(includedAgents).toContain("divisor-adversary")
+    expect(includedAgents).toContain("divisor-architect")
+    expect(includedAgents).toContain("divisor-guard")
+
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(0)
+  })
+
+  it("floor enforcement clamps cap below always-required count", async () => {
+    const customMatrix = cloneFixture(matrixFixture) as Record<string, unknown>
+    ;(customMatrix as Record<string, unknown>).limits = {
+      tier_caps: { lightweight: 1 },
+    }
+
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-guard",
+        ],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(customMatrix),
+    )
+    expect(plan.status).toBe("ready")
+
+    // cap=1 but 2 always-required agents → effectiveCap = max(1, 2) = 2
+    // Both always-required agents kept, scope-match agent skipped
+    const uniqueIncluded = [...new Set(
+      plan.entries
+        .filter((e) => e.decision === "include")
+        .map((e) => e.agent),
+    )]
+    expect(uniqueIncluded).toHaveLength(2)
+    expect(uniqueIncluded).toContain("divisor-adversary")
+    expect(uniqueIncluded).toContain("divisor-guard")
+
+    // architect (scope-match) exceeds the effective cap — tier-capped
+    const tierCapSkips = plan.entries.filter((e) => e.reason_code === "tier-cap")
+    expect(tierCapSkips).toHaveLength(1)
+    expect(tierCapSkips[0]!.agent).toBe("divisor-architect")
+    // reason should mention the effective cap (2), not the configured cap (1)
+    expect(tierCapSkips[0]!.reason).toContain("tier cap of 2")
+  })
+
+  it("emits advisory when heavy tier cap is configured for security-sensitive change", async () => {
+    const customMatrix = cloneFixture(matrixFixture) as Record<string, unknown>
+    ;(customMatrix as Record<string, unknown>).limits = {
+      tier_caps: { heavy: 3 },
+    }
+
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-adversary", "divisor-guard"],
+        // .github/workflows/ path makes it security-sensitive, >300 lines → heavy
+        changed_files: [changedFile(".github/workflows/ci.yml", 310)],
+      },
+      dependencies(customMatrix),
+    )
+
+    expect(plan.advisories).toHaveLength(1)
+    expect(plan.advisories[0]!.severity).toBe("HIGH")
+    expect(plan.advisories[0]!.description).toContain("tier_caps.heavy")
+    expect(plan.advisories[0]!.description).toContain("security-sensitive")
+  })
+
+  it("does not emit advisory when heavy tier cap is null (default)", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-adversary", "divisor-guard"],
+        changed_files: [changedFile(".github/workflows/ci.yml", 310)],
+      },
+      dependencies(),
+    )
+
+    // Default config has tier_caps.heavy = null — no advisory
+    expect(plan.advisories).toHaveLength(0)
+  })
+})
+
+
   it.each([
     [4_096, "4f30e0423cec84abfc13ae44c9fe73dde044a0852c5492884e52ba020f7b8275", "lightweight"],
     [4_097, "19c10c78070cae1fb718628a7e276ed1b9d05d7d3f017bfb32d09bc309aa7207", "standard"],
@@ -359,7 +597,7 @@ describe("run resolution and fail-closed limits", () => {
       {
         mode: "code",
         discovered_agents: ["divisor-adversary", "divisor-guard", "divisor-testing"],
-        changed_files: [changedFile("feature_test.go", 10)],
+        changed_files: [changedFile("feature_test.go", 60)],
       },
       dependencies(),
     )
