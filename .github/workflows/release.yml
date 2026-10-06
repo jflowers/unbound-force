@@ -331,6 +331,7 @@ jobs:
           # filesystem paths).  Register the staged copy once, run audit and
           # smoke test through the tap, then untap.
           brew tap unbound-force/staging "$STAGED_TAP"
+          brew trust unbound-force/staging
           brew audit --cask --strict unbound-force/staging/unbound-force
 
           BREW_PREFIX="$(brew --prefix)"

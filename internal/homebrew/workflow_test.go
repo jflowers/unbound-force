@@ -25,6 +25,7 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 		{"Cask transformation", "\"$TRANSFORMER_DIR/unbound-force\" transform-homebrew-cask"},
 		{"semantic validation", "postflight_steps_count=$(grep -Fxc '  postflight_steps do' \"$CASK_FILE\" || true)"},
 		{"tap registration for audit", "brew tap unbound-force/staging \"$STAGED_TAP\""},
+		{"tap trust for cask operations", "brew trust unbound-force/staging"},
 		{"Homebrew static validation", "brew audit --cask --strict unbound-force/staging/unbound-force"},
 		{"staged Cask smoke test", "brew install --cask unbound-force/staging/unbound-force"},
 		{"tap cleanup after smoke test", "SMOKE_TEST_CASK_INSTALLED=false\n          brew untap unbound-force/staging"},
