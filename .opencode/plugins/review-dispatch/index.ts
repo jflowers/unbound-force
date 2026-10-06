@@ -67,6 +67,12 @@ const PRODUCER_VERSION = "1.0.0"
 const DISPATCH_ARTIFACT_DIRECTORY = ".uf/artifacts/dispatch"
 const MAX_CORRELATION_ATTEMPTS = 32
 
+const DEFAULT_TIER_CAPS = {
+  lightweight: 2,
+  standard: null,
+  heavy: null,
+} as const
+
 const DEFAULT_LIMITS = {
   max_personas: 16,
   max_runs_per_persona: 3,
@@ -74,6 +80,7 @@ const DEFAULT_LIMITS = {
   max_parallel_runs: 4,
   per_run_timeout_seconds: 600,
   max_reported_cost_usd: 25,
+  tier_caps: DEFAULT_TIER_CAPS,
 } as const
 
 const TIER_VALUES = ["lightweight", "standard", "heavy"] as const
@@ -100,7 +107,7 @@ const ModelSchema = z
   .min(3)
   .max(256)
   .regex(
-    /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/,
+    /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._@-]*(?:\/[A-Za-z0-9][A-Za-z0-9._@-]*)*$/,
   )
 const VariantSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
 const TierSchema = z.enum(TIER_VALUES)
@@ -178,6 +185,16 @@ const RiskAugmentationSchema = z
   })
   .strict()
 
+const TierCapSchema = z.number().int().positive().nullable().optional()
+const TierCapsSchema = z
+  .object({
+    lightweight: TierCapSchema,
+    standard: TierCapSchema,
+    heavy: TierCapSchema,
+  })
+  .strict()
+  .optional()
+
 const LimitsSchema = z
   .object({
     max_personas: z.number().int().min(1).max(32).optional(),
@@ -186,6 +203,7 @@ const LimitsSchema = z
     max_parallel_runs: z.number().int().min(1).max(8).optional(),
     per_run_timeout_seconds: z.number().int().min(30).max(1800).optional(),
     max_reported_cost_usd: z.number().min(1).max(100).optional(),
+    tier_caps: TierCapsSchema,
   })
   .strict()
 
@@ -457,7 +475,7 @@ const DispatchRunSchema = z
     source: z.enum(SOURCE_VALUES),
     requested_model: NullableModelSchema,
     provider: z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/).nullable(),
-    model_id: z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._\/-]*$/).nullable(),
+    model_id: z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._@\/-]*$/).nullable(),
     variant: NullableVariantSchema,
     resolved_parent_model: NullableModelSchema,
     resolved_parent_variant: NullableVariantSchema,
@@ -596,6 +614,12 @@ type MatrixMode = "code" | "spec" | "triage" | "feedback"
 type CommandMode = z.infer<typeof PlanInputSchema>["mode"]
 type IssueComment = z.infer<typeof IssueCommentSchema>
 
+interface TierCaps {
+  readonly lightweight: number | null
+  readonly standard: number | null
+  readonly heavy: number | null
+}
+
 interface Limits {
   readonly max_personas: number
   readonly max_runs_per_persona: number
@@ -603,6 +627,7 @@ interface Limits {
   readonly max_parallel_runs: number
   readonly per_run_timeout_seconds: number
   readonly max_reported_cost_usd: number
+  readonly tier_caps: TierCaps
 }
 
 /** Input accepted by the deterministic review-dispatch planner. */
@@ -759,6 +784,12 @@ interface LimitState {
   readonly configured_runs: number
 }
 
+/** Plan-level advisory emitted during dispatch planning (before runs execute). */
+interface PlanAdvisory {
+  readonly severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
+  readonly description: string
+}
+
 /** Byte-stable, versioned output returned by plan_review_dispatch. */
 export interface DispatchPlan {
   readonly plan_version: 1
@@ -773,6 +804,7 @@ export interface DispatchPlan {
   readonly entries: readonly PlanEntry[]
   readonly omissions: readonly PlanOmission[]
   readonly limit_state: LimitState | null
+  readonly advisories: readonly PlanAdvisory[]
   readonly errors: readonly string[]
 }
 
@@ -1061,7 +1093,12 @@ function matrixMode(mode: CommandMode): MatrixMode {
 }
 
 function limitsFor(matrix: ReviewMatrix): Limits {
-  return { ...DEFAULT_LIMITS, ...matrix.limits }
+  const { tier_caps: matrixTierCaps, ...matrixScalars } = matrix.limits ?? {}
+  const tier_caps: TierCaps = {
+    ...DEFAULT_TIER_CAPS,
+    ...matrixTierCaps,
+  }
+  return { ...DEFAULT_LIMITS, ...matrixScalars, tier_caps }
 }
 
 function profilePair(matrix: ReviewMatrix, profileName: string, variant?: string): {
@@ -1304,6 +1341,7 @@ function failedPlan(
     entries: [],
     omissions: [],
     limit_state: null,
+    advisories: [],
     errors: [...errors].sort(),
   }
 }
@@ -1483,6 +1521,82 @@ async function loadPolicies(dependencies: PlannerDependencies): Promise<{
   }
 }
 
+/** Priority bucket for tier-cap agent selection. Lower index = higher priority. */
+const TIER_CAP_PRIORITY: readonly string[] = ["always-required", "scope-match", "curator-relevant"]
+
+/**
+ * Applies a tier-based agent count cap to the set of included agents.
+ * Agents beyond the cap receive skip entries with reason_code "tier-cap".
+ * Priority order: always-required > scope-match (alphabetical) > curator-relevant.
+ * Returns the set of agents to keep and the skip entries for excluded agents.
+ */
+function applyTierCap(
+  includedAgents: ReadonlyMap<string, string>,
+  tier: Tier,
+  cap: number,
+): { readonly keep: ReadonlySet<string>; readonly skipped: readonly PlanEntry[] } {
+  // Floor enforcement: clamp cap to max(cap, always_required_count)
+  // so that always-required agents are never dropped by the tier cap.
+  const alwaysRequiredCount = [...includedAgents.values()].filter((code) => code === "always-required").length
+  const effectiveCap = Math.max(cap, alwaysRequiredCount)
+
+  if (includedAgents.size <= effectiveCap) {
+    return { keep: new Set(includedAgents.keys()), skipped: [] }
+  }
+
+  // Sort agents into priority buckets, alphabetical within each bucket
+  const buckets = new Map<string, string[]>()
+  for (const code of TIER_CAP_PRIORITY) {
+    buckets.set(code, [])
+  }
+  buckets.set("other", [])
+
+  for (const [agent, reasonCode] of includedAgents) {
+    const bucket = TIER_CAP_PRIORITY.includes(reasonCode) ? reasonCode : "other"
+    buckets.get(bucket)!.push(agent)
+  }
+
+  // Sort each bucket alphabetically for determinism
+  for (const agents of buckets.values()) {
+    agents.sort()
+  }
+
+  // Fill keep set up to the effective cap, in priority order
+  const keep = new Set<string>()
+  const ordered = [...TIER_CAP_PRIORITY, "other"]
+  for (const bucket of ordered) {
+    for (const agent of buckets.get(bucket) ?? []) {
+      if (keep.size < effectiveCap) {
+        keep.add(agent)
+      }
+    }
+  }
+
+  // Build skip entries for agents beyond the cap
+  const skipped: PlanEntry[] = []
+  for (const bucket of ordered) {
+    for (const agent of buckets.get(bucket) ?? []) {
+      if (!keep.has(agent)) {
+        skipped.push({
+          agent,
+          decision: "skip",
+          reason_code: "tier-cap",
+          reason: `tier cap of ${effectiveCap} exceeded for ${tier} tier`,
+          source: "host",
+          sequence: 1,
+          read_only: true,
+          tier: null,
+          model: null,
+          variant: null,
+          validation_errors: [],
+        })
+      }
+    }
+  }
+
+  return { keep, skipped }
+}
+
 function buildPlan(
   input: z.output<typeof PlanInputSchema>,
   profile: ChangeProfile,
@@ -1497,6 +1611,8 @@ function buildPlan(
   const errors: string[] = []
   const includedAgents = new Set<string>()
 
+  // Pass 1: Evaluate relevance for all agents.
+  const relevanceIncluded = new Map<string, string>() // agent → reason_code
   for (const agent of [...input.discovered_agents].sort()) {
     const reviewer = byAgent.get(agent)
     if (reviewer === undefined) {
@@ -1520,7 +1636,20 @@ function buildPlan(
       })
       continue
     }
+    relevanceIncluded.set(agent, selection.code)
+  }
 
+  // Apply tier cap between passes. Guard conditions: skip when full flag is set,
+  // when command mode is triage, feedback, or test, or when the tier's cap is null.
+  const tierCap = limits.tier_caps[profile.tier]
+  const capApplies = !input.full && (input.mode === "code" || input.mode === "specs") && tierCap !== null
+  const capResult = capApplies
+    ? applyTierCap(relevanceIncluded, profile.tier, tierCap)
+    : { keep: new Set(relevanceIncluded.keys()), skipped: [] as readonly PlanEntry[] }
+  entries.push(...capResult.skipped)
+
+  // Pass 2: Run resolution for agents that survived the tier cap.
+  for (const agent of [...capResult.keep].sort()) {
     includedAgents.add(agent)
     const initialRuns = input.full ? fullPanelRuns(matrix) : baseRuns(matrix, mode, agent)
     const augmented = addAugmentation(matrix, agent, profile, input.augment, input.full, initialRuns)
@@ -1575,6 +1704,22 @@ function buildPlan(
     errors.push("dispatch plan contains no runnable review assessment")
   }
 
+  // Emit advisory when heavy tier cap is configured and the diff is security-sensitive.
+  const advisories: PlanAdvisory[] = []
+  if (
+    profile.kind === "diff" &&
+    profile.security_sensitive &&
+    limits.tier_caps.heavy !== null
+  ) {
+    advisories.push({
+      severity: "HIGH",
+      description:
+        `tier_caps.heavy is set to ${limits.tier_caps.heavy} for a security-sensitive change. ` +
+        `This may reduce the number of review agents below the full security review panel. ` +
+        `Consider removing the heavy tier cap or setting it to null for security-sensitive changes.`,
+    })
+  }
+
   const orderedErrors = [...new Set(errors)].sort()
   const status = orderedErrors.length === 0 ? "ready" : "inconclusive"
   return {
@@ -1590,6 +1735,7 @@ function buildPlan(
     entries,
     omissions,
     limit_state: limitState,
+    advisories,
     errors: orderedErrors,
   }
 }
