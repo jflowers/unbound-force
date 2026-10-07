@@ -476,7 +476,7 @@ func TestSCFR003_FreshTargetInputsDoNotActivatePlugins(t *testing.T) {
 		}
 	}
 
-	for _, relPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset} {
+	for _, relPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset} {
 		if !isActivationGatedAsset(relPath) {
 			t.Errorf("plugin source %s is not activation-gated", relPath)
 		}
@@ -505,6 +505,7 @@ func TestIsActivationGatedAsset_OnlyReviewPluginSources(t *testing.T) {
 	}{
 		{path: invokeAgentPluginAsset, want: true},
 		{path: reviewDispatchPluginAsset, want: true},
+		{path: ufWorkflowPluginAsset, want: true},
 		{path: "opencode/package.json", want: false},
 		{path: "opencode/lib/review-dispatch-sibling-evidence.ts", want: false},
 	}
@@ -689,6 +690,10 @@ var expectedAssetPaths = []string{
 	// Review dispatch plugins and policy modules (5)
 	"opencode/plugins/invoke-agent/index.ts",
 	"opencode/plugins/review-dispatch/index.ts",
+	// UF workflow plugin and types library (2)
+	"opencode/plugins/uf-workflow/index.ts",
+	"opencode/lib/uf-workflow-types.ts",
+	// Shared lib modules (3)
 	"opencode/lib/review-dispatch-lesson-proposal.ts",
 	"opencode/lib/review-dispatch-sibling-evidence.ts",
 	"opencode/lib/reviewer-manifest.ts",
@@ -722,6 +727,8 @@ var task42CanonicalAssets = []struct {
 	{asset: "opencode/skills/dispatch-advisor/SKILL.md", source: ".opencode/skills/dispatch-advisor/SKILL.md"},
 	{asset: invokeAgentPluginAsset, source: ".opencode/plugins/invoke-agent/index.ts"},
 	{asset: reviewDispatchPluginAsset, source: ".opencode/plugins/review-dispatch/index.ts"},
+	{asset: "opencode/plugins/uf-workflow/index.ts", source: ".opencode/plugins/uf-workflow/index.ts"},
+	{asset: "opencode/lib/uf-workflow-types.ts", source: ".opencode/lib/uf-workflow-types.ts"},
 	{asset: "opencode/lib/review-dispatch-lesson-proposal.ts", source: ".opencode/lib/review-dispatch-lesson-proposal.ts"},
 	{asset: "opencode/lib/review-dispatch-sibling-evidence.ts", source: ".opencode/lib/review-dispatch-sibling-evidence.ts"},
 	{asset: "opencode/lib/reviewer-manifest.ts", source: ".opencode/lib/reviewer-manifest.ts"},
@@ -936,7 +943,7 @@ func TestRun_CreatesFiles(t *testing.T) {
 			t.Errorf("expected deployed asset %q to be a file", outputPath)
 		}
 	}
-	for _, asset := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset} {
+	for _, asset := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset} {
 		outputPath := mapAssetPath(asset)
 		if _, err := os.Stat(filepath.Join(dir, outputPath)); !os.IsNotExist(err) {
 			t.Errorf("activation-gated asset %q must not be initially deployed: %v", outputPath, err)
@@ -1475,10 +1482,12 @@ func TestIsToolOwned(t *testing.T) {
 		// Tool-owned: activation-gated plugin sources
 		{invokeAgentPluginAsset, true},
 		{reviewDispatchPluginAsset, true},
+		{ufWorkflowPluginAsset, true},
 		// Tool-owned: review-dispatch acquisition module
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
+		{"opencode/lib/uf-workflow-types.ts", true},
 		// Tool-owned: canonical review policy
 		{"uf/reviewer-capabilities.yaml", true},
 		// User-owned: model policy is a supported project extension point
@@ -2137,12 +2146,14 @@ func TestIsDivisorAsset(t *testing.T) {
 		// Divisor runtime and package inputs
 		{invokeAgentPluginAsset, true},
 		{reviewDispatchPluginAsset, true},
+		{ufWorkflowPluginAsset, true},
 		{"opencode/package.json", true},
 		{"opencode/package-lock.json", true},
 		// Divisor acquisition implementation
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
+		{"opencode/lib/uf-workflow-types.ts", true},
 		// Divisor review eligibility policy
 		{"uf/reviewer-capabilities.yaml", true},
 		{"uf/review-matrix.yaml", true},
@@ -4072,7 +4083,7 @@ func TestConfigureOpencodeJSON_RegistersReviewPlugins(t *testing.T) {
 	dir := t.TempDir()
 
 	// Create the managed review plugin sources.
-	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset} {
+	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset} {
 		targetPath := filepath.Join(dir, mapAssetPath(assetPath))
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 			t.Fatalf("mkdir plugin dir: %v", err)
@@ -4097,6 +4108,7 @@ func TestConfigureOpencodeJSON_RegistersReviewPlugins(t *testing.T) {
 	wantPlugins := []string{
 		"./" + mapAssetPath(invokeAgentPluginAsset),
 		"./" + mapAssetPath(reviewDispatchPluginAsset),
+		"./" + mapAssetPath(ufWorkflowPluginAsset),
 	}
 	if len(gotPlugins) != len(wantPlugins) {
 		t.Fatalf("plugin = %v, want %v", gotPlugins, wantPlugins)

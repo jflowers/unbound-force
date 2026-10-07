@@ -40,14 +40,14 @@ func TestRunInit_FreshDir(t *testing.T) {
 	// (devcontainer excluded — OS-specific, generated per-user by
 	// uf sandbox init.)
 	var fileCountOK bool
-	for _, count := range []string{"61", "62", "63", "64"} {
+	for _, count := range []string{"63", "64", "65", "66"} {
 		if strings.Contains(output, count+" files processed") {
 			fileCountOK = true
 			break
 		}
 	}
 	if !fileCountOK {
-		t.Errorf("expected N files processed [61-64] in output, got:\n%s", output)
+		t.Errorf("expected N files processed [63-66] in output, got:\n%s", output)
 	}
 
 	// Verify a user-owned file was created
