@@ -248,17 +248,20 @@ jobs:
           patch_checksums() {
             local input="$1" output="${1}.patched"
             awk -v amd64="$AMD64_SHA" -v arm64="$ARM64_SHA" '
-              /darwin_amd64/ { found_amd64=1 }
-              /darwin_arm64/ { found_arm64=1 }
-              /sha256/ && found_amd64 {
-                sub(/sha256 "[^"]*"/, "sha256 \"" amd64 "\"")
-                found_amd64=0
+              { lines[NR]=$0 }
+              END {
+                for (i=1; i<=NR; i++) {
+                  if (lines[i] ~ /darwin_amd64/) {
+                    checksum_line=(lines[i+1] ~ /sha256/) ? i+1 : i-1
+                    sub(/sha256 "[^"]*"/, "sha256 \"" amd64 "\"", lines[checksum_line])
+                  }
+                  if (lines[i] ~ /darwin_arm64/) {
+                    checksum_line=(lines[i+1] ~ /sha256/) ? i+1 : i-1
+                    sub(/sha256 "[^"]*"/, "sha256 \"" arm64 "\"", lines[checksum_line])
+                  }
+                }
+                for (i=1; i<=NR; i++) print lines[i]
               }
-              /sha256/ && found_arm64 {
-                sub(/sha256 "[^"]*"/, "sha256 \"" arm64 "\"")
-                found_arm64=0
-              }
-              { print }
             ' "$input" > "$output"
             mv "$output" "$input"
           }
