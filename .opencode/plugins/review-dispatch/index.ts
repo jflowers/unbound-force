@@ -3,9 +3,22 @@ import { createHash, randomUUID } from "node:crypto"
 import { chmod, link, mkdir, open, readFile, unlink } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
-import { tool, type PluginModule } from "@opencode-ai/plugin"
+import { tool, type PluginInput, type PluginModule, type ToolContext } from "@opencode-ai/plugin"
 import { z } from "zod"
 
+import {
+  DEFAULT_TIMEOUT_MILLISECONDS,
+  directModelIdentity,
+  errorText,
+  executeAgentSession,
+  failedResult,
+  sanitizeInvocationError,
+  validateTimeout,
+  type ExecutorDependencies,
+  type InvocationProvenance,
+  type InvokeAgentResult,
+  type ModelIdentity,
+} from "../../lib/agent-executor.js"
 import { createPrepareLessonLearningTool } from "../../lib/review-dispatch-lesson-proposal.js"
 export {
   createPrepareLessonLearningTool,
@@ -2442,11 +2455,253 @@ export function createFinalizeReviewDispatchTool(
   })
 }
 
+// ── dispatch_agent_run ────────────────────────────────────────
+
+const MAX_PROMPT_BYTES = 128 * 1024
+const PromptFileSchema = z.string().max(1024)
+const PromptSchema = z
+  .string()
+  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
+const TimeoutSchema = z.number().int().positive().max(1_800_000)
+
+const DispatchAgentRunInputSchema = z
+  .object({
+    agent: AgentNameSchema,
+    prompt: PromptSchema.optional(),
+    promptFile: PromptFileSchema.optional(),
+    tier: TierSchema.optional(),
+    model: ModelSchema.optional(),
+    variant: VariantSchema.optional(),
+    read_only: z.boolean().optional(),
+    timeout: TimeoutSchema.optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.prompt !== undefined && input.promptFile !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["promptFile"],
+        message: "prompt and promptFile are mutually exclusive",
+      })
+    }
+    if (input.prompt === undefined && input.promptFile === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["prompt"],
+        message: "one of prompt or promptFile is required",
+      })
+    }
+    if (input.tier !== undefined && input.model !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["model"],
+        message: "tier and model are mutually exclusive; use tier for matrix-resolved models or model for direct bypass",
+      })
+    }
+  })
+
+/** Dependencies injected into the dispatch_agent_run tool handler. */
+export interface DispatchAgentRunDependencies {
+  readonly plannerDependencies: PlannerDependencies
+  readonly client: PluginInput["client"]
+  readonly sessionID: string
+  readonly directory: string
+}
+
+/**
+ * Creates the dispatch_agent_run tool for tier-based or direct-model agent invocation.
+ *
+ * Resolves models via the review matrix (tier-based) or accepts direct provider/model-id
+ * bypass. Validates agents against the reviewer manifest. Delegates session lifecycle
+ * to the shared `executeAgentSession()` executor.
+ *
+ * @param deps Injected planner dependencies, client, session context, and project root.
+ * @returns The OpenCode tool definition for dispatch_agent_run.
+ */
+export function createDispatchAgentRunTool(deps: DispatchAgentRunDependencies): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Execute one already-planned Divisor review-agent run in a parented child session with explicit model provenance.",
+    args: {
+      agent: AgentNameSchema.describe("Manifest-declared divisor-* review agent."),
+      prompt: PromptSchema.optional().describe("Bounded full prompt for this single planned run."),
+      promptFile: PromptFileSchema.optional().describe(
+        "Absolute path to a file containing the prompt text. Mutually exclusive with prompt. Max 1024 chars.",
+      ),
+      tier: TierSchema.optional().describe(
+        'Review matrix profile tier. Mutually exclusive with model. Defaults to "standard" when neither is provided.',
+      ),
+      model: ModelSchema.optional().describe(
+        "Optional direct provider/model-id bypassing tier resolution. Mutually exclusive with tier.",
+      ),
+      variant: VariantSchema.optional().describe("Optional direct-model runtime variant."),
+      read_only: z.boolean().optional().describe("Invocation provenance only; does not alter permissions."),
+      timeout: TimeoutSchema.optional().describe("Optional run timeout in milliseconds (bounded to 1_800_000)."),
+    },
+    async execute(args, context): Promise<{ readonly output: string; readonly metadata: Record<string, unknown> }> {
+      const result = await dispatchAgentRun(args, context, deps)
+      return {
+        output:
+          result.error === null
+            ? result.text || "(no text produced)"
+            : `dispatch_agent_run error: ${result.error.message}`,
+        metadata: { ...result },
+      }
+    },
+  })
+}
+
+/** Build a provenance placeholder for early-exit error paths. */
+function makeProvenance(
+  agent: string,
+  requestedModel: string | null,
+  requestedVariant: string | null,
+  readOnly: boolean,
+): InvocationProvenance {
+  return {
+    agent,
+    requested_model: requestedModel,
+    requested_variant: requestedVariant,
+    resolved_parent_model: null,
+    resolved_parent_variant: null,
+    reported_child_model: null,
+    model_mismatch: false,
+    read_only: readOnly,
+  }
+}
+
+/**
+ * Execute a single Divisor review-agent run in a parented child session.
+ *
+ * Unlike invoke_agent (which resolves the host model from the parent session), dispatch_agent_run
+ * resolves models from the review matrix profiles. This gives the dispatch planner
+ * deterministic control over which model each agent receives.
+ *
+ * @param rawInput Untrusted invocation arguments from the OpenCode tool boundary.
+ * @param context Calling tool context used for cancellation signal.
+ * @param deps Injected planner dependencies, client, session context, and project root.
+ * @returns Observable result with status, text, usage, error, and provenance.
+ */
+export async function dispatchAgentRun(
+  rawInput: unknown,
+  context: ToolContext,
+  deps: DispatchAgentRunDependencies,
+): Promise<InvokeAgentResult> {
+  const parsed = DispatchAgentRunInputSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    const placeholder = makeProvenance("invalid", null, null, true)
+    return failedResult(placeholder, "invalid_input", parsed.error.message, false)
+  }
+
+  const input = parsed.data
+  const readOnly = input.read_only ?? true
+  const timeoutMilliseconds = input.timeout ?? DEFAULT_TIMEOUT_MILLISECONDS
+
+  /** Build a provenance placeholder using the parsed input's common fields. */
+  const earlyProvenance = (modelOverride?: string) =>
+    makeProvenance(
+      input.agent,
+      modelOverride ?? input.model ?? input.tier ?? "standard",
+      input.variant ?? null,
+      readOnly,
+    )
+
+  try {
+    validateTimeout(timeoutMilliseconds)
+  } catch (error: unknown) {
+    return failedResult(earlyProvenance(), "invalid_invocation", errorText(error), false)
+  }
+
+  // Resolve prompt text: inline prompt or file-backed prompt.
+  let promptText: string
+  if (input.promptFile !== undefined) {
+    try {
+      const fileContent = await deps.plannerDependencies.readText(input.promptFile)
+      if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_BYTES) {
+        return failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 128 KiB UTF-8", false)
+      }
+      promptText = fileContent
+    } catch (error: unknown) {
+      return failedResult(earlyProvenance(), "prompt_file_read_failed", sanitizeInvocationError(errorText(error)), false)
+    }
+  } else {
+    // superRefine guarantees exactly one of prompt/promptFile is present.
+    promptText = input.prompt!
+  }
+
+  // Load policies once — provides both manifest (for agent validation) and matrix (for tier resolution).
+  let policies: { readonly matrix: ReviewMatrix; readonly manifest: ReviewerManifest }
+  try {
+    policies = await loadPolicies(deps.plannerDependencies)
+  } catch (error: unknown) {
+    return failedResult(earlyProvenance(), "policy_load_failed", sanitizeInvocationError(errorText(error)), true)
+  }
+
+  // Validate the agent exists in the reviewer manifest.
+  const reviewer = policies.manifest.reviewers.find((candidate: Reviewer) => candidate.agent === input.agent)
+  if (reviewer === undefined) {
+    return failedResult(
+      earlyProvenance(),
+      "unknown_agent",
+      `agent ${input.agent} is absent from the reviewer manifest`,
+      false,
+    )
+  }
+
+  // Resolve model: tier-based via review matrix or direct bypass.
+  let selectedModel: ModelIdentity
+  let selectedVariant: string | undefined
+  let requestedModelLabel: string
+
+  if (input.model !== undefined) {
+    // Direct model bypass — skip matrix lookup.
+    selectedModel = directModelIdentity(input.model)
+    selectedVariant = input.variant
+    requestedModelLabel = input.model
+  } else {
+    // Tier-based resolution via review matrix.
+    const tier = input.tier ?? "standard"
+    const resolved = profilePair(policies.matrix, tier, input.variant)
+    if (resolved.model === null) {
+      return failedResult(
+        earlyProvenance(tier),
+        "tier_model_unavailable",
+        `profile "${tier}" has no model configured in the review matrix`,
+        false,
+      )
+    }
+
+    selectedModel = directModelIdentity(resolved.model)
+    selectedVariant = resolved.variant ?? undefined
+    requestedModelLabel = resolved.model
+  }
+
+  const provenance = makeProvenance(
+    input.agent,
+    requestedModelLabel,
+    selectedVariant ?? null,
+    readOnly,
+  )
+
+  // Delegate session lifecycle to the shared executor.
+  const executorDeps: ExecutorDependencies = {
+    client: deps.client,
+    sessionID: deps.sessionID,
+    directory: deps.directory,
+    parentAbort: context.abort,
+    timeoutMilliseconds,
+  }
+
+  return executeAgentSession(executorDeps, input.agent, promptText, selectedModel, selectedVariant, readOnly, provenance)
+}
+
 /** Auto-discovered OpenCode policy plugin for deterministic review planning and finalization. */
 export const ReviewDispatchPlugin = {
   id: "review-dispatch",
   server: async (input) => {
     const projectRoot = input.worktree || input.directory
+    const client = input.client
+    const sessionID = input.info?.session?.id ?? ""
     const dependencies: PlannerDependencies = {
       readText: async (relativePath: string): Promise<string> =>
         readFile(resolve(projectRoot, relativePath), "utf8"),
@@ -2460,6 +2715,12 @@ export const ReviewDispatchPlugin = {
           createSiblingAcquisitionDependencies(projectRoot, createBunYamlParser()),
         ),
         prepare_lesson_learning: createPrepareLessonLearningTool(),
+        dispatch_agent_run: createDispatchAgentRunTool({
+          plannerDependencies: dependencies,
+          client,
+          sessionID,
+          directory: projectRoot,
+        }),
       },
     }
   },

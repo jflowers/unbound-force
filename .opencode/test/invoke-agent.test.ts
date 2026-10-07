@@ -488,7 +488,15 @@ describe("invoke_agent metadata and tool surface", () => {
     const definition = createInvokeAgentTool(dependencies(fake.client))
 
     expect(definition.description).toContain("one already-planned")
-    expect(Object.keys(definition.args).sort()).toEqual(["agent", "model", "prompt", "read_only", "timeout", "variant"])
+    expect(Object.keys(definition.args).sort()).toEqual([
+      "agent",
+      "model",
+      "prompt",
+      "promptFile",
+      "read_only",
+      "timeout",
+      "variant",
+    ])
   })
 
   it("redacts every required sensitive error class", () => {

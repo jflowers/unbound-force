@@ -687,13 +687,14 @@ var expectedAssetPaths = []string{
 	"opencode/skills/pre-flight/SKILL.md",
 	"opencode/skills/review-context/SKILL.md",
 	"opencode/skills/speckit-workflow/SKILL.md",
-	// Review dispatch plugins and policy modules (5)
+	// Review dispatch plugins and policy modules (6)
 	"opencode/plugins/invoke-agent/index.ts",
 	"opencode/plugins/review-dispatch/index.ts",
 	// UF workflow plugin and types library (2)
 	"opencode/plugins/uf-workflow/index.ts",
 	"opencode/lib/uf-workflow-types.ts",
-	// Shared lib modules (3)
+	// Shared lib modules (4)
+	"opencode/lib/agent-executor.ts",
 	"opencode/lib/review-dispatch-lesson-proposal.ts",
 	"opencode/lib/review-dispatch-sibling-evidence.ts",
 	"opencode/lib/reviewer-manifest.ts",
@@ -729,6 +730,7 @@ var task42CanonicalAssets = []struct {
 	{asset: reviewDispatchPluginAsset, source: ".opencode/plugins/review-dispatch/index.ts"},
 	{asset: "opencode/plugins/uf-workflow/index.ts", source: ".opencode/plugins/uf-workflow/index.ts"},
 	{asset: "opencode/lib/uf-workflow-types.ts", source: ".opencode/lib/uf-workflow-types.ts"},
+	{asset: "opencode/lib/agent-executor.ts", source: ".opencode/lib/agent-executor.ts"},
 	{asset: "opencode/lib/review-dispatch-lesson-proposal.ts", source: ".opencode/lib/review-dispatch-lesson-proposal.ts"},
 	{asset: "opencode/lib/review-dispatch-sibling-evidence.ts", source: ".opencode/lib/review-dispatch-sibling-evidence.ts"},
 	{asset: "opencode/lib/reviewer-manifest.ts", source: ".opencode/lib/reviewer-manifest.ts"},
@@ -1483,6 +1485,8 @@ func TestIsToolOwned(t *testing.T) {
 		{invokeAgentPluginAsset, true},
 		{reviewDispatchPluginAsset, true},
 		{ufWorkflowPluginAsset, true},
+		// Tool-owned: shared agent executor library
+		{"opencode/lib/agent-executor.ts", true},
 		// Tool-owned: review-dispatch acquisition module
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
@@ -2149,6 +2153,8 @@ func TestIsDivisorAsset(t *testing.T) {
 		{ufWorkflowPluginAsset, true},
 		{"opencode/package.json", true},
 		{"opencode/package-lock.json", true},
+		// Shared agent executor library
+		{"opencode/lib/agent-executor.ts", true},
 		// Divisor acquisition implementation
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
