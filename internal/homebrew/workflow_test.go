@@ -32,7 +32,9 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 		{"registered Cask verification", "cmp \"$CASK_FILE\" \"$REGISTERED_CASK\""},
 		{"tap trust for cask operations", "brew trust unbound-force/staging"},
 		{"Homebrew static validation", "brew audit --cask --strict unbound-force/staging/unbound-force"},
+		{"dependency state capture", "if brew list --cask dewey >/dev/null 2>&1; then"},
 		{"staged Cask smoke test", "brew install --cask unbound-force/staging/unbound-force"},
+		{"smoke test dependency cleanup", "remove_smoke_test_casks\n          SMOKE_TEST_CASK_INSTALLED=false"},
 		{"tap cleanup after smoke test", "SMOKE_TEST_CASK_INSTALLED=false\n          brew untap unbound-force/staging"},
 		{"canonical tap copy", "cp \"$CASK_FILE\" tap/Casks/unbound-force.rb"},
 		{"tap publication", "git push"},
@@ -69,6 +71,16 @@ func TestReleaseWorkflow_HomebrewPublicationIsOrderedAndFailClosed(t *testing.T)
 	} {
 		assertValidationFailureExits(t, workflow, validation)
 	}
+	for _, cleanup := range []string{
+		"if [ \"$DEWEY_CASK_WAS_INSTALLED\" = false ] && brew list --cask dewey >/dev/null 2>&1; then",
+		"brew uninstall --cask --force dewey || cleanup_status=$?",
+		"if [ \"$OLLAMA_APP_CASK_WAS_INSTALLED\" = false ] && brew list --cask ollama-app >/dev/null 2>&1; then",
+		"brew uninstall --cask --force ollama-app || cleanup_status=$?",
+	} {
+		if !strings.Contains(workflow, cleanup) {
+			t.Errorf("Homebrew publication cleanup missing %q", cleanup)
+		}
+	}
 }
 
 func TestReleaseWorkflow_ValidationMatchesTransformerOutput(t *testing.T) {
@@ -88,6 +100,85 @@ func TestReleaseWorkflow_ValidationMatchesTransformerOutput(t *testing.T) {
 		if !strings.Contains(workflow, check) {
 			t.Errorf("release workflow validation missing transformer output check %q", check)
 		}
+	}
+}
+
+func TestReleaseWorkflow_SmokeCleanupRemovesOnlyIntroducedDependencies(t *testing.T) {
+	t.Parallel()
+
+	workflow := releaseWorkflowRunBlock(t)
+	functionStart := strings.Index(workflow, "          remove_smoke_test_casks() {")
+	if functionStart == -1 {
+		t.Fatal("release workflow is missing remove_smoke_test_casks")
+	}
+	functionEnd := strings.Index(workflow[functionStart:], "\n          }\n")
+	if functionEnd == -1 {
+		t.Fatal("release workflow remove_smoke_test_casks function is incomplete")
+	}
+	functionEnd += functionStart + len("\n          }")
+	cleanupFunction := workflow[functionStart:functionEnd]
+
+	tests := []struct {
+		name               string
+		deweyWasInstalled  bool
+		ollamaWasInstalled bool
+		wantRemoved        []string
+		wantPreserved      []string
+	}{
+		{
+			name:          "introduced dependencies",
+			wantRemoved:   []string{"unbound-force", "dewey", "ollama-app"},
+			wantPreserved: nil,
+		},
+		{
+			name:               "pre-existing dependencies",
+			deweyWasInstalled:  true,
+			ollamaWasInstalled: true,
+			wantRemoved:        []string{"unbound-force"},
+			wantPreserved:      []string{"dewey", "ollama-app"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			tempDir := t.TempDir()
+			logPath := filepath.Join(tempDir, "brew.log")
+			binDir := filepath.Join(tempDir, "bin")
+			if err := os.Mkdir(binDir, 0o755); err != nil {
+				t.Fatalf("create fake Homebrew prefix: %v", err)
+			}
+
+			script := "BREW_PREFIX=\"$1\"\nLOG=\"$2\"\n" +
+				"DEWEY_CASK_WAS_INSTALLED=" + boolString(test.deweyWasInstalled) + "\n" +
+				"OLLAMA_APP_CASK_WAS_INSTALLED=" + boolString(test.ollamaWasInstalled) + "\n" +
+				"brew() {\n" +
+				"  printf '%s\\n' \"$*\" >> \"$LOG\"\n" +
+				"  return 0\n" +
+				"}\n" + cleanupFunction + "\nremove_smoke_test_casks\n"
+			command := exec.Command("bash", "-c", script, "smoke-cleanup", tempDir, logPath)
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("run smoke cleanup: %v\n%s", err, output)
+			}
+
+			logContent, err := os.ReadFile(logPath)
+			if err != nil {
+				t.Fatalf("read fake brew log: %v", err)
+			}
+			logOutput := string(logContent)
+			for _, cask := range test.wantRemoved {
+				command := "uninstall --cask --force " + cask
+				if !strings.Contains(logOutput, command) {
+					t.Errorf("cleanup did not run %q\n%s", command, logOutput)
+				}
+			}
+			for _, cask := range test.wantPreserved {
+				command := "uninstall --cask --force " + cask
+				if strings.Contains(logOutput, command) {
+					t.Errorf("cleanup unexpectedly ran %q\n%s", command, logOutput)
+				}
+			}
+		})
 	}
 }
 
@@ -201,6 +292,13 @@ func releaseWorkflowRunBlock(t *testing.T) string {
 		runBlock = runBlock[:end]
 	}
 	return runBlock
+}
+
+func boolString(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
 }
 
 func assertFailFastCommand(t *testing.T, workflow, command string) {
