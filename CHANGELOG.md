@@ -13,6 +13,12 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/move-schemas-to-uf/, Fixes: #649)
 
 ### Added
+- uf-workflow-scaffold: New `uf-workflow` plugin scaffold with
+  `ToolSuccess<T>`, `ToolFailure`, `ToolResult<T>` result envelope
+  types and `success()`/`failure()` helper functions. Includes plugin
+  entry point, canonical scaffold copies, opencode.json registration,
+  activation gating, and vitest test harness. (Spec:
+  openspec/changes/uf-workflow-scaffold/, Closes: #682)
 - tier-gated-agent-count: Review dispatch now enforces tier-based
   agent count caps. Lightweight diffs cap at 2 agents by default;
   standard and heavy remain uncapped. Always-required agents

@@ -207,9 +207,11 @@ func stageReviewPluginSources(opts *Options, stageRoot string) error {
 	assetPaths := []string{
 		invokeAgentPluginAsset,
 		reviewDispatchPluginAsset,
+		ufWorkflowPluginAsset,
 		"opencode/lib/review-dispatch-lesson-proposal.ts",
 		"opencode/lib/review-dispatch-sibling-evidence.ts",
 		"opencode/lib/reviewer-manifest.ts",
+		"opencode/lib/uf-workflow-types.ts",
 	}
 	for _, assetPath := range assetPaths {
 		content, err := assetContent(assetPath)
@@ -292,6 +294,7 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 	}{
 		{asset: invokeAgentPluginAsset, name: "invoke-agent"},
 		{asset: reviewDispatchPluginAsset, name: "review-dispatch"},
+		{asset: ufWorkflowPluginAsset, name: "uf-workflow"},
 	}
 	activated := make([]string, 0, len(assetsToActivate))
 	for _, plugin := range assetsToActivate {

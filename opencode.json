@@ -2,7 +2,8 @@
   "$schema": "https://opencode.ai/config.json",
   "plugin": [
     "./.opencode/plugins/invoke-agent/index.ts",
-    "./.opencode/plugins/review-dispatch/index.ts"
+    "./.opencode/plugins/review-dispatch/index.ts",
+    "./.opencode/plugins/uf-workflow/index.ts"
   ],
   "mcp": {
     "dewey": {

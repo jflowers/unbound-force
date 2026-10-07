@@ -34,6 +34,7 @@ var assets embed.FS
 const (
 	invokeAgentPluginAsset    = "opencode/plugins/invoke-agent/index.ts"
 	reviewDispatchPluginAsset = "opencode/plugins/review-dispatch/index.ts"
+	ufWorkflowPluginAsset     = "opencode/plugins/uf-workflow/index.ts"
 
 	// resultStatusPartial marks a scaffold run that completed file and
 	// sub-tool work but recorded non-fatal sub-tool failures (for example,
@@ -47,7 +48,7 @@ const (
 // activation workflow may materialize these assets only after dependency
 // installation and both provider-free probes succeed.
 func isActivationGatedAsset(relPath string) bool {
-	return relPath == invokeAgentPluginAsset || relPath == reviewDispatchPluginAsset
+	return relPath == invokeAgentPluginAsset || relPath == reviewDispatchPluginAsset || relPath == ufWorkflowPluginAsset
 }
 
 // Options configures a scaffold run.
@@ -655,7 +656,8 @@ func isToolOwned(relPath string) bool {
 	}
 	if relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
-		relPath == "opencode/lib/reviewer-manifest.ts" {
+		relPath == "opencode/lib/reviewer-manifest.ts" ||
+		relPath == "opencode/lib/uf-workflow-types.ts" {
 		return true
 	}
 	if relPath == "uf/reviewer-capabilities.yaml" {
@@ -720,7 +722,8 @@ func isDivisorAsset(relPath string) bool {
 	}
 	if relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
-		relPath == "opencode/lib/reviewer-manifest.ts" {
+		relPath == "opencode/lib/reviewer-manifest.ts" ||
+		relPath == "opencode/lib/uf-workflow-types.ts" {
 		return true
 	}
 	if relPath == "uf/review-matrix.yaml" || relPath == "uf/reviewer-capabilities.yaml" ||
@@ -918,6 +921,7 @@ func configurePluginEntries(ocMap map[string]json.RawMessage, hasPlugins bool) b
 		for _, entry := range []string{
 			"./" + mapAssetPath(invokeAgentPluginAsset),
 			"./" + mapAssetPath(reviewDispatchPluginAsset),
+			"./" + mapAssetPath(ufWorkflowPluginAsset),
 		} {
 			if seen[entry] {
 				continue
@@ -1004,7 +1008,8 @@ func configureOpencodeJSON(opts *Options) []subToolResult {
 	// OpenCode can load them explicitly (see configureOpencodeJSON plugin
 	// registration below).
 	hasPlugins := regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(invokeAgentPluginAsset))) &&
-		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(reviewDispatchPluginAsset)))
+		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(reviewDispatchPluginAsset))) &&
+		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(ufWorkflowPluginAsset)))
 
 	// Nothing to configure — skip.
 	if !hasDewey && !hasReplicator && !hasPlugins {

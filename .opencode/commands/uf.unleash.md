@@ -48,17 +48,17 @@ off on re-run.
 **Execution Checklist** -- update in-place with Edit tool:
 
 ```
-- [ ] Step 0: Startup Cleanup
-- [ ] Step 1: Branch Safety Gate
-- [ ] Step 2: Resumability Detection
-- [ ] Step 3: Clarify (Step 1)
-- [ ] Step 4: Plan (Step 2)
-- [ ] Step 5: Tasks (Step 3)
-- [ ] Step 6: Spec Review (Step 4) -- iteration: 0/3
-- [ ] Step 7: Implement (Step 5) -- phase: 0/N, batch: 0/N, workers: 0/N
-- [ ] Step 8: Code Review (Step 6) -- iteration: 0/3
-- [ ] Step 9: Retrospective (Step 7)
-- [ ] Step 10: Demo (Step 8)
+- [x] Step 0: Startup Cleanup
+- [x] Step 1: Branch Safety Gate
+- [x] Step 2: Resumability Detection
+- [x] Step 3: Clarify (Step 1)
+- [x] Step 4: Plan (Step 2)
+- [x] Step 5: Tasks (Step 3)
+- [x] Step 6: Spec Review (Step 4) -- iteration: 3/3 PASSED
+- [x] Step 7: Implement (Step 5) -- all 5 phases complete, make check PASS
+- [x] Step 8: Code Review (Step 6) -- iteration: 2/3 PASSED (APPROVE)
+- [x] Step 9: Retrospective (Step 7) -- 3 learnings stored
+- [x] Step 10: Demo (Step 8)
 ```
 
 ### TodoWrite Progress Tracking
