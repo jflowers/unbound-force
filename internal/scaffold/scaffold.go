@@ -654,7 +654,8 @@ func isToolOwned(relPath string) bool {
 	if isActivationGatedAsset(relPath) {
 		return true
 	}
-	if relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
+	if relPath == "opencode/lib/agent-executor.ts" ||
+		relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
 		relPath == "opencode/lib/reviewer-manifest.ts" ||
 		relPath == "opencode/lib/uf-workflow-types.ts" {
@@ -720,7 +721,8 @@ func isDivisorAsset(relPath string) bool {
 	if relPath == "opencode/package.json" || relPath == "opencode/package-lock.json" {
 		return true
 	}
-	if relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
+	if relPath == "opencode/lib/agent-executor.ts" ||
+		relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
 		relPath == "opencode/lib/reviewer-manifest.ts" ||
 		relPath == "opencode/lib/uf-workflow-types.ts" {
