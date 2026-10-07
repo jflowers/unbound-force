@@ -327,10 +327,20 @@ jobs:
           cp -R tap/. "$STAGED_TAP"
           cp "$CASK_FILE" "$STAGED_TAP/Casks/unbound-force.rb"
 
+          # brew tap clones the local repository, so commit the candidate Cask
+          # before registering it or Homebrew will read the previous revision.
+          git -C "$STAGED_TAP" add Casks/unbound-force.rb
+          git -C "$STAGED_TAP" \
+            -c user.name="github-actions[bot]" \
+            -c user.email="github-actions[bot]@users.noreply.github.com" \
+            commit -m "test: stage release candidate Cask"
+
           # Homebrew requires cask operations to use a registered tap (not
           # filesystem paths).  Register the staged copy once, run audit and
           # smoke test through the tap, then untap.
           brew tap unbound-force/staging "$STAGED_TAP"
+          REGISTERED_CASK="$(brew --repository unbound-force/staging)/Casks/unbound-force.rb"
+          cmp "$CASK_FILE" "$REGISTERED_CASK"
           brew trust unbound-force/staging
           brew audit --cask --strict unbound-force/staging/unbound-force
 
