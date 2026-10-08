@@ -549,13 +549,28 @@ interface SubmittedData {
  */
 const submissionStore = new Map<string, SubmittedData>()
 
+/**
+ * Module-level map from parent session ID to correlation ID.
+ * dispatch_agent_run auto-generates a correlation_id on the first call from a
+ * given parent session and reuses it for all subsequent calls in that session.
+ * consolidate_dispatch and dispatch_status look up the correlation_id by
+ * context.sessionID so the agent never has to track or pass correlation IDs.
+ */
+const sessionCorrelationMap = new Map<string, string>()
+
 /** Exported for testing only. */
 export function _getSubmissionStore(): Map<string, SubmittedData> {
   return submissionStore
 }
 
+/** Exported for testing only. */
+export function _getSessionCorrelationMap(): Map<string, string> {
+  return sessionCorrelationMap
+}
+
 /** Persisted run data written to dispatch session directory. */
 interface PersistedRunData {
+  readonly correlation_id: string
   readonly run_id: string
   readonly agent: string
   readonly source: string
@@ -578,6 +593,12 @@ interface PersistedRunData {
   readonly proposals: LessonProposal[]
   readonly text: string
   readonly read_only: boolean
+}
+
+/** Structured result returned by dispatch_agent_run for agent consumption. */
+interface DispatchAgentRunResult extends InvokeAgentResult {
+  readonly correlation_id: string
+  readonly run_id: string
 }
 
 /** Compute filesystem path for a dispatch session directory. */
@@ -2532,7 +2553,6 @@ const DispatchAgentRunInputSchema = z
     variant: VariantSchema.optional(),
     read_only: z.boolean().optional(),
     timeout: TimeoutSchema.optional(),
-    correlation_id: UUIDSchema.optional(),
     source: z.enum(SOURCE_VALUES).optional(),
     sequence: z.number().int().positive().optional(),
   })
@@ -2597,19 +2617,17 @@ export function createDispatchAgentRunTool(deps: DispatchAgentRunDependencies): 
       variant: VariantSchema.optional().describe("Optional direct-model runtime variant."),
       read_only: z.boolean().optional().describe("Invocation provenance only; does not alter permissions."),
       timeout: TimeoutSchema.optional().describe("Optional run timeout in milliseconds (bounded to 1_800_000)."),
-      correlation_id: UUIDSchema.optional().describe(
-        "Dispatch session correlation ID. When set, run metadata and child output are persisted to the dispatch session directory for later consolidation.",
-      ),
       source: z.enum(SOURCE_VALUES).optional().describe('Run source from the dispatch plan (explicit, advisor, host). Defaults to "explicit".'),
       sequence: z.number().int().positive().optional().describe("Run sequence number from the dispatch plan. Defaults to 1."),
     },
     async execute(args, context): Promise<{ readonly output: string; readonly metadata: Record<string, unknown> }> {
       const result = await dispatchAgentRun(args, context, deps)
+      const summary =
+        result.error === null
+          ? `ok (correlation_id=${result.correlation_id}, run_id=${result.run_id})`
+          : `dispatch_agent_run error: ${result.error.message}`
       return {
-        output:
-          result.error === null
-            ? result.text || "(no text produced)"
-            : `dispatch_agent_run error: ${result.error.message}`,
+        output: summary,
         metadata: { ...result },
       }
     },
@@ -2645,22 +2663,37 @@ function makeProvenance(
  * @param rawInput Untrusted invocation arguments from the OpenCode tool boundary.
  * @param context Calling tool context used for cancellation signal.
  * @param deps Injected planner dependencies, client, session context, and project root.
- * @returns Observable result with status, text, usage, error, and provenance.
+ * @returns Observable result with status, text, usage, error, provenance, correlation_id, and run_id.
  */
 export async function dispatchAgentRun(
   rawInput: unknown,
   context: ToolContext,
   deps: DispatchAgentRunDependencies,
-): Promise<InvokeAgentResult> {
+): Promise<DispatchAgentRunResult> {
   const parsed = DispatchAgentRunInputSchema.safeParse(rawInput)
   if (!parsed.success) {
     const placeholder = makeProvenance("invalid", null, null, true)
-    return failedResult(placeholder, "invalid_input", parsed.error.message, false)
+    return { ...failedResult(placeholder, "invalid_input", parsed.error.message, false), correlation_id: randomUUID(), run_id: randomUUID() }
   }
 
   const input = parsed.data
   const readOnly = input.read_only ?? true
   const timeoutMilliseconds = input.timeout ?? DEFAULT_TIMEOUT_MILLISECONDS
+
+  // Resolve or auto-generate the correlation_id for this parent session.
+  // All dispatch_agent_run calls from the same parent session share one ID.
+  let correlationId = sessionCorrelationMap.get(context.sessionID)
+  if (correlationId === undefined) {
+    correlationId = randomUUID()
+    sessionCorrelationMap.set(context.sessionID, correlationId)
+  }
+
+  /** Wrap a failed InvokeAgentResult with auto-generated IDs for early exits. */
+  const earlyExit = (result: InvokeAgentResult): DispatchAgentRunResult => ({
+    ...result,
+    correlation_id: correlationId,
+    run_id: randomUUID(),
+  })
 
   /** Build a provenance placeholder using the parsed input's common fields. */
   const earlyProvenance = (modelOverride?: string) =>
@@ -2674,7 +2707,7 @@ export async function dispatchAgentRun(
   try {
     validateTimeout(timeoutMilliseconds)
   } catch (error: unknown) {
-    return failedResult(earlyProvenance(), "invalid_invocation", errorText(error), false)
+    return earlyExit(failedResult(earlyProvenance(), "invalid_invocation", errorText(error), false))
   }
 
   // Resolve prompt text: inline prompt or file-backed prompt.
@@ -2683,11 +2716,11 @@ export async function dispatchAgentRun(
     try {
       const fileContent = await deps.plannerDependencies.readText(input.promptFile)
       if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_FILE_BYTES) {
-        return failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 1 MiB UTF-8", false)
+        return earlyExit(failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 1 MiB UTF-8", false))
       }
       promptText = fileContent
     } catch (error: unknown) {
-      return failedResult(earlyProvenance(), "prompt_file_read_failed", sanitizeInvocationError(errorText(error)), false)
+      return earlyExit(failedResult(earlyProvenance(), "prompt_file_read_failed", sanitizeInvocationError(errorText(error)), false))
     }
   } else {
     // superRefine guarantees exactly one of prompt/promptFile is present.
@@ -2699,18 +2732,18 @@ export async function dispatchAgentRun(
   try {
     policies = await loadPolicies(deps.plannerDependencies)
   } catch (error: unknown) {
-    return failedResult(earlyProvenance(), "policy_load_failed", sanitizeInvocationError(errorText(error)), true)
+    return earlyExit(failedResult(earlyProvenance(), "policy_load_failed", sanitizeInvocationError(errorText(error)), true))
   }
 
   // Validate the agent exists in the reviewer manifest.
   const reviewer = policies.manifest.reviewers.find((candidate: Reviewer) => candidate.agent === input.agent)
   if (reviewer === undefined) {
-    return failedResult(
+    return earlyExit(failedResult(
       earlyProvenance(),
       "unknown_agent",
       `agent ${input.agent} is absent from the reviewer manifest`,
       false,
-    )
+    ))
   }
 
   // Resolve model: tier-based via review matrix or direct bypass.
@@ -2728,12 +2761,12 @@ export async function dispatchAgentRun(
     const tier = input.tier ?? "standard"
     const resolved = profilePair(policies.matrix, tier, input.variant)
     if (resolved.model === null) {
-      return failedResult(
+      return earlyExit(failedResult(
         earlyProvenance(tier),
         "tier_model_unavailable",
         `profile "${tier}" has no model configured in the review matrix`,
         false,
-      )
+      ))
     }
 
     selectedModel = directModelIdentity(resolved.model)
@@ -2771,43 +2804,42 @@ export async function dispatchAgentRun(
   const harvestedFindings = submitted?.findings ?? []
   const harvestedProposals = submitted?.proposals ?? []
 
-  // Persist run data to the dispatch session directory when a correlation_id is provided.
-  if (input.correlation_id !== undefined) {
-    const runId = randomUUID()
-    const runData: PersistedRunData = {
-      run_id: runId,
-      agent: input.agent,
-      source: input.source ?? "explicit",
-      sequence: input.sequence ?? 1,
-      status: result.status,
-      started_at: startedAt,
-      finished_at: finishedAt,
-      requested_model: requestedModelLabel,
-      provider: selectedModel.providerID || null,
-      model_id: selectedModel.modelID || null,
-      variant: selectedVariant ?? null,
-      resolved_parent_model: result.provenance.resolved_parent_model,
-      resolved_parent_variant: result.provenance.resolved_parent_variant,
-      reported_model: result.provenance.reported_child_model,
-      model_mismatch: result.provenance.model_mismatch,
-      usage: result.usage,
-      error: result.error,
-      workflow_verdict: null,
-      findings: harvestedFindings,
-      proposals: harvestedProposals,
-      text: result.text,
-      read_only: readOnly,
-    }
-    try {
-      const dir = dispatchSessionDir(input.correlation_id)
-      await mkdir(dir, { recursive: true })
-      await writeFile(join(dir, `run-${input.agent}.json`), JSON.stringify(runData, null, 2), "utf8")
-    } catch {
-      // Persistence is best-effort; the result is authoritative.
-    }
+  // Reuse the session-scoped correlation_id; generate run_id per invocation.
+  const runId = randomUUID()
+  const runData: PersistedRunData = {
+    correlation_id: correlationId,
+    run_id: runId,
+    agent: input.agent,
+    source: input.source ?? "explicit",
+    sequence: input.sequence ?? 1,
+    status: result.status,
+    started_at: startedAt,
+    finished_at: finishedAt,
+    requested_model: requestedModelLabel,
+    provider: selectedModel.providerID || null,
+    model_id: selectedModel.modelID || null,
+    variant: selectedVariant ?? null,
+    resolved_parent_model: result.provenance.resolved_parent_model,
+    resolved_parent_variant: result.provenance.resolved_parent_variant,
+    reported_model: result.provenance.reported_child_model,
+    model_mismatch: result.provenance.model_mismatch,
+    usage: result.usage,
+    error: result.error,
+    workflow_verdict: null,
+    findings: harvestedFindings,
+    proposals: harvestedProposals,
+    text: result.text,
+    read_only: readOnly,
+  }
+  try {
+    const dir = dispatchSessionDir(correlationId)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `run-${input.agent}.json`), JSON.stringify(runData, null, 2), "utf8")
+  } catch {
+    // Persistence is best-effort; the result is authoritative.
   }
 
-  return result
+  return { ...result, correlation_id: correlationId, run_id: runId }
 }
 
 // ── submit_review_findings ───────────────────────────────────
@@ -2871,7 +2903,6 @@ function createSubmitLessonProposalTool(): ReturnType<typeof tool> {
 
 const ConsolidateDispatchInputSchema = z
   .object({
-    correlation_id: UUIDSchema,
     command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
     mode: z.enum(["code", "specs", "triage", "feedback", "test"]),
     full: z.boolean(),
@@ -3031,11 +3062,11 @@ function buildAdvisories(
 export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
   return tool({
     description:
-      "Consolidate all dispatch_agent_run results into a finalize_review_dispatch-ready payload. " +
+      "Consolidate all dispatch_agent_run results from this session into a finalize_review_dispatch-ready payload. " +
+      "Automatically resolves the dispatch session from prior dispatch_agent_run calls. " +
       "Reads persisted run files, deduplicates findings, computes verdict and run counts, " +
       "and returns the complete ReviewDispatchPayload JSON for finalize_review_dispatch.",
     args: {
-      correlation_id: UUIDSchema.describe("Dispatch session correlation ID from plan_review_dispatch."),
       command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]).describe("Workflow command."),
       mode: z.enum(["code", "specs", "triage", "feedback", "test"]).describe("Review mode."),
       full: z.boolean().describe("Whether a full (non-incremental) review was requested."),
@@ -3044,21 +3075,27 @@ export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
       plan: z.array(DispatchPlanEntrySchema).max(512).describe("Original dispatch plan entries."),
       coverage: CoverageSchema.describe("Pre-flight coverage results."),
     },
-    async execute(args): Promise<{ readonly output: string }> {
+    async execute(args, context): Promise<{ readonly output: string }> {
       const parsed = ConsolidateDispatchInputSchema.safeParse(args)
       if (!parsed.success) {
         return { output: `consolidate_dispatch validation failed: ${parsed.error.message}` }
       }
       const input = parsed.data
 
+      // Resolve correlation_id from the session map — set by prior dispatch_agent_run calls.
+      const correlationId = sessionCorrelationMap.get(context.sessionID)
+      if (correlationId === undefined) {
+        return { output: "consolidate_dispatch error: no dispatch session found for this session; call dispatch_agent_run first" }
+      }
+
       // Read all run files from the dispatch session directory.
-      const dir = dispatchSessionDir(input.correlation_id)
+      const dir = dispatchSessionDir(correlationId)
       let runFiles: string[]
       try {
         const entries = await readdir(dir)
         runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
       } catch {
-        return { output: `consolidate_dispatch error: no dispatch session found for ${input.correlation_id}` }
+        return { output: `consolidate_dispatch error: no dispatch session directory found for correlation_id ${correlationId}` }
       }
 
       if (runFiles.length === 0) {
@@ -3143,7 +3180,7 @@ export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
         verdict_reason: verdictReason,
         run_counts: runCounts,
         workflow_result: workflowResult,
-        correlation_id: input.correlation_id,
+        correlation_id: correlationId,
       }
 
       return { output: JSON.stringify(payload, null, 2) }
@@ -3159,20 +3196,23 @@ export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
 function createDispatchStatusTool(): ReturnType<typeof tool> {
   return tool({
     description:
-      "Query the status of a dispatch session. Returns the list of completed runs, " +
-      "their statuses, finding counts, and any pending submissions in the store.",
-    args: {
-      correlation_id: UUIDSchema.describe("Dispatch session correlation ID."),
-    },
-    async execute(args): Promise<{ readonly output: string }> {
-      const dir = dispatchSessionDir(args.correlation_id)
+      "Query the status of this session's dispatch. Automatically resolves the dispatch session " +
+      "from prior dispatch_agent_run calls. Returns completed runs, statuses, finding counts, " +
+      "and any pending submissions in the store.",
+    args: {},
+    async execute(_args, context): Promise<{ readonly output: string }> {
+      const correlationId = sessionCorrelationMap.get(context.sessionID)
+      if (correlationId === undefined) {
+        return { output: JSON.stringify({ status: "not_found", message: "no dispatch session for this session", runs: [] }) }
+      }
+      const dir = dispatchSessionDir(correlationId)
 
       let runFiles: string[]
       try {
         const entries = await readdir(dir)
         runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
       } catch {
-        return { output: JSON.stringify({ status: "not_found", correlation_id: args.correlation_id, runs: [] }) }
+        return { output: JSON.stringify({ status: "not_found", correlation_id: correlationId, runs: [] }) }
       }
 
       const runSummaries: Array<{
@@ -3204,7 +3244,7 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
         output: JSON.stringify(
           {
             status: "ok",
-            correlation_id: args.correlation_id,
+            correlation_id: correlationId,
             runs: runSummaries,
             total_runs: runSummaries.length,
             pending_submissions: pendingSubmissions,

@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, afterEach } from "vitest"
 
-import { ReviewDispatchPlugin, createConsolidateDispatchTool } from "../plugins/review-dispatch/index.js"
+import { ReviewDispatchPlugin, createConsolidateDispatchTool, _getSessionCorrelationMap } from "../plugins/review-dispatch/index.js"
 import { withBun, scratchProject } from "./helpers.js"
 
 /** Build a valid PersistedRunData fixture for writing to disk. */
@@ -24,6 +24,7 @@ function runFixture(overrides: {
   proposals?: Array<{ information: string; tag: string; category?: string }>
 }) {
   return {
+    correlation_id: randomUUID(),
     run_id: overrides.run_id ?? randomUUID(),
     agent: overrides.agent,
     source: "explicit",
@@ -114,6 +115,7 @@ function validCoverage() {
 const cleanupDirs: string[] = []
 
 afterEach(async () => {
+  _getSessionCorrelationMap().clear()
   for (const dir of cleanupDirs) {
     try {
       await rm(dir, { recursive: true, force: true })
@@ -132,6 +134,7 @@ async function setupDispatchSession(
   const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
   await mkdir(dir, { recursive: true })
   cleanupDirs.push(dir)
+  _getSessionCorrelationMap().set("consolidate-session", correlationId)
 
   for (const run of runs) {
     await writeFile(join(dir, `run-${run.agent}.json`), JSON.stringify(run, null, 2), "utf8")
@@ -150,7 +153,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -189,7 +192,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -222,7 +225,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -253,7 +256,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -295,7 +298,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -326,7 +329,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -354,7 +357,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "triage-issue",
         mode: "triage",
         full: false,
@@ -399,7 +402,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "address-feedback",
         mode: "feedback",
         full: false,
@@ -424,7 +427,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "address-feedback",
         mode: "feedback",
         full: false,
@@ -454,7 +457,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "address-feedback",
         mode: "feedback",
         full: false,
@@ -476,7 +479,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: randomUUID(),
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -496,11 +499,12 @@ describe("consolidate_dispatch", () => {
     const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
     await mkdir(dir, { recursive: true })
     cleanupDirs.push(dir)
+    _getSessionCorrelationMap().set("consolidate-session", correlationId)
 
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -520,12 +524,13 @@ describe("consolidate_dispatch", () => {
     const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
     await mkdir(dir, { recursive: true })
     cleanupDirs.push(dir)
+    _getSessionCorrelationMap().set("consolidate-session", correlationId)
     await writeFile(join(dir, "run-divisor-guard.json"), "not valid json", "utf8")
 
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
@@ -548,7 +553,7 @@ describe("consolidate_dispatch", () => {
     const tool = createConsolidateDispatchTool()
     const result = await tool.execute(
       {
-        correlation_id: correlationId,
+
         command: "review-council",
         mode: "code",
         full: false,
