@@ -29,7 +29,7 @@ func TestCommandContracts_ReviewCouncil(t *testing.T) {
 		{name: "validated plan authority", all: []string{"load the `dispatch-advisor` skill", "display the returned json plan exactly", "validated plan is the sole invocation list", "bind this plan to the exact immutable input context"}},
 		{name: "six review roles", all: []string{"`divisor-adversary`", "`divisor-architect`", "`divisor-curator`", "`divisor-guard`", "`divisor-sre`", "`divisor-testing`"}},
 		{name: "three content roles", all: []string{"`divisor-envoy`", "`divisor-herald`", "`divisor-scribe`", "content-only agents are discovered and reported but never dispatched"}},
-		{name: "host source behavior", all: []string{"for `host`, omit both model and variant", "resolves and explicitly replays the current assistant model and active variant", "never substitute a default"}},
+		{name: "host source behavior", all: []string{"for `host`, omit both `model` and `tier`", "defaults to the `standard` tier from the review matrix"}},
 		{name: "model provenance", all: []string{"requested model/variant", "resolved parent model/variant", "reported child model", "child self-report", "conflict never overwrites authoritative invocation provenance"}},
 		{name: "finding deduplication", all: []string{"deduplicate successful run findings by normalized file plus root cause", "retain every contributing run id, agent, model, variant, source, and sequence", "compound severity rules"}},
 		{name: "council verdict precedence", all: []string{"any blocking successful run yields `request changes`", "otherwise any advisory yields `approve with advisories`", "otherwise yield `approve`", "failed runs never vote"}},

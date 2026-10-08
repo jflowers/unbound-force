@@ -7,6 +7,10 @@ import { z } from "zod"
 
 import {
   DEFAULT_TIMEOUT_MILLISECONDS,
+  MAX_PROMPT_FILE_BYTES,
+  PromptSchema,
+  PromptFileSchema,
+  TimeoutSchema,
   directModelIdentity,
   errorText,
   executeAgentSession,
@@ -37,13 +41,8 @@ export {
 } from "../../lib/agent-executor.js"
 
 const MANIFEST_PATH = ".uf/reviewer-capabilities.yaml"
-const MAX_INLINE_PROMPT_BYTES = 128 * 1024
-const MAX_PROMPT_FILE_BYTES = 1024 * 1024
 
 const AgentSchema = z.string().max(128).regex(/^divisor-[a-z0-9-]{1,63}$/)
-const PromptSchema = z
-  .string()
-  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INLINE_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
 const ModelSchema = z
   .string()
   .max(256)
@@ -52,8 +51,6 @@ const ModelSchema = z
     return separator > 0 && separator < value.length - 1
   }, "model must contain non-empty provider and model-id values separated by the first slash")
 const VariantSchema = z.string().max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
-const TimeoutSchema = z.number().int().positive().max(1_800_000)
-const PromptFileSchema = z.string().max(1024)
 const InvokeAgentInputSchema = z
   .object({
     agent: AgentSchema,

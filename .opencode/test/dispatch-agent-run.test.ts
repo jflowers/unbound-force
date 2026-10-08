@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest"
 import {
   createDispatchAgentRunTool,
   dispatchAgentRun,
-  parseReviewMatrix,
   type DispatchAgentRunDependencies,
   type PlannerDependencies,
 } from "../plugins/review-dispatch/index.js"
@@ -262,6 +261,52 @@ describe("dispatch_agent_run", () => {
       // Verify path sanitization — /Users/alice should be redacted.
       expect(result.error?.message).not.toContain("/Users/alice")
       expect(result.error?.message).toContain("[REDACTED]")
+    })
+  })
+
+  describe("tier with no model configured", () => {
+    it("returns tier_model_unavailable when the profile has no model", async () => {
+      const emptyProfileMatrix = {
+        ...matrixFixture,
+        profiles: { ...matrixFixture.profiles, standard: {} },
+      }
+      const readText = vi.fn(async (path: string): Promise<string> => {
+        if (path === ".uf/review-matrix.yaml") return JSON.stringify(emptyProfileMatrix)
+        if (path === ".uf/reviewer-capabilities.yaml") return JSON.stringify(manifestFixture)
+        if (path === ".uf/review-matrix.override.yaml") {
+          const err = new Error("ENOENT") as NodeJS.ErrnoException
+          err.code = "ENOENT"
+          throw err
+        }
+        throw new Error(`unexpected read: ${path}`)
+      })
+      const deps = makeDeps({ readText })
+      const result = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "Review this change.", tier: "standard" },
+        toolContext(),
+        deps,
+      )
+
+      expect(result.status).toBe("failed")
+      expect(result.error?.code).toBe("tier_model_unavailable")
+      expect(result.error?.message).toContain("standard")
+      expect(result.error?.message).toContain("no model configured")
+      expect(result.error?.retryable).toBe(false)
+    })
+  })
+
+  describe("invalid timeout", () => {
+    it("rejects a timeout exceeding the schema maximum", async () => {
+      const deps = makeDeps()
+      const result = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "Review this change.", timeout: 2_000_000 },
+        toolContext(),
+        deps,
+      )
+
+      expect(result.status).toBe("failed")
+      expect(result.error?.code).toBe("invalid_input")
+      expect(result.error?.retryable).toBe(false)
     })
   })
 

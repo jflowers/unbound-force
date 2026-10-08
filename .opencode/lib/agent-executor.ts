@@ -1,10 +1,21 @@
 import { type PluginInput } from "@opencode-ai/plugin"
+import { z } from "zod"
 
 // ── Constants ────────────────────────────────────────────────
 
 export const MAX_ERROR_LENGTH = 4_096
 export const CLEANUP_ABORT_TIMEOUT_MS = 5_000
 export const DEFAULT_TIMEOUT_MILLISECONDS = 600_000
+export const MAX_INLINE_PROMPT_BYTES = 128 * 1024
+export const MAX_PROMPT_FILE_BYTES = 1024 * 1024
+
+// ── Shared Zod schemas ──────────────────────────────────────
+
+export const PromptSchema = z
+  .string()
+  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INLINE_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
+export const PromptFileSchema = z.string().max(1024)
+export const TimeoutSchema = z.number().int().positive().max(1_800_000)
 
 // ── Type derivations from the OpenCode plugin client ─────────
 

@@ -8,6 +8,10 @@ import { z } from "zod"
 
 import {
   DEFAULT_TIMEOUT_MILLISECONDS,
+  MAX_PROMPT_FILE_BYTES,
+  PromptSchema,
+  PromptFileSchema,
+  TimeoutSchema,
   directModelIdentity,
   errorText,
   executeAgentSession,
@@ -2456,14 +2460,6 @@ export function createFinalizeReviewDispatchTool(
 }
 
 // ── dispatch_agent_run ────────────────────────────────────────
-
-const MAX_INLINE_PROMPT_BYTES = 128 * 1024
-const MAX_PROMPT_FILE_BYTES = 1024 * 1024
-const PromptFileSchema = z.string().max(1024)
-const PromptSchema = z
-  .string()
-  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INLINE_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
-const TimeoutSchema = z.number().int().positive().max(1_800_000)
 
 const DispatchAgentRunInputSchema = z
   .object({
