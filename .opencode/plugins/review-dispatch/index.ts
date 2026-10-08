@@ -2457,11 +2457,12 @@ export function createFinalizeReviewDispatchTool(
 
 // ── dispatch_agent_run ────────────────────────────────────────
 
-const MAX_PROMPT_BYTES = 128 * 1024
+const MAX_INLINE_PROMPT_BYTES = 128 * 1024
+const MAX_PROMPT_FILE_BYTES = 1024 * 1024
 const PromptFileSchema = z.string().max(1024)
 const PromptSchema = z
   .string()
-  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
+  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INLINE_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
 const TimeoutSchema = z.number().int().positive().max(1_800_000)
 
 const DispatchAgentRunInputSchema = z
@@ -2617,8 +2618,8 @@ export async function dispatchAgentRun(
   if (input.promptFile !== undefined) {
     try {
       const fileContent = await deps.plannerDependencies.readText(input.promptFile)
-      if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_BYTES) {
-        return failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 128 KiB UTF-8", false)
+      if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_FILE_BYTES) {
+        return failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 1 MiB UTF-8", false)
       }
       promptText = fileContent
     } catch (error: unknown) {

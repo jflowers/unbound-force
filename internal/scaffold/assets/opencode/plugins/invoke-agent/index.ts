@@ -37,12 +37,13 @@ export {
 } from "../../lib/agent-executor.js"
 
 const MANIFEST_PATH = ".uf/reviewer-capabilities.yaml"
-const MAX_PROMPT_BYTES = 128 * 1024
+const MAX_INLINE_PROMPT_BYTES = 128 * 1024
+const MAX_PROMPT_FILE_BYTES = 1024 * 1024
 
 const AgentSchema = z.string().max(128).regex(/^divisor-[a-z0-9-]{1,63}$/)
 const PromptSchema = z
   .string()
-  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
+  .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INLINE_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
 const ModelSchema = z
   .string()
   .max(256)
@@ -198,8 +199,8 @@ export async function invokeAgent(
   if (input.promptFile !== undefined) {
     try {
       const fileContent = await dependencies.readText(input.promptFile)
-      if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_BYTES) {
-        return failedResult(provenance, "invalid_input", "promptFile content exceeds 128 KiB UTF-8", false)
+      if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_FILE_BYTES) {
+        return failedResult(provenance, "invalid_input", "promptFile content exceeds 1 MiB UTF-8", false)
       }
       promptText = fileContent
     } catch (error: unknown) {

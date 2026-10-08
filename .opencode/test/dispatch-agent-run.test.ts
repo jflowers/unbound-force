@@ -379,8 +379,8 @@ describe("dispatch_agent_run", () => {
       expect(result.error?.message).toContain("[REDACTED]")
     })
 
-    it("rejects promptFile content exceeding 128 KiB", async () => {
-      const oversizedContent = "x".repeat(128 * 1024 + 1)
+    it("rejects promptFile content exceeding 1 MiB", async () => {
+      const oversizedContent = "x".repeat(1024 * 1024 + 1)
       const readText = vi.fn(async (path: string): Promise<string> => {
         if (path === "/tmp/big-prompt.txt") return oversizedContent
         if (path === ".uf/review-matrix.yaml") return JSON.stringify(matrixFixture)
@@ -401,7 +401,7 @@ describe("dispatch_agent_run", () => {
 
       expect(result.status).toBe("failed")
       expect(result.error?.code).toBe("invalid_input")
-      expect(result.error?.message).toContain("promptFile content exceeds 128 KiB")
+      expect(result.error?.message).toContain("promptFile content exceeds 1 MiB")
     })
   })
 
