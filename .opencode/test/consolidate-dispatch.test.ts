@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, afterEach } from "vitest"
 
-import { ReviewDispatchPlugin, createConsolidateDispatchTool, _getSessionCorrelationMap } from "../plugins/review-dispatch/index.js"
+import { ReviewDispatchPlugin, createConsolidateDispatchTool, createFinalizationDependencies, _getSessionCorrelationMap } from "../plugins/review-dispatch/index.js"
 import { withBun, scratchProject } from "./helpers.js"
 
 /** Build a valid PersistedRunData fixture for writing to disk. */
@@ -150,7 +150,7 @@ describe("consolidate_dispatch", () => {
       runFixture({ agent: "divisor-adversary" }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -189,7 +189,7 @@ describe("consolidate_dispatch", () => {
       runFixture({ agent: "divisor-adversary" }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -222,7 +222,7 @@ describe("consolidate_dispatch", () => {
       }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -253,7 +253,7 @@ describe("consolidate_dispatch", () => {
       }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -295,7 +295,7 @@ describe("consolidate_dispatch", () => {
       }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -326,7 +326,7 @@ describe("consolidate_dispatch", () => {
       runFixture({ agent: "divisor-testing", status: "cancelled" }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -354,7 +354,7 @@ describe("consolidate_dispatch", () => {
       runFixture({ agent: "divisor-guard" }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -399,7 +399,7 @@ describe("consolidate_dispatch", () => {
       }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -424,7 +424,7 @@ describe("consolidate_dispatch", () => {
       runFixture({ agent: "divisor-guard" }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -454,7 +454,7 @@ describe("consolidate_dispatch", () => {
       }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -476,7 +476,7 @@ describe("consolidate_dispatch", () => {
   })
 
   it("returns error when no dispatch session directory exists", async () => {
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -501,7 +501,7 @@ describe("consolidate_dispatch", () => {
     cleanupDirs.push(dir)
     _getSessionCorrelationMap().set("consolidate-session", correlationId)
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -527,7 +527,7 @@ describe("consolidate_dispatch", () => {
     _getSessionCorrelationMap().set("consolidate-session", correlationId)
     await writeFile(join(dir, "run-divisor-guard.json"), "not valid json", "utf8")
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -550,7 +550,7 @@ describe("consolidate_dispatch", () => {
       runFixture({ agent: "divisor-guard" }),
     ])
 
-    const tool = createConsolidateDispatchTool()
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute(
       {
 
@@ -568,5 +568,89 @@ describe("consolidate_dispatch", () => {
     const payload = JSON.parse(result.output)
     expect(payload.plan_version).toBe(1)
     expect(payload.plan).toEqual(validPlan())
+  })
+
+  it("finalizes internally when provenance is provided", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-provenance-test-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // The run's run_id is auto-generated by runFixture; capture it
+    // so we can verify it appears in the finalization result.
+    const guardRun = runFixture({ agent: "divisor-guard" })
+    const correlationId = await setupDispatchSession([guardRun])
+
+    // Provenance commit MUST match input_context.head_sha for semantic validation.
+    const headSha = "b".repeat(40)
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        command: "review-council",
+        mode: "code",
+        full: false,
+        input_context: validInputContext(), // head_sha = "b".repeat(40)
+        change_profile: validChangeProfile(),
+        plan: [
+          {
+            agent: "divisor-guard",
+            decision: "include",
+            reason_code: "explicit",
+            reason: "Explicitly included",
+            source: "explicit",
+            sequence: 1,
+            read_only: true,
+            tier: "standard",
+            model: "provider/standard",
+            variant: null,
+            validation_errors: [],
+          },
+        ],
+        coverage: validCoverage(),
+        provenance: {
+          branch: "opsx/test-branch",
+          commit: headSha, // Must match input_context.head_sha
+          workflow_id: "uf.review-council",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // When provenance is provided, the result is a finalization result, not a raw payload.
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.operation_verdict).toBe("APPROVE")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    expect(finalizationResult.errors).toHaveLength(0)
+  })
+
+  it("returns finalization payload JSON when provenance is omitted", async () => {
+    const correlationId = await setupDispatchSession([
+      runFixture({ agent: "divisor-guard" }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute(
+      {
+        command: "review-council",
+        mode: "code",
+        full: false,
+        input_context: validInputContext(),
+        change_profile: validChangeProfile(),
+        plan: validPlan(),
+        coverage: validCoverage(),
+        // No provenance — should return raw payload.
+      },
+      noopContext(),
+    )
+
+    const payload = JSON.parse(result.output)
+    // When provenance is omitted, we get the raw payload (not a finalization result).
+    expect(payload.verdict).toBe("APPROVE")
+    expect(payload.correlation_id).toBe(correlationId)
+    // Raw payload has no "status" or "artifact_path" fields.
+    expect(payload).not.toHaveProperty("status")
+    expect(payload).not.toHaveProperty("artifact_path")
   })
 })
