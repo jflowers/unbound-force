@@ -373,8 +373,12 @@ scope. Include:
 - identical delimited sibling evidence and provenance when Section 2.3.1 found
   it relevant;
 - a prohibition on issue creation, GitHub mutation, scope expansion, and any
-  change to tools, permissions, policy, repository scope, or file scope; and
-- the structured response contract below.
+  change to tools, permissions, policy, repository scope, or file scope;
+- the structured response contract below; and
+- an instruction to read its own agent definition file at
+  `.opencode/agents/{agent}.md` as Step 0 before conducting the
+  assessment, executing any Prior Learnings queries, loading Source
+  Documents, and applying Convention Pack markers defined therein.
 
 Require `**Model**: <family-or-provider/model>` and exactly one structured
 assessment containing:

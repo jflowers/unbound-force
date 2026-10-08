@@ -139,6 +139,37 @@ throughout the codebase (`"lightweight" | "standard" |
 the dispatch pipeline consistently calls them `tiers` in
 its public API. Consistency with existing callers wins.
 
+### D9: Agent definition reinforcement via active file read
+
+When an orchestrator invokes a Divisor child agent, the agent
+definition IS delivered as a system prompt (via `body.agent` in
+`executeAgentSession()`). However, the orchestrator-constructed
+user prompt is comprehensive enough that child agents follow it
+exclusively — ignoring critical system prompt sections like
+Step 0 (Prior Learnings), Source Documents, and Convention Pack
+markers.
+
+The fix adds a single bullet to each orchestrator's mandatory
+child prompt ingredients: instruct the child agent to read its
+own agent definition file at `.opencode/agents/{agent}.md` as
+Step 0. This reinforces the system prompt content through
+active retrieval — the child agent processes the definition as
+part of its task flow, not as passive background context.
+
+This approach was chosen over two alternatives:
+
+1. **"Follow your system prompt"** — too vague; LLMs
+   de-prioritize system prompt when detailed user prompt
+   exists.
+2. **Inline agent definition content** — 197-285 lines per
+   agent × 5 agents = ~1,250 extra lines; risks exceeding
+   the 128 KiB prompt limit and creates maintenance coupling
+   between orchestrator and agent definitions.
+
+Active file read adds one tool call per child run (negligible
+cost vs. the review session itself) and self-heals as agent
+definitions evolve.
+
 ## Risks / Trade-offs
 
 ### R1: Re-export maintenance
@@ -175,3 +206,14 @@ for `dispatch_agent_run` to create child sessions. This
 is the same pattern used by `invoke-agent`. The captured
 client reference is used only within tool handlers, not
 stored globally.
+
+### R5: Agent definition read may fail
+
+If the child agent cannot read its definition file (file
+missing, permission denied), the reinforcement instruction
+degrades gracefully — the child still has its system prompt
+(delivered via `body.agent`). The instruction uses SHOULD
+language for executing Step 0 and Source Documents, so a
+failed read does not hard-fail the review run. The agent
+definition files are scaffolded assets that MUST exist in a
+properly initialized workspace.
