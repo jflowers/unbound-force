@@ -73,6 +73,8 @@ export interface InvokeAgentResult {
   readonly usage: InvocationUsage | null
   readonly error: InvocationError | null
   readonly provenance: InvocationProvenance
+  /** Child session ID created by the executor (absent on early validation failures). */
+  readonly childSessionID?: string
 }
 
 /** Injected dependencies for the shared executor's child session lifecycle. */
@@ -274,6 +276,10 @@ export async function executeAgentSession(
     deps.parentAbort.addEventListener("abort", cancelFromParent, { once: true })
   }
 
+  /** Attach childSessionID to any result returned after session creation. */
+  const withChild = (result: InvokeAgentResult): InvokeAgentResult =>
+    childID !== null ? { ...result, childSessionID: childID } : result
+
   try {
     const created = await deps.client.session.create({
       body: {
@@ -309,7 +315,7 @@ export async function executeAgentSession(
       throw linkedAbort.signal.reason
     }
     if (prompted.data === undefined) {
-      return failedResult(provenance, "child_prompt_failed", responseFailure("prompt child session", prompted), true)
+      return withChild(failedResult(provenance, "child_prompt_failed", responseFailure("prompt child session", prompted), true))
     }
 
     const childModel = reportedModel(prompted.data.info.providerID, prompted.data.info.modelID)
@@ -319,39 +325,43 @@ export async function executeAgentSession(
     const usage = invocationUsage(prompted.data.parts)
 
     if (prompted.data.info.error !== undefined) {
-      return failedResult(
-        provenance,
-        "child_message_error",
-        errorText(prompted.data.info.error),
-        "isRetryable" in prompted.data.info.error.data
-          ? prompted.data.info.error.data.isRetryable
-          : prompted.data.info.error.name !== "MessageAbortedError",
-        "failed",
-        text,
-        usage,
+      return withChild(
+        failedResult(
+          provenance,
+          "child_message_error",
+          errorText(prompted.data.info.error),
+          "isRetryable" in prompted.data.info.error.data
+            ? prompted.data.info.error.data.isRetryable
+            : prompted.data.info.error.name !== "MessageAbortedError",
+          "failed",
+          text,
+          usage,
+        ),
       )
     }
     if (mismatch) {
-      return failedResult(
-        provenance,
-        "model_mismatch",
-        `child reported ${childModel ?? "an unavailable model"}; expected ${model.combined}`,
-        false,
-        "failed",
-        text,
-        usage,
+      return withChild(
+        failedResult(
+          provenance,
+          "model_mismatch",
+          `child reported ${childModel ?? "an unavailable model"}; expected ${model.combined}`,
+          false,
+          "failed",
+          text,
+          usage,
+        ),
       )
     }
 
-    return { status: "success", text, usage, error: null, provenance }
+    return withChild({ status: "success", text, usage, error: null, provenance })
   } catch (error: unknown) {
     if (abortCause === "timeout") {
-      return failedResult(provenance, "timeout", "invoke_agent run timed out", true)
+      return withChild(failedResult(provenance, "timeout", "invoke_agent run timed out", true))
     }
     if (abortCause === "cancelled") {
-      return failedResult(provenance, "cancelled", "invoke_agent run was cancelled", false, "cancelled")
+      return withChild(failedResult(provenance, "cancelled", "invoke_agent run was cancelled", false, "cancelled"))
     }
-    return failedResult(provenance, "invocation_failed", errorText(error), true)
+    return withChild(failedResult(provenance, "invocation_failed", errorText(error), true))
   } finally {
     clearTimeout(timeout)
     deps.parentAbort.removeEventListener("abort", cancelFromParent)

@@ -456,10 +456,13 @@ describe("dispatch_agent_run", () => {
       expect(dispatchTool.description).toContain("Divisor review-agent run")
       expect(Object.keys(dispatchTool.args).sort()).toEqual([
         "agent",
+        "correlation_id",
         "model",
         "prompt",
         "promptFile",
         "read_only",
+        "sequence",
+        "source",
         "tier",
         "timeout",
         "variant",
