@@ -2910,6 +2910,7 @@ const ConsolidateDispatchInputSchema = z
     change_profile: ChangeProfileSchema,
     plan: z.array(DispatchPlanEntrySchema).max(512),
     coverage: CoverageSchema,
+    provenance: ArtifactProvenanceSchema.optional(),
   })
   .strict()
 
@@ -2993,6 +2994,20 @@ function computeVerdict(findings: readonly z.infer<typeof ConsolidatedFindingSch
 }
 
 /**
+ * Compute a per-run workflow verdict from the run's findings.
+ * Successful runs MUST have a non-null workflow_verdict for semantic validation.
+ */
+function runVerdict(findings: readonly { readonly severity: string }[]): string {
+  if (findings.some((f) => f.severity === "CRITICAL" || f.severity === "HIGH")) {
+    return "REQUEST CHANGES"
+  }
+  if (findings.some((f) => f.severity === "MEDIUM" || f.severity === "LOW")) {
+    return "APPROVE WITH ADVISORIES"
+  }
+  return "APPROVE"
+}
+
+/**
  * Derive the workflow_result kind from the command name.
  */
 function workflowKind(command: string): "council" | "triage" | "feedback" | "test-review" {
@@ -3058,14 +3073,18 @@ function buildAdvisories(
 /**
  * Creates the consolidate_dispatch tool that reads persisted run files,
  * deduplicates findings, computes verdict, and returns a finalization-ready payload.
+ * When provenance is supplied, calls finalizeReviewDispatch internally to skip
+ * the lossy LLM round-trip and returns the finalization result directly.
  */
-export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
+export function createConsolidateDispatchTool(
+  finalizationDependencies: FinalizationDependencies,
+): ReturnType<typeof tool> {
   return tool({
     description:
-      "Consolidate all dispatch_agent_run results from this session into a finalize_review_dispatch-ready payload. " +
-      "Automatically resolves the dispatch session from prior dispatch_agent_run calls. " +
-      "Reads persisted run files, deduplicates findings, computes verdict and run counts, " +
-      "and returns the complete ReviewDispatchPayload JSON for finalize_review_dispatch.",
+      "Consolidate all dispatch_agent_run results from this session, deduplicate findings, compute verdict, " +
+      "and optionally finalize the dispatch artifact in one step. " +
+      "When provenance is provided, calls finalize_review_dispatch internally (no LLM round-trip) " +
+      "and returns the finalization result directly. When omitted, returns the payload JSON.",
     args: {
       command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]).describe("Workflow command."),
       mode: z.enum(["code", "specs", "triage", "feedback", "test"]).describe("Review mode."),
@@ -3074,6 +3093,11 @@ export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
       change_profile: ChangeProfileSchema.describe("Change classification profile."),
       plan: z.array(DispatchPlanEntrySchema).max(512).describe("Original dispatch plan entries."),
       coverage: CoverageSchema.describe("Pre-flight coverage results."),
+      provenance: ArtifactProvenanceSchema.optional().describe(
+        "When provided, consolidate_dispatch calls finalize_review_dispatch internally " +
+          "and returns the finalization result. Requires branch (e.g. opsx/foo), " +
+          "commit (40-char SHA), and workflow_id (e.g. uf.review-council).",
+      ),
     },
     async execute(args, context): Promise<{ readonly output: string }> {
       const parsed = ConsolidateDispatchInputSchema.safeParse(args)
@@ -3141,7 +3165,7 @@ export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
         error: run.error,
         reported_model: run.reported_model,
         model_mismatch: run.model_mismatch,
-        workflow_verdict: null,
+        workflow_verdict: run.status === "success" ? runVerdict(run.findings) : null,
         findings: run.findings,
       }))
 
@@ -3181,6 +3205,15 @@ export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
         run_counts: runCounts,
         workflow_result: workflowResult,
         correlation_id: correlationId,
+      }
+
+      // When provenance is provided, finalize internally — no LLM round-trip.
+      if (input.provenance !== undefined) {
+        const result = await finalizeReviewDispatch(
+          { payload, provenance: input.provenance },
+          finalizationDependencies,
+        )
+        return { output: JSON.stringify(result, null, 2) }
       }
 
       return { output: JSON.stringify(payload, null, 2) }
@@ -3283,7 +3316,7 @@ export const ReviewDispatchPlugin = {
         }),
         submit_review_findings: createSubmitReviewFindingsTool(),
         submit_lesson_proposal: createSubmitLessonProposalTool(),
-        consolidate_dispatch: createConsolidateDispatchTool(),
+        consolidate_dispatch: createConsolidateDispatchTool(createFinalizationDependencies(projectRoot)),
         dispatch_status: createDispatchStatusTool(),
       },
     }
