@@ -523,6 +523,7 @@ describe("dispatch_agent_run", () => {
         "promptFile",
         "read_only",
         "sequence",
+        "session_metadata",
         "source",
         "tier",
         "timeout",
