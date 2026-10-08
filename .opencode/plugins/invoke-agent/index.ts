@@ -197,7 +197,7 @@ export async function invokeAgent(
     try {
       const fileContent = await dependencies.readText(input.promptFile)
       if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_FILE_BYTES) {
-        return failedResult(provenance, "invalid_input", "promptFile content exceeds 1 MiB UTF-8", false)
+        return failedResult(provenance, "invalid_input", "promptFile content exceeds 4 MiB UTF-8", false)
       }
       promptText = fileContent
     } catch (error: unknown) {

@@ -7,7 +7,7 @@ export const MAX_ERROR_LENGTH = 4_096
 export const CLEANUP_ABORT_TIMEOUT_MS = 5_000
 export const DEFAULT_TIMEOUT_MILLISECONDS = 600_000
 export const MAX_INLINE_PROMPT_BYTES = 128 * 1024
-export const MAX_PROMPT_FILE_BYTES = 1024 * 1024
+export const MAX_PROMPT_FILE_BYTES = 4 * 1024 * 1024
 
 // ── Shared Zod schemas ──────────────────────────────────────
 

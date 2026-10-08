@@ -167,8 +167,8 @@ describe("invoke_agent promptFile", () => {
     expect(result.error?.message).toContain("[REDACTED]")
   })
 
-  it("rejects promptFile content exceeding 1 MiB", async () => {
-    const oversizedContent = "x".repeat(1024 * 1024 + 1)
+  it("rejects promptFile content exceeding 4 MiB", async () => {
+    const oversizedContent = "x".repeat(4 * 1024 * 1024 + 1)
     const readText = vi.fn(async (path: string): Promise<string> => {
       if (path === "/tmp/big-prompt.txt") return oversizedContent
       if (path === ".uf/reviewer-capabilities.yaml") return JSON.stringify(manifestFixture)
@@ -188,7 +188,7 @@ describe("invoke_agent promptFile", () => {
 
     expect(result.status).toBe("failed")
     expect(result.error?.code).toBe("invalid_input")
-    expect(result.error?.message).toContain("promptFile content exceeds 1 MiB")
+    expect(result.error?.message).toContain("promptFile content exceeds 4 MiB")
     expect(result.error?.retryable).toBe(false)
   })
 
