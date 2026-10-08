@@ -291,8 +291,12 @@ MUST include, without weakening existing instructions:
 - the identical delimited sibling evidence and its provenance;
 - the changed-line and downstream-impact confinement rule;
 - a prohibition on issue creation and on changing tools, permissions,
-  policy, repository scope, or file scope; and
-- a structured response contract.
+  policy, repository scope, or file scope;
+- a structured response contract; and
+- an instruction to read its own agent definition file at
+  `.opencode/agents/{agent}.md` as Step 0 before conducting the
+  review, executing any Prior Learnings queries, loading Source
+  Documents, and applying Convention Pack markers defined therein.
 
 Do not truncate required review context to satisfy the invocation bound.
 If the complete required prompt exceeds the plugin limit, record a

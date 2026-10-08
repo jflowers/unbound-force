@@ -118,5 +118,27 @@
   validation; `sanitizeInvocationError` credential
   stripping preserved in shared executor.
 
+## 6. Agent definition reinforcement in orchestrator prompts
+
+- [x] 6.1 Edit `uf.review-council.md` (canonical at
+  `internal/scaffold/assets/opencode/commands/`) to add an
+  agent definition reinforcement bullet to the mandatory child
+  prompt ingredients (after the existing list). The instruction
+  MUST tell the child agent to read its own agent definition
+  file at `.opencode/agents/{agent}.md` as Step 0 before
+  conducting the review, executing Prior Learnings queries and
+  loading Source Documents defined therein.
+- [x] 6.2 [P] Apply the same agent definition reinforcement
+  bullet to `uf.review-pr.md` (canonical).
+- [x] 6.3 [P] Apply the same agent definition reinforcement
+  bullet to `uf.triage-issue.md` (canonical).
+- [x] 6.4 [P] Apply the same agent definition reinforcement
+  bullet to `uf.address-feedback.md` (canonical).
+- [x] 6.5 Dual-copy sync: copy all four updated canonical
+  command files to their scaffolded locations under
+  `.opencode/commands/`.
+- [x] 6.6 Run `make test` to verify scaffold drift detection
+  passes and all Go tests pass.
+
 <!-- spec-review: passed -->
 <!-- code-review: passed -->

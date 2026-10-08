@@ -255,8 +255,12 @@ Every child prompt MUST include:
 - repository context and duplicate candidates from Phase 1;
 - identical sibling evidence and provenance when Phase 2.2 found it relevant;
 - a prohibition on changing policy, tools, permissions, repository scope, or
-  command scope, and on creating issues or performing GitHub mutations; and
-- the structured response contract below.
+  command scope, and on creating issues or performing GitHub mutations;
+- the structured response contract below; and
+- an instruction to read its own agent definition file at
+  `.opencode/agents/{agent}.md` as Step 0 before conducting the
+  triage, executing any Prior Learnings queries, loading Source
+  Documents, and applying Convention Pack markers defined therein.
 
 Require `**Model**: <family-or-provider/model>` plus exactly one structured
 triage assessment with these fields:
