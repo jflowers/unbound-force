@@ -2752,7 +2752,7 @@ export async function dispatchAgentRun(
     try {
       const fileContent = await deps.plannerDependencies.readText(input.promptFile)
       if (Buffer.byteLength(fileContent, "utf8") > MAX_PROMPT_FILE_BYTES) {
-        return earlyExit(failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 1 MiB UTF-8", false))
+        return earlyExit(failedResult(earlyProvenance(), "invalid_input", "promptFile content exceeds 4 MiB UTF-8", false))
       }
       promptText = fileContent
     } catch (error: unknown) {
