@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer"
 import { createHash, randomUUID } from "node:crypto"
-import { chmod, link, mkdir, open, readFile, unlink } from "node:fs/promises"
+import { chmod, link, mkdir, open, readFile, readdir, unlink, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 import { tool, type PluginInput, type PluginModule, type ToolContext } from "@opencode-ai/plugin"
@@ -526,6 +527,66 @@ const CoverageSchema = z
     checks_passed: z.number().int().nonnegative(),
   })
   .strict()
+// ── Submission store for child tool call handoff ─────────────
+
+/** Lesson proposal submitted by a child Divisor agent via submit_lesson_proposal. */
+interface LessonProposal {
+  readonly information: string
+  readonly tag: string
+  readonly category?: string
+}
+
+/** Data accumulated from child tool calls during a single dispatch_agent_run. */
+interface SubmittedData {
+  findings: z.infer<typeof RunFindingSchema>[]
+  proposals: LessonProposal[]
+}
+
+/**
+ * Module-level in-process store keyed by child session ID.
+ * Populated by submit_review_findings / submit_lesson_proposal tools,
+ * harvested by dispatch_agent_run after the child session completes.
+ */
+const submissionStore = new Map<string, SubmittedData>()
+
+/** Exported for testing only. */
+export function _getSubmissionStore(): Map<string, SubmittedData> {
+  return submissionStore
+}
+
+/** Persisted run data written to dispatch session directory. */
+interface PersistedRunData {
+  readonly run_id: string
+  readonly agent: string
+  readonly source: string
+  readonly sequence: number
+  readonly status: string
+  readonly started_at: string
+  readonly finished_at: string
+  readonly requested_model: string | null
+  readonly provider: string | null
+  readonly model_id: string | null
+  readonly variant: string | null
+  readonly resolved_parent_model: string | null
+  readonly resolved_parent_variant: string | null
+  readonly reported_model: string | null
+  readonly model_mismatch: boolean
+  readonly usage: z.infer<typeof UsageSchema> | null
+  readonly error: z.infer<typeof RunErrorSchema> | null
+  readonly workflow_verdict: string | null
+  readonly findings: z.infer<typeof RunFindingSchema>[]
+  readonly proposals: LessonProposal[]
+  readonly text: string
+  readonly read_only: boolean
+}
+
+/** Compute filesystem path for a dispatch session directory. */
+function dispatchSessionDir(correlationId: string): string {
+  return join(tmpdir(), "opencode", `dispatch-${correlationId}`)
+}
+
+const SEVERITY_RANK: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, CRITICAL: 4 }
+
 const RunCountsSchema = z
   .object({
     total: z.number().int().nonnegative(),
@@ -2471,6 +2532,9 @@ const DispatchAgentRunInputSchema = z
     variant: VariantSchema.optional(),
     read_only: z.boolean().optional(),
     timeout: TimeoutSchema.optional(),
+    correlation_id: UUIDSchema.optional(),
+    source: z.enum(SOURCE_VALUES).optional(),
+    sequence: z.number().int().positive().optional(),
   })
   .strict()
   .superRefine((input, context) => {
@@ -2533,6 +2597,11 @@ export function createDispatchAgentRunTool(deps: DispatchAgentRunDependencies): 
       variant: VariantSchema.optional().describe("Optional direct-model runtime variant."),
       read_only: z.boolean().optional().describe("Invocation provenance only; does not alter permissions."),
       timeout: TimeoutSchema.optional().describe("Optional run timeout in milliseconds (bounded to 1_800_000)."),
+      correlation_id: UUIDSchema.optional().describe(
+        "Dispatch session correlation ID. When set, run metadata and child output are persisted to the dispatch session directory for later consolidation.",
+      ),
+      source: z.enum(SOURCE_VALUES).optional().describe('Run source from the dispatch plan (explicit, advisor, host). Defaults to "explicit".'),
+      sequence: z.number().int().positive().optional().describe("Run sequence number from the dispatch plan. Defaults to 1."),
     },
     async execute(args, context): Promise<{ readonly output: string; readonly metadata: Record<string, unknown> }> {
       const result = await dispatchAgentRun(args, context, deps)
@@ -2680,6 +2749,7 @@ export async function dispatchAgentRun(
   )
 
   // Delegate session lifecycle to the shared executor.
+  const startedAt = new Date().toISOString()
   const executorDeps: ExecutorDependencies = {
     client: deps.client,
     sessionID: context.sessionID,
@@ -2688,7 +2758,463 @@ export async function dispatchAgentRun(
     timeoutMilliseconds,
   }
 
-  return executeAgentSession(executorDeps, input.agent, promptText, selectedModel, selectedVariant, readOnly, provenance)
+  const result = await executeAgentSession(executorDeps, input.agent, promptText, selectedModel, selectedVariant, readOnly, provenance)
+  const finishedAt = new Date().toISOString()
+
+  // Harvest submitted findings/proposals from child session via the in-process Map.
+  const childSessionID = result.childSessionID
+  const submitted = childSessionID !== undefined ? submissionStore.get(childSessionID) : undefined
+  if (childSessionID !== undefined) {
+    submissionStore.delete(childSessionID)
+  }
+
+  const harvestedFindings = submitted?.findings ?? []
+  const harvestedProposals = submitted?.proposals ?? []
+
+  // Persist run data to the dispatch session directory when a correlation_id is provided.
+  if (input.correlation_id !== undefined) {
+    const runId = randomUUID()
+    const runData: PersistedRunData = {
+      run_id: runId,
+      agent: input.agent,
+      source: input.source ?? "explicit",
+      sequence: input.sequence ?? 1,
+      status: result.status,
+      started_at: startedAt,
+      finished_at: finishedAt,
+      requested_model: requestedModelLabel,
+      provider: selectedModel.providerID || null,
+      model_id: selectedModel.modelID || null,
+      variant: selectedVariant ?? null,
+      resolved_parent_model: result.provenance.resolved_parent_model,
+      resolved_parent_variant: result.provenance.resolved_parent_variant,
+      reported_model: result.provenance.reported_child_model,
+      model_mismatch: result.provenance.model_mismatch,
+      usage: result.usage,
+      error: result.error,
+      workflow_verdict: null,
+      findings: harvestedFindings,
+      proposals: harvestedProposals,
+      text: result.text,
+      read_only: readOnly,
+    }
+    try {
+      const dir = dispatchSessionDir(input.correlation_id)
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, `run-${input.agent}.json`), JSON.stringify(runData, null, 2), "utf8")
+    } catch {
+      // Persistence is best-effort; the result is authoritative.
+    }
+  }
+
+  return result
+}
+
+// ── submit_review_findings ───────────────────────────────────
+
+/**
+ * Creates the submit_review_findings tool for child Divisor agent sessions.
+ * Findings are Zod-validated and stored in the module-level Map for later
+ * harvesting by dispatch_agent_run.
+ */
+function createSubmitReviewFindingsTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Submit structured review findings from a child Divisor agent run. " +
+      "Findings are Zod-validated and stored for later consolidation. " +
+      "Call once per run; multiple calls in the same session are additive.",
+    args: {
+      findings: z
+        .array(RunFindingSchema)
+        .min(1)
+        .max(512)
+        .describe("Array of review findings with severity, category, description, root_cause, file, and line."),
+    },
+    async execute(args, context): Promise<{ readonly output: string }> {
+      const entry = submissionStore.get(context.sessionID) ?? { findings: [], proposals: [] }
+      entry.findings.push(...args.findings)
+      submissionStore.set(context.sessionID, entry)
+      return { output: `${args.findings.length} finding(s) submitted` }
+    },
+  })
+}
+
+// ── submit_lesson_proposal ───────────────────────────────────
+
+/**
+ * Creates the submit_lesson_proposal tool for child Divisor agent sessions.
+ * Proposals are stored in the module-level Map for later harvesting.
+ */
+function createSubmitLessonProposalTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Submit a lesson proposal (insight, pattern, gotcha) from a child Divisor agent run. " +
+      "Proposals are Zod-validated and stored for later processing by consolidate_dispatch.",
+    args: {
+      information: z.string().min(1).max(16_384).describe("The learning text to store."),
+      tag: z.string().min(1).max(128).describe("Required topic tag (e.g. authentication, review-dispatch)."),
+      category: z
+        .enum(["decision", "pattern", "gotcha", "context", "reference"])
+        .optional()
+        .describe("Optional category for the learning."),
+    },
+    async execute(args, context): Promise<{ readonly output: string }> {
+      const entry = submissionStore.get(context.sessionID) ?? { findings: [], proposals: [] }
+      entry.proposals.push({ information: args.information, tag: args.tag, category: args.category })
+      submissionStore.set(context.sessionID, entry)
+      return { output: `lesson proposal submitted (tag: ${args.tag})` }
+    },
+  })
+}
+
+// ── consolidate_dispatch ─────────────────────────────────────
+
+const ConsolidateDispatchInputSchema = z
+  .object({
+    correlation_id: UUIDSchema,
+    command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
+    mode: z.enum(["code", "specs", "triage", "feedback", "test"]),
+    full: z.boolean(),
+    input_context: InputContextSchema,
+    change_profile: ChangeProfileSchema,
+    plan: z.array(DispatchPlanEntrySchema).max(512),
+    coverage: CoverageSchema,
+  })
+  .strict()
+
+/**
+ * Normalize a file path for deduplication: lowercase, forward-slash, trim whitespace.
+ */
+function normalizeFile(file: string | null): string {
+  return file?.toLowerCase().replace(/\\/g, "/").trim() ?? ""
+}
+
+/**
+ * Deduplicate findings across all runs by normalized file + root_cause.
+ * When duplicates exist, keep the highest severity and merge run_ids.
+ */
+function deduplicateFindings(
+  runs: readonly PersistedRunData[],
+): z.infer<typeof ConsolidatedFindingSchema>[] {
+  const groups = new Map<
+    string,
+    { finding: z.infer<typeof RunFindingSchema>; run_ids: Set<string> }
+  >()
+
+  for (const run of runs) {
+    for (const finding of run.findings) {
+      const key = `${normalizeFile(finding.file)}\0${finding.root_cause}`
+      const existing = groups.get(key)
+      if (existing !== undefined) {
+        existing.run_ids.add(run.run_id)
+        if ((SEVERITY_RANK[finding.severity] ?? 0) > (SEVERITY_RANK[existing.finding.severity] ?? 0)) {
+          existing.finding = { ...finding }
+        }
+      } else {
+        groups.set(key, { finding: { ...finding }, run_ids: new Set([run.run_id]) })
+      }
+    }
+  }
+
+  return [...groups.values()].map(({ finding, run_ids }) => ({
+    ...finding,
+    run_ids: [...run_ids].sort(),
+  }))
+}
+
+/**
+ * Compute council verdict from consolidated findings.
+ */
+function computeVerdict(findings: readonly z.infer<typeof ConsolidatedFindingSchema>[]): {
+  readonly verdict: (typeof GENERIC_VERDICT_VALUES)[number]
+  readonly reason: string
+} {
+  const hasCritical = findings.some((f) => f.severity === "CRITICAL")
+  const hasHigh = findings.some((f) => f.severity === "HIGH")
+  const hasMedium = findings.some((f) => f.severity === "MEDIUM")
+  const hasLow = findings.some((f) => f.severity === "LOW")
+
+  if (hasCritical || hasHigh) {
+    const highest = hasCritical ? "CRITICAL" : "HIGH"
+    const count = findings.filter((f) => f.severity === highest).length
+    return {
+      verdict: "REQUEST CHANGES",
+      reason: `${count} ${highest} severity finding(s) require changes`,
+    }
+  }
+  if (hasMedium) {
+    const count = findings.filter((f) => f.severity === "MEDIUM").length
+    return {
+      verdict: "APPROVE WITH ADVISORIES",
+      reason: `${count} MEDIUM severity finding(s) noted as advisories`,
+    }
+  }
+  if (hasLow) {
+    return {
+      verdict: "APPROVE WITH ADVISORIES",
+      reason: `${findings.length} LOW severity finding(s) noted as advisories`,
+    }
+  }
+  return {
+    verdict: "APPROVE",
+    reason: "No findings requiring changes",
+  }
+}
+
+/**
+ * Derive the workflow_result kind from the command name.
+ */
+function workflowKind(command: string): "council" | "triage" | "feedback" | "test-review" {
+  switch (command) {
+    case "review-council":
+      return "council"
+    case "triage-issue":
+      return "triage"
+    case "address-feedback":
+      return "feedback"
+    case "speckit-testreview":
+      return "test-review"
+    default:
+      return "council"
+  }
+}
+
+/**
+ * Map a generic verdict to a workflow-specific verdict value.
+ */
+function workflowVerdictValue(
+  kind: ReturnType<typeof workflowKind>,
+  verdict: (typeof GENERIC_VERDICT_VALUES)[number],
+): string {
+  if (kind === "triage") {
+    switch (verdict) {
+      case "APPROVE":
+        return "VALID"
+      case "REQUEST CHANGES":
+        return "INVALID"
+      default:
+        return "NEEDS-CLARIFICATION"
+    }
+  }
+  if (kind === "feedback") {
+    switch (verdict) {
+      case "APPROVE":
+        return "ACCEPT"
+      case "APPROVE WITH ADVISORIES":
+        return "AUTHOR-DECIDES"
+      default:
+        return verdict
+    }
+  }
+  return verdict
+}
+
+/**
+ * Create advisories from MEDIUM and LOW findings for APPROVE WITH ADVISORIES verdicts.
+ */
+function buildAdvisories(
+  findings: readonly z.infer<typeof ConsolidatedFindingSchema>[],
+): z.infer<typeof AdvisorySchema>[] {
+  return findings
+    .filter((f) => f.severity === "MEDIUM" || f.severity === "LOW")
+    .map((f) => ({
+      severity: f.severity,
+      description: f.description,
+      run_ids: f.run_ids,
+    }))
+}
+
+/**
+ * Creates the consolidate_dispatch tool that reads persisted run files,
+ * deduplicates findings, computes verdict, and returns a finalization-ready payload.
+ */
+export function createConsolidateDispatchTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Consolidate all dispatch_agent_run results into a finalize_review_dispatch-ready payload. " +
+      "Reads persisted run files, deduplicates findings, computes verdict and run counts, " +
+      "and returns the complete ReviewDispatchPayload JSON for finalize_review_dispatch.",
+    args: {
+      correlation_id: UUIDSchema.describe("Dispatch session correlation ID from plan_review_dispatch."),
+      command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]).describe("Workflow command."),
+      mode: z.enum(["code", "specs", "triage", "feedback", "test"]).describe("Review mode."),
+      full: z.boolean().describe("Whether a full (non-incremental) review was requested."),
+      input_context: InputContextSchema.describe("PR, local, or issue context."),
+      change_profile: ChangeProfileSchema.describe("Change classification profile."),
+      plan: z.array(DispatchPlanEntrySchema).max(512).describe("Original dispatch plan entries."),
+      coverage: CoverageSchema.describe("Pre-flight coverage results."),
+    },
+    async execute(args): Promise<{ readonly output: string }> {
+      const parsed = ConsolidateDispatchInputSchema.safeParse(args)
+      if (!parsed.success) {
+        return { output: `consolidate_dispatch validation failed: ${parsed.error.message}` }
+      }
+      const input = parsed.data
+
+      // Read all run files from the dispatch session directory.
+      const dir = dispatchSessionDir(input.correlation_id)
+      let runFiles: string[]
+      try {
+        const entries = await readdir(dir)
+        runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
+      } catch {
+        return { output: `consolidate_dispatch error: no dispatch session found for ${input.correlation_id}` }
+      }
+
+      if (runFiles.length === 0) {
+        return { output: "consolidate_dispatch error: no run files found in dispatch session directory" }
+      }
+
+      // Parse all run files.
+      const runs: PersistedRunData[] = []
+      for (const file of runFiles) {
+        try {
+          const content = await readFile(join(dir, file), "utf8")
+          runs.push(JSON.parse(content) as PersistedRunData)
+        } catch (error: unknown) {
+          return { output: `consolidate_dispatch error: failed to read ${file}: ${errorText(error)}` }
+        }
+      }
+
+      // Deduplicate findings across all runs.
+      const consolidatedFindings = deduplicateFindings(runs)
+
+      // Compute verdict.
+      const { verdict, reason: verdictReason } = computeVerdict(consolidatedFindings)
+
+      // Build advisories for advisory-level verdicts.
+      const advisories = verdict === "APPROVE WITH ADVISORIES" ? buildAdvisories(consolidatedFindings) : []
+
+      // Build run entries matching DispatchRunSchema.
+      const dispatchRuns = runs.map((run) => ({
+        run_id: run.run_id,
+        agent: run.agent,
+        source: run.source as (typeof SOURCE_VALUES)[number],
+        requested_model: run.requested_model,
+        provider: run.provider,
+        model_id: run.model_id,
+        variant: run.variant,
+        resolved_parent_model: run.resolved_parent_model,
+        resolved_parent_variant: run.resolved_parent_variant,
+        sequence: run.sequence,
+        status: run.status as "success" | "failed" | "cancelled",
+        started_at: run.started_at,
+        finished_at: run.finished_at,
+        usage: run.usage,
+        error: run.error,
+        reported_model: run.reported_model,
+        model_mismatch: run.model_mismatch,
+        workflow_verdict: null,
+        findings: run.findings,
+      }))
+
+      // Compute run counts.
+      const runCounts = {
+        total: runs.length,
+        success: runs.filter((r) => r.status === "success").length,
+        failed: runs.filter((r) => r.status === "failed").length,
+        skipped: runs.filter((r) => r.status === "skipped").length,
+        budget_skipped: 0,
+        limit_skipped: 0,
+        cancelled: runs.filter((r) => r.status === "cancelled").length,
+      }
+
+      // Build workflow result.
+      const kind = workflowKind(input.command)
+      const workflowResult = {
+        kind,
+        value: workflowVerdictValue(kind, verdict),
+      }
+
+      // Assemble the full finalization payload.
+      const payload = {
+        command: input.command,
+        mode: input.mode,
+        full: input.full,
+        input_context: input.input_context,
+        change_profile: input.change_profile,
+        plan_version: 1 as const,
+        plan: input.plan,
+        runs: dispatchRuns,
+        coverage: input.coverage,
+        findings: consolidatedFindings,
+        advisories,
+        verdict,
+        verdict_reason: verdictReason,
+        run_counts: runCounts,
+        workflow_result: workflowResult,
+        correlation_id: input.correlation_id,
+      }
+
+      return { output: JSON.stringify(payload, null, 2) }
+    },
+  })
+}
+
+// ── dispatch_status ──────────────────────────────────────────
+
+/**
+ * Creates the dispatch_status query tool for inspecting dispatch session state.
+ */
+function createDispatchStatusTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Query the status of a dispatch session. Returns the list of completed runs, " +
+      "their statuses, finding counts, and any pending submissions in the store.",
+    args: {
+      correlation_id: UUIDSchema.describe("Dispatch session correlation ID."),
+    },
+    async execute(args): Promise<{ readonly output: string }> {
+      const dir = dispatchSessionDir(args.correlation_id)
+
+      let runFiles: string[]
+      try {
+        const entries = await readdir(dir)
+        runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
+      } catch {
+        return { output: JSON.stringify({ status: "not_found", correlation_id: args.correlation_id, runs: [] }) }
+      }
+
+      const runSummaries: Array<{
+        agent: string
+        status: string
+        findings: number
+        proposals: number
+      }> = []
+
+      for (const file of runFiles) {
+        try {
+          const content = await readFile(join(dir, file), "utf8")
+          const run = JSON.parse(content) as PersistedRunData
+          runSummaries.push({
+            agent: run.agent,
+            status: run.status,
+            findings: run.findings.length,
+            proposals: run.proposals.length,
+          })
+        } catch {
+          runSummaries.push({ agent: file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0 })
+        }
+      }
+
+      // Check for any pending submissions in the store.
+      const pendingSubmissions = submissionStore.size
+
+      return {
+        output: JSON.stringify(
+          {
+            status: "ok",
+            correlation_id: args.correlation_id,
+            runs: runSummaries,
+            total_runs: runSummaries.length,
+            pending_submissions: pendingSubmissions,
+          },
+          null,
+          2,
+        ),
+      }
+    },
+  })
 }
 
 /** Auto-discovered OpenCode policy plugin for deterministic review planning and finalization. */
@@ -2715,6 +3241,10 @@ export const ReviewDispatchPlugin = {
           client,
           directory: projectRoot,
         }),
+        submit_review_findings: createSubmitReviewFindingsTool(),
+        submit_lesson_proposal: createSubmitLessonProposalTool(),
+        consolidate_dispatch: createConsolidateDispatchTool(),
+        dispatch_status: createDispatchStatusTool(),
       },
     }
   },
