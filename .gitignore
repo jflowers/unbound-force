@@ -72,3 +72,4 @@ internal/**/openspec/
 gateway.pid
 /unbound-force
 AGENTS.md
+coverage/
