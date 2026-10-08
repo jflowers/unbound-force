@@ -111,6 +111,20 @@ function validCoverage() {
   return { preflight_verdict: "PASS" as const, checks_total: 5, checks_passed: 5 }
 }
 
+/** Default session metadata written to session-metadata.json for consolidation. */
+function defaultSessionMetadata(overrides?: Record<string, unknown>) {
+  return {
+    command: "review-council" as const,
+    mode: "code" as const,
+    full: false,
+    input_context: validInputContext(),
+    change_profile: validChangeProfile(),
+    plan: validPlan(),
+    coverage: validCoverage(),
+    ...overrides,
+  }
+}
+
 // Track temp directories for cleanup.
 const cleanupDirs: string[] = []
 
@@ -126,15 +140,18 @@ afterEach(async () => {
   cleanupDirs.length = 0
 })
 
-/** Write run fixture files and return the correlation_id. */
+/** Write run fixture files + session metadata and return the correlation_id. */
 async function setupDispatchSession(
   runs: ReturnType<typeof runFixture>[],
+  metadata?: Record<string, unknown>,
 ): Promise<string> {
   const correlationId = randomUUID()
   const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
   await mkdir(dir, { recursive: true })
   cleanupDirs.push(dir)
   _getSessionCorrelationMap().set("consolidate-session", correlationId)
+
+  await writeFile(join(dir, "session-metadata.json"), JSON.stringify(defaultSessionMetadata(metadata), null, 2), "utf8")
 
   for (const run of runs) {
     await writeFile(join(dir, `run-${run.agent}.json`), JSON.stringify(run, null, 2), "utf8")
@@ -151,19 +168,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.verdict).toBe("APPROVE")
@@ -190,19 +195,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.verdict).toBe("REQUEST CHANGES")
@@ -223,19 +216,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
@@ -254,19 +235,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
@@ -296,19 +265,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     // Deduplicated to one finding with highest severity.
@@ -327,19 +284,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.run_counts.total).toBe(3)
@@ -350,17 +295,11 @@ describe("consolidate_dispatch", () => {
   })
 
   it("maps triage-issue command to triage workflow result", async () => {
-    const correlationId = await setupDispatchSession([
-      runFixture({ agent: "divisor-guard" }),
-    ])
-
-    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
+    const correlationId = await setupDispatchSession(
+      [runFixture({ agent: "divisor-guard" })],
       {
-
         command: "triage-issue",
         mode: "triage",
-        full: false,
         input_context: {
           kind: "issue" as const,
           issue_number: 42,
@@ -378,11 +317,11 @@ describe("consolidate_dispatch", () => {
           categories: ["standard" as const],
           tier: "standard" as const,
         },
-        plan: validPlan(),
-        coverage: validCoverage(),
       },
-      noopContext(),
     )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.workflow_result.kind).toBe("triage")
@@ -390,29 +329,20 @@ describe("consolidate_dispatch", () => {
   })
 
   it("maps address-feedback APPROVE WITH ADVISORIES to AUTHOR-DECIDES", async () => {
-    const correlationId = await setupDispatchSession([
-      runFixture({
-        agent: "divisor-guard",
-        findings: [
-          { severity: "MEDIUM", category: "style", description: "Needs improvement", root_cause: "Convention gap", file: "a.ts", line: 1 },
-        ],
-      }),
-    ])
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "MEDIUM", category: "style", description: "Needs improvement", root_cause: "Convention gap", file: "a.ts", line: 1 },
+          ],
+        }),
+      ],
+      { command: "address-feedback", mode: "feedback" },
+    )
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "address-feedback",
-        mode: "feedback",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.workflow_result.kind).toBe("feedback")
@@ -420,24 +350,13 @@ describe("consolidate_dispatch", () => {
   })
 
   it("maps address-feedback APPROVE (no findings) to ACCEPT", async () => {
-    const correlationId = await setupDispatchSession([
-      runFixture({ agent: "divisor-guard" }),
-    ])
+    const correlationId = await setupDispatchSession(
+      [runFixture({ agent: "divisor-guard" })],
+      { command: "address-feedback", mode: "feedback" },
+    )
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "address-feedback",
-        mode: "feedback",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.workflow_result.kind).toBe("feedback")
@@ -445,29 +364,20 @@ describe("consolidate_dispatch", () => {
   })
 
   it("maps address-feedback REQUEST CHANGES to REQUEST CHANGES", async () => {
-    const correlationId = await setupDispatchSession([
-      runFixture({
-        agent: "divisor-guard",
-        findings: [
-          { severity: "HIGH", category: "security", description: "Blocker", root_cause: "Missing auth", file: "a.ts", line: 1 },
-        ],
-      }),
-    ])
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "HIGH", category: "security", description: "Blocker", root_cause: "Missing auth", file: "a.ts", line: 1 },
+          ],
+        }),
+      ],
+      { command: "address-feedback", mode: "feedback" },
+    )
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "address-feedback",
-        mode: "feedback",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.workflow_result.kind).toBe("feedback")
@@ -477,19 +387,7 @@ describe("consolidate_dispatch", () => {
 
   it("returns error when no dispatch session directory exists", async () => {
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     expect(result.output).toContain("no dispatch session found")
   })
@@ -500,21 +398,10 @@ describe("consolidate_dispatch", () => {
     await mkdir(dir, { recursive: true })
     cleanupDirs.push(dir)
     _getSessionCorrelationMap().set("consolidate-session", correlationId)
+    await writeFile(join(dir, "session-metadata.json"), JSON.stringify(defaultSessionMetadata()), "utf8")
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     expect(result.output).toContain("no run files found")
   })
@@ -525,22 +412,11 @@ describe("consolidate_dispatch", () => {
     await mkdir(dir, { recursive: true })
     cleanupDirs.push(dir)
     _getSessionCorrelationMap().set("consolidate-session", correlationId)
+    await writeFile(join(dir, "session-metadata.json"), JSON.stringify(defaultSessionMetadata()), "utf8")
     await writeFile(join(dir, "run-divisor-guard.json"), "not valid json", "utf8")
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     expect(result.output).toContain("failed to read run-divisor-guard.json")
   })
@@ -551,19 +427,7 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-      },
-      noopContext(),
-    )
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     expect(payload.plan_version).toBe(1)
@@ -578,35 +442,29 @@ describe("consolidate_dispatch", () => {
     // The run's run_id is auto-generated by runFixture; capture it
     // so we can verify it appears in the finalization result.
     const guardRun = runFixture({ agent: "divisor-guard" })
-    const correlationId = await setupDispatchSession([guardRun])
-
     // Provenance commit MUST match input_context.head_sha for semantic validation.
     const headSha = "b".repeat(40)
+    const correlationId = await setupDispatchSession([guardRun], {
+      plan: [
+        {
+          agent: "divisor-guard",
+          decision: "include",
+          reason_code: "explicit",
+          reason: "Explicitly included",
+          source: "explicit",
+          sequence: 1,
+          read_only: true,
+          tier: "standard",
+          model: "provider/standard",
+          variant: null,
+          validation_errors: [],
+        },
+      ],
+    })
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
     const result = await tool.execute(
       {
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(), // head_sha = "b".repeat(40)
-        change_profile: validChangeProfile(),
-        plan: [
-          {
-            agent: "divisor-guard",
-            decision: "include",
-            reason_code: "explicit",
-            reason: "Explicitly included",
-            source: "explicit",
-            sequence: 1,
-            read_only: true,
-            tier: "standard",
-            model: "provider/standard",
-            variant: null,
-            validation_errors: [],
-          },
-        ],
-        coverage: validCoverage(),
         provenance: {
           branch: "opsx/test-branch",
           commit: headSha, // Must match input_context.head_sha
@@ -631,19 +489,8 @@ describe("consolidate_dispatch", () => {
     ])
 
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
-    const result = await tool.execute(
-      {
-        command: "review-council",
-        mode: "code",
-        full: false,
-        input_context: validInputContext(),
-        change_profile: validChangeProfile(),
-        plan: validPlan(),
-        coverage: validCoverage(),
-        // No provenance — should return raw payload.
-      },
-      noopContext(),
-    )
+    // No provenance — should return raw payload.
+    const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
     // When provenance is omitted, we get the raw payload (not a finalization result).

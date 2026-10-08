@@ -2543,6 +2543,23 @@ export function createFinalizeReviewDispatchTool(
 
 // ── dispatch_agent_run ────────────────────────────────────────
 
+/** Session metadata persisted on the first dispatch_agent_run call so
+ * consolidate_dispatch can reconstruct the full finalization payload
+ * without requiring the agent to re-supply plan, context, and coverage. */
+const SessionMetadataSchema = z
+  .object({
+    command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
+    mode: z.enum(["code", "specs", "triage", "feedback", "test"]),
+    full: z.boolean(),
+    input_context: InputContextSchema,
+    change_profile: ChangeProfileSchema,
+    plan: z.array(DispatchPlanEntrySchema).max(512),
+    coverage: CoverageSchema,
+  })
+  .strict()
+
+const SESSION_METADATA_FILE = "session-metadata.json"
+
 const DispatchAgentRunInputSchema = z
   .object({
     agent: AgentNameSchema,
@@ -2555,6 +2572,7 @@ const DispatchAgentRunInputSchema = z
     timeout: TimeoutSchema.optional(),
     source: z.enum(SOURCE_VALUES).optional(),
     sequence: z.number().int().positive().optional(),
+    session_metadata: SessionMetadataSchema.optional(),
   })
   .strict()
   .superRefine((input, context) => {
@@ -2619,6 +2637,11 @@ export function createDispatchAgentRunTool(deps: DispatchAgentRunDependencies): 
       timeout: TimeoutSchema.optional().describe("Optional run timeout in milliseconds (bounded to 1_800_000)."),
       source: z.enum(SOURCE_VALUES).optional().describe('Run source from the dispatch plan (explicit, advisor, host). Defaults to "explicit".'),
       sequence: z.number().int().positive().optional().describe("Run sequence number from the dispatch plan. Defaults to 1."),
+      session_metadata: SessionMetadataSchema.optional().describe(
+        "Session metadata (command, mode, full, input_context, change_profile, plan, coverage) to persist " +
+          "for consolidate_dispatch. Supply on the FIRST dispatch_agent_run call only; subsequent calls ignore it. " +
+          "When omitted, consolidate_dispatch requires a prior call that stored metadata.",
+      ),
     },
     async execute(args, context): Promise<{ readonly output: string; readonly metadata: Record<string, unknown> }> {
       const result = await dispatchAgentRun(args, context, deps)
@@ -2683,9 +2706,22 @@ export async function dispatchAgentRun(
   // Resolve or auto-generate the correlation_id for this parent session.
   // All dispatch_agent_run calls from the same parent session share one ID.
   let correlationId = sessionCorrelationMap.get(context.sessionID)
-  if (correlationId === undefined) {
+  const isFirstCall = correlationId === undefined
+  if (isFirstCall) {
     correlationId = randomUUID()
     sessionCorrelationMap.set(context.sessionID, correlationId)
+  }
+
+  // Persist session metadata on the first call so consolidate_dispatch can
+  // reconstruct the finalization payload without the agent re-supplying it.
+  if (isFirstCall && input.session_metadata !== undefined) {
+    try {
+      const dir = dispatchSessionDir(correlationId)
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, SESSION_METADATA_FILE), JSON.stringify(input.session_metadata, null, 2), "utf8")
+    } catch {
+      // Best-effort; consolidate_dispatch will report a clear error if missing.
+    }
   }
 
   /** Wrap a failed InvokeAgentResult with auto-generated IDs for early exits. */
@@ -2903,13 +2939,6 @@ function createSubmitLessonProposalTool(): ReturnType<typeof tool> {
 
 const ConsolidateDispatchInputSchema = z
   .object({
-    command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
-    mode: z.enum(["code", "specs", "triage", "feedback", "test"]),
-    full: z.boolean(),
-    input_context: InputContextSchema,
-    change_profile: ChangeProfileSchema,
-    plan: z.array(DispatchPlanEntrySchema).max(512),
-    coverage: CoverageSchema,
     provenance: ArtifactProvenanceSchema.optional(),
   })
   .strict()
@@ -3083,16 +3112,11 @@ export function createConsolidateDispatchTool(
     description:
       "Consolidate all dispatch_agent_run results from this session, deduplicate findings, compute verdict, " +
       "and optionally finalize the dispatch artifact in one step. " +
-      "When provenance is provided, calls finalize_review_dispatch internally (no LLM round-trip) " +
-      "and returns the finalization result directly. When omitted, returns the payload JSON.",
+      "Reads session metadata (command, mode, plan, coverage, etc.) from the file persisted by the first " +
+      "dispatch_agent_run call. When provenance is provided, calls finalize_review_dispatch internally " +
+      "(no LLM round-trip) and returns the finalization result directly. When omitted, returns the payload JSON. " +
+      "Automatically resolves the dispatch session from prior dispatch_agent_run calls.",
     args: {
-      command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]).describe("Workflow command."),
-      mode: z.enum(["code", "specs", "triage", "feedback", "test"]).describe("Review mode."),
-      full: z.boolean().describe("Whether a full (non-incremental) review was requested."),
-      input_context: InputContextSchema.describe("PR, local, or issue context."),
-      change_profile: ChangeProfileSchema.describe("Change classification profile."),
-      plan: z.array(DispatchPlanEntrySchema).max(512).describe("Original dispatch plan entries."),
-      coverage: CoverageSchema.describe("Pre-flight coverage results."),
       provenance: ArtifactProvenanceSchema.optional().describe(
         "When provided, consolidate_dispatch calls finalize_review_dispatch internally " +
           "and returns the finalization result. Requires branch (e.g. opsx/foo), " +
@@ -3112,8 +3136,24 @@ export function createConsolidateDispatchTool(
         return { output: "consolidate_dispatch error: no dispatch session found for this session; call dispatch_agent_run first" }
       }
 
-      // Read all run files from the dispatch session directory.
+      // Load session metadata persisted by the first dispatch_agent_run call.
       const dir = dispatchSessionDir(correlationId)
+      let sessionMetadata: z.infer<typeof SessionMetadataSchema>
+      try {
+        const raw = await readFile(join(dir, SESSION_METADATA_FILE), "utf8")
+        const parsed2 = SessionMetadataSchema.safeParse(JSON.parse(raw))
+        if (!parsed2.success) {
+          return { output: `consolidate_dispatch error: invalid session metadata: ${parsed2.error.message}` }
+        }
+        sessionMetadata = parsed2.data
+      } catch {
+        return {
+          output:
+            "consolidate_dispatch error: no session metadata found; pass session_metadata on the first dispatch_agent_run call",
+        }
+      }
+
+      // Read all run files from the dispatch session directory.
       let runFiles: string[]
       try {
         const entries = await readdir(dir)
@@ -3181,7 +3221,7 @@ export function createConsolidateDispatchTool(
       }
 
       // Build workflow result.
-      const kind = workflowKind(input.command)
+      const kind = workflowKind(sessionMetadata.command)
       const workflowResult = {
         kind,
         value: workflowVerdictValue(kind, verdict),
@@ -3189,15 +3229,15 @@ export function createConsolidateDispatchTool(
 
       // Assemble the full finalization payload.
       const payload = {
-        command: input.command,
-        mode: input.mode,
-        full: input.full,
-        input_context: input.input_context,
-        change_profile: input.change_profile,
+        command: sessionMetadata.command,
+        mode: sessionMetadata.mode,
+        full: sessionMetadata.full,
+        input_context: sessionMetadata.input_context,
+        change_profile: sessionMetadata.change_profile,
         plan_version: 1 as const,
-        plan: input.plan,
+        plan: sessionMetadata.plan,
         runs: dispatchRuns,
-        coverage: input.coverage,
+        coverage: sessionMetadata.coverage,
         findings: consolidatedFindings,
         advisories,
         verdict,
