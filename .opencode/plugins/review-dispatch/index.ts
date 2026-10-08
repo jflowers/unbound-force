@@ -2505,7 +2505,6 @@ const DispatchAgentRunInputSchema = z
 export interface DispatchAgentRunDependencies {
   readonly plannerDependencies: PlannerDependencies
   readonly client: PluginInput["client"]
-  readonly sessionID: string
   readonly directory: string
 }
 
@@ -2533,7 +2532,7 @@ export function createDispatchAgentRunTool(deps: DispatchAgentRunDependencies): 
         'Review matrix profile tier. Mutually exclusive with model. Defaults to "standard" when neither is provided.',
       ),
       model: ModelSchema.optional().describe(
-        "Optional direct provider/model-id bypassing tier resolution. Mutually exclusive with tier.",
+        "Optional direct provider/model-id bypassing tier resolution. Include the full slug with any @suffix (e.g. provider/model-id@default). Mutually exclusive with tier.",
       ),
       variant: VariantSchema.optional().describe("Optional direct-model runtime variant."),
       read_only: z.boolean().optional().describe("Invocation provenance only; does not alter permissions."),
@@ -2687,7 +2686,7 @@ export async function dispatchAgentRun(
   // Delegate session lifecycle to the shared executor.
   const executorDeps: ExecutorDependencies = {
     client: deps.client,
-    sessionID: deps.sessionID,
+    sessionID: context.sessionID,
     directory: deps.directory,
     parentAbort: context.abort,
     timeoutMilliseconds,
@@ -2702,7 +2701,6 @@ export const ReviewDispatchPlugin = {
   server: async (input) => {
     const projectRoot = input.worktree || input.directory
     const client = input.client
-    const sessionID = input.info?.session?.id ?? ""
     const dependencies: PlannerDependencies = {
       readText: async (relativePath: string): Promise<string> =>
         readFile(resolve(projectRoot, relativePath), "utf8"),
@@ -2719,7 +2717,6 @@ export const ReviewDispatchPlugin = {
         dispatch_agent_run: createDispatchAgentRunTool({
           plannerDependencies: dependencies,
           client,
-          sessionID,
           directory: projectRoot,
         }),
       },
