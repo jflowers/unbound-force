@@ -50,7 +50,7 @@ func TestCommandContracts_TriageIssue(t *testing.T) {
 		{name: "fixed base vector", all: []string{"coverage regression", "text_bytes: 19", "60a7be4394be0186439a588e93c57dc9095c1b96f42f27464dbfeb2ce5cfdbf5"}},
 		{name: "fixed boundary vectors", all: []string{"4096", "4f30e0423cec84abfc13ae44c9fe73dde044a0852c5492884e52ba020f7b8275", "4097", "19c10c78070cae1fb718628a7e276ed1b9d05d7d3f017bfb32d09bc309aa7207", "32768", "5e06dbe70b16a7d00fb864d511e8542bfdbc1473275d33076f33d5a917be0168", "32769", "15b20fab5e843a6526a81d7809f0c847f1aa237408cd6351b8c2c997d71ae3fe"}},
 		{name: "six review universe", all: []string{"six known review-capable personas", "`divisor-adversary`", "`divisor-architect`", "`divisor-curator`", "`divisor-guard`", "`divisor-sre`", "`divisor-testing`"}},
-		{name: "triage planner invocation", all: []string{"mode: \"triage\"", "full: false", "augment: false", "call `invoke_agent` for every executable entry"}},
+		{name: "triage planner invocation", all: []string{"mode: \"triage\"", "full: false", "augment: false", "`dispatch_agent_run` (not `invoke_agent`) for all dispatch-planned runs"}},
 		{name: "one vote per persona", all: []string{"consolidate successful model runs into exactly one assessment per persona", "raw model runs never become independent panel votes", "persona with no successful run produces no persona vote"}},
 		{name: "two-stage three-rule majority", all: []string{"three-rule majority in order", "first to the successful model-run verdicts for each persona", "then again to the resulting persona verdicts", "needs-clarification majority", "exclude needs-clarification", "tie-breaking"}},
 		{name: "failed runs are non-voting", all: []string{"failed and non-success terminal runs do not vote", "failure is not dissent", "must not create assessments, findings, or advisories"}},
@@ -66,7 +66,7 @@ func TestCommandContracts_AddressFeedback(t *testing.T) {
 	clauses := []commandClause{
 		{name: "tier one preserved", all: []string{"**tier 1 (direct)**", "single file affected", "clear match to a convention pack rule", "no security implications", "no architectural implications"}},
 		{name: "deployment fallback preserved", all: []string{"fallback (unchanged)", "if no divisor agents are deployed", "fall back to the existing tier 1 assessment", "distinct from a planned tier 2 dispatch whose runs fail", "must not silently fall back to tier 1"}},
-		{name: "tier two planner", all: []string{"advisor-backed tier 2 dispatch", "mode: \"feedback\"", "full: false", "augment: false", "plan_review_dispatch", "call `invoke_agent` for every executable entry"}},
+		{name: "tier two planner", all: []string{"advisor-backed tier 2 dispatch", "mode: \"feedback\"", "full: false", "augment: false", "plan_review_dispatch", "`dispatch_agent_run` (not `invoke_agent`) for all dispatch-planned runs"}},
 		{name: "immutable feedback signal", all: []string{"freeze this exact immutable input context", "deterministic feedback change signal", "exact same signal for planning, every child prompt, consolidation, and finalization", "do not reuse a plan when the item, context, affected files, categories, or triage data differ"}},
 		{name: "one vote per persona", all: []string{"collapse all successful runs for the same persona to exactly one persona recommendation", "fan-out never creates extra persona votes"}},
 		{name: "strictest recommendation", all: []string{"any successful run says `accept`, that persona says `accept`", "any `accept` yields native `accept`", "`accept` is stricter than `author-decides`"}},

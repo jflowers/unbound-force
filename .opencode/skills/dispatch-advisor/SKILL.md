@@ -89,5 +89,15 @@ before child dispatch.
 
 Never repair, reinterpret, truncate, or regenerate a failed plan in a
 Markdown command. Report the planner errors and request configuration repair
-or human review. Execution belongs to the separate invocation contract; this
-skill does not invoke agents or persist the legacy fullsend cost log.
+or human review.
+
+## Invocation Tool
+
+All dispatch-planned runs MUST be executed through `dispatch_agent_run`, not
+`invoke_agent`. The `dispatch_agent_run` tool is purpose-built for planned
+Divisor review runs and supports `promptFile` for large prompts (up to 1 MiB).
+Write the complete child prompt to a temporary file and pass it via `promptFile`.
+Reserve `invoke_agent` for ad-hoc, non-dispatch agent calls only.
+
+Execution belongs to the separate invocation contract; this skill does not
+invoke agents or persist the legacy fullsend cost log.
