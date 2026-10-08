@@ -283,11 +283,24 @@ jobs:
           STAGED_TAP=""
           BREW_PREFIX=""
           SMOKE_TEST_CASK_INSTALLED=false
+          DEWEY_CASK_WAS_INSTALLED=false
+          OLLAMA_APP_CASK_WAS_INSTALLED=false
+          remove_smoke_test_casks() {
+            local cleanup_status=0
+            brew uninstall --cask --force unbound-force || cleanup_status=$?
+            rm -f "$BREW_PREFIX/bin/uf" || cleanup_status=$?
+            if [ "$DEWEY_CASK_WAS_INSTALLED" = false ] && brew list --cask dewey >/dev/null 2>&1; then
+              brew uninstall --cask --force dewey || cleanup_status=$?
+            fi
+            if [ "$OLLAMA_APP_CASK_WAS_INSTALLED" = false ] && brew list --cask ollama-app >/dev/null 2>&1; then
+              brew uninstall --cask --force ollama-app || cleanup_status=$?
+            fi
+            return "$cleanup_status"
+          }
           cleanup() {
             local status=$? cleanup_status=0
             if [ "$SMOKE_TEST_CASK_INSTALLED" = true ]; then
-              brew uninstall --cask --force unbound-force || cleanup_status=$?
-              rm -f "$BREW_PREFIX/bin/uf" || cleanup_status=$?
+              remove_smoke_test_casks || cleanup_status=$?
             fi
             brew untap unbound-force/staging 2>/dev/null || true
             rm -rf "$STAGED_TAP" "$TRANSFORMER_DIR" || cleanup_status=$?
@@ -354,13 +367,18 @@ jobs:
             echo "::error::Smoke test requires no existing unbound-force Cask or aliases"
             exit 1
           fi
+          if brew list --cask dewey >/dev/null 2>&1; then
+            DEWEY_CASK_WAS_INSTALLED=true
+          fi
+          if brew list --cask ollama-app >/dev/null 2>&1; then
+            OLLAMA_APP_CASK_WAS_INSTALLED=true
+          fi
           SMOKE_TEST_CASK_INSTALLED=true
           brew install --cask unbound-force/staging/unbound-force
           test -x "$BREW_PREFIX/bin/unbound-force"
           test -L "$BREW_PREFIX/bin/uf"
           test -x "$BREW_PREFIX/bin/uf"
-          brew uninstall --cask --force unbound-force
-          rm -f "$BREW_PREFIX/bin/uf"
+          remove_smoke_test_casks
           SMOKE_TEST_CASK_INSTALLED=false
           brew untap unbound-force/staging
 
