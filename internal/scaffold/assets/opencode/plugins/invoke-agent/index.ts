@@ -276,7 +276,9 @@ export function createInvokeAgentTool(dependencies: InvokeAgentDependencies): Re
       promptFile: PromptFileSchema.optional().describe(
         "Absolute path to a file containing the prompt text. Mutually exclusive with prompt. Max 1024 chars.",
       ),
-      model: ModelSchema.optional().describe("Optional direct provider/model-id selected by the dispatch plan."),
+      model: ModelSchema.optional().describe(
+        "Optional direct provider/model-id selected by the dispatch plan. Include the full slug with any @suffix (e.g. provider/model-id@default).",
+      ),
       variant: VariantSchema.optional().describe("Optional direct-model runtime variant."),
       read_only: z.boolean().optional().describe("Invocation provenance only; does not alter permissions."),
       timeout: TimeoutSchema.optional().describe("Optional run timeout in milliseconds (bounded to 1_800_000)."),

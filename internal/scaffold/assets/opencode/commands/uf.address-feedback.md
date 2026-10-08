@@ -363,9 +363,9 @@ silently dropped. One failed run MUST NOT cancel independent runs.
 Write the complete child prompt to a temporary file and call
 `dispatch_agent_run` with `promptFile` set to that path, plus the exact plan
 `agent` and `read_only` value. For `explicit` and `advisor`, pass the exact plan
-`model` and pass `variant` only when non-null. For `host`, omit both fields so
-the plugin resolves and explicitly replays the current assistant model and active
-variant. Never substitute a configured default. Use `dispatch_agent_run` (not
+`model` and pass `variant` only when non-null. For `host`, omit both `model`
+and `tier` so the plugin defaults to the `standard` tier from the review matrix.
+Do not pass `variant` unless the plan specifies one. Use `dispatch_agent_run` (not
 `invoke_agent`) for all dispatch-planned runs.
 
 Every child prompt MUST remain confined to this repository and the frozen PR

@@ -250,8 +250,8 @@ Write the complete child prompt to a temporary file and call
 `dispatch_agent_run` with `promptFile` set to that path, plus the exact `agent`
 and `read_only` value. For `explicit` and `advisor` entries, pass the exact plan
 `model` and pass `variant` only when non-null. For `host` entries, omit both
-`model` and `variant`; the plugin resolves and explicitly replays the current
-assistant model and active variant. Never substitute a configured default. Use
+`model` and `tier`; the plugin defaults to the `standard` tier from the review
+matrix. Do not pass `variant` unless the plan specifies one. Use
 `dispatch_agent_run` (not `invoke_agent`) for all dispatch-planned runs.
 
 Every child prompt MUST include:

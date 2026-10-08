@@ -80,7 +80,6 @@ function toolContext(): ToolContext {
 function makeDeps(overrides?: {
   readText?: (path: string) => Promise<string>
   client?: Client
-  sessionID?: string
   directory?: string
 }): DispatchAgentRunDependencies {
   const readText =
@@ -102,7 +101,6 @@ function makeDeps(overrides?: {
       parseYaml: jsonParser,
     },
     client: overrides?.client ?? fakeClient(),
-    sessionID: overrides?.sessionID ?? "parent-session",
     directory: overrides?.directory ?? "/workspace",
   }
 }

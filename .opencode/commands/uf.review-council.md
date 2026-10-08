@@ -281,9 +281,10 @@ For each executable entry, write the complete child prompt to a temporary
 file and call `dispatch_agent_run` with `promptFile` set to that path,
 plus the exact plan `agent` and `read_only` value. For `explicit` and
 `advisor` sources, pass the plan model and pass its variant only when
-non-null. For `host`, omit both model and variant so the plugin resolves
-and explicitly replays the current assistant model and active variant.
-Never substitute a default. Pass the plan's `limits.per_run_timeout_seconds`
+non-null. For `host`, omit both `model` and `tier` so the plugin
+defaults to the `standard` tier from the review matrix; do not pass
+`variant` unless the plan specifies one.
+Pass the plan's `limits.per_run_timeout_seconds`
 (converted to milliseconds) as `dispatch_agent_run` `timeout` so the
 matrix-configured per-run bound reaches the plugin instead of the built-in
 default. Use `dispatch_agent_run` (not `invoke_agent`) for all

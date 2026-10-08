@@ -115,7 +115,14 @@ export function sanitizeInvocationError(message: string): string {
 }
 
 export function responseFailure(label: string, response: ResponseErrorLike): string {
-  const detail = response.error ?? response.response?.status ?? "missing response data"
+  const error = response.error
+  const status = response.response?.status
+  // Treat empty objects as absent so the HTTP status (if available) takes precedence.
+  const hasError =
+    error !== undefined &&
+    error !== null &&
+    (typeof error !== "object" || Object.keys(error as Record<string, unknown>).length > 0)
+  const detail = hasError ? error : (status !== undefined ? `HTTP ${status}` : "missing response data")
   return sanitizeInvocationError(`${label}: ${errorText(detail)}`)
 }
 
@@ -286,6 +293,10 @@ export async function executeAgentSession(
       body,
       signal: linkedAbort.signal,
     })
+    // Reclassify abort-driven empty responses as cancellation, not prompt failure.
+    if (linkedAbort.signal.aborted) {
+      throw linkedAbort.signal.reason
+    }
     if (prompted.data === undefined) {
       return failedResult(provenance, "child_prompt_failed", responseFailure("prompt child session", prompted), true)
     }
