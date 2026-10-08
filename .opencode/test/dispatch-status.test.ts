@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto"
 import type { PluginInput, ToolContext } from "@opencode-ai/plugin"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { ReviewDispatchPlugin, _getSubmissionStore } from "../plugins/review-dispatch/index.js"
+import { ReviewDispatchPlugin, _getSubmissionStore, _getSessionCorrelationMap } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
 
@@ -99,6 +99,7 @@ const cleanupDirs: string[] = []
 
 afterEach(async () => {
   _getSubmissionStore().clear()
+  _getSessionCorrelationMap().clear()
   await Promise.all(scratchDirectories.splice(0).map((d) => rm(d, { recursive: true, force: true })))
   for (const dir of cleanupDirs) {
     try {
@@ -112,6 +113,7 @@ afterEach(async () => {
 
 beforeEach(() => {
   _getSubmissionStore().clear()
+  _getSessionCorrelationMap().clear()
 })
 
 async function setupDispatchSession(
@@ -121,6 +123,7 @@ async function setupDispatchSession(
   const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
   await mkdir(dir, { recursive: true })
   cleanupDirs.push(dir)
+  _getSessionCorrelationMap().set("status-session", correlationId)
 
   for (const run of runs) {
     await writeFile(join(dir, `run-${run.agent}.json`), JSON.stringify(run, null, 2), "utf8")
@@ -140,7 +143,7 @@ describe("dispatch_status", () => {
       } as unknown as PluginInput)
 
       const result = await hooks.tool.dispatch_status.execute(
-        { correlation_id: randomUUID() },
+        {},
         noopContext(),
       )
 
@@ -165,7 +168,7 @@ describe("dispatch_status", () => {
       } as unknown as PluginInput)
 
       const result = await hooks.tool.dispatch_status.execute(
-        { correlation_id: correlationId },
+        {},
         noopContext(),
       )
 
@@ -190,6 +193,7 @@ describe("dispatch_status", () => {
     const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
     await mkdir(dir, { recursive: true })
     cleanupDirs.push(dir)
+    _getSessionCorrelationMap().set("status-session", correlationId)
     await writeFile(join(dir, "run-divisor-broken.json"), "not valid json", "utf8")
 
     await withBun(async () => {
@@ -201,7 +205,7 @@ describe("dispatch_status", () => {
       } as unknown as PluginInput)
 
       const result = await hooks.tool.dispatch_status.execute(
-        { correlation_id: correlationId },
+        {},
         noopContext(),
       )
 
@@ -236,7 +240,7 @@ describe("dispatch_status", () => {
       } as unknown as PluginInput)
 
       const result = await hooks.tool.dispatch_status.execute(
-        { correlation_id: correlationId },
+        {},
         noopContext(),
       )
 

@@ -1,14 +1,35 @@
 import type { PluginInput, ToolContext } from "@opencode-ai/plugin"
-import { describe, expect, it, vi } from "vitest"
+import { rm } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { describe, expect, it, vi, afterEach } from "vitest"
 
 import {
   createDispatchAgentRunTool,
   dispatchAgentRun,
+  _getSessionCorrelationMap,
   type DispatchAgentRunDependencies,
   type PlannerDependencies,
 } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+// Track dispatch session dirs created by dispatchAgentRun for cleanup.
+const cleanupDirs: string[] = []
+
+afterEach(async () => {
+  _getSessionCorrelationMap().clear()
+  for (const dir of cleanupDirs) {
+    try {
+      await rm(dir, { recursive: true, force: true })
+    } catch {
+      // best-effort
+    }
+  }
+  cleanupDirs.length = 0
+})
 
 type Client = PluginInput["client"]
 
@@ -76,6 +97,11 @@ function toolContext(): ToolContext {
   }
 }
 
+/** Track a dispatch result for temp dir cleanup. */
+function trackForCleanup(correlationId: string): void {
+  cleanupDirs.push(join(tmpdir(), "opencode", `dispatch-${correlationId}`))
+}
+
 function makeDeps(overrides?: {
   readText?: (path: string) => Promise<string>
   client?: Client
@@ -113,9 +139,13 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.text).toBe("review output")
+      // Auto-generated correlation_id and run_id are valid UUIDs.
+      expect(result.correlation_id).toMatch(UUID_RE)
+      expect(result.run_id).toMatch(UUID_RE)
       // The matrix fixture has standard profile with model "provider/standard".
       expect(result.provenance.requested_model).toBe("provider/standard")
       expect(result.provenance.requested_variant).toBe("high")
@@ -129,6 +159,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       // The matrix fixture has lightweight profile with model "provider/light".
@@ -145,6 +176,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.provenance.requested_model).toBe("custom-provider/custom-model@v2")
@@ -163,6 +195,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.provenance.requested_model).toBe("custom-provider/custom-model")
@@ -178,8 +211,11 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
+      expect(result.correlation_id).toMatch(UUID_RE)
+      expect(result.run_id).toMatch(UUID_RE)
       // Should resolve via the "standard" profile: model "provider/standard".
       expect(result.provenance.requested_model).toBe("provider/standard")
       expect(result.provenance.requested_variant).toBe("high")
@@ -318,6 +354,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.provenance).toMatchObject({
@@ -345,6 +382,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.provenance).toMatchObject({
@@ -364,6 +402,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.provenance.read_only).toBe(true)
@@ -389,6 +428,7 @@ describe("dispatch_agent_run", () => {
         toolContext(),
         deps,
       )
+      trackForCleanup(result.correlation_id)
 
       expect(result.status).toBe("success")
       expect(result.text).toBe("review output")
@@ -448,6 +488,28 @@ describe("dispatch_agent_run", () => {
     })
   })
 
+  describe("session-based correlation", () => {
+    it("reuses the same correlation_id for multiple calls in the same session", async () => {
+      const deps = makeDeps()
+      const ctx = toolContext()
+      const result1 = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "First review." },
+        ctx,
+        deps,
+      )
+      trackForCleanup(result1.correlation_id)
+      const result2 = await dispatchAgentRun(
+        { agent: "divisor-adversary", prompt: "Second review." },
+        ctx,
+        deps,
+      )
+
+      expect(result1.correlation_id).toMatch(UUID_RE)
+      expect(result2.correlation_id).toBe(result1.correlation_id)
+      expect(result1.run_id).not.toBe(result2.run_id)
+    })
+  })
+
   describe("createDispatchAgentRunTool factory", () => {
     it("creates a tool with description and expected args", () => {
       const deps = makeDeps()
@@ -456,7 +518,6 @@ describe("dispatch_agent_run", () => {
       expect(dispatchTool.description).toContain("Divisor review-agent run")
       expect(Object.keys(dispatchTool.args).sort()).toEqual([
         "agent",
-        "correlation_id",
         "model",
         "prompt",
         "promptFile",
