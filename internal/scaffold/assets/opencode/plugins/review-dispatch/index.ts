@@ -3111,10 +3111,12 @@ export function createConsolidateDispatchTool(
   return tool({
     description:
       "Consolidate all dispatch_agent_run results from this session, deduplicate findings, compute verdict, " +
-      "and optionally finalize the dispatch artifact in one step. " +
+      "collect lesson proposals, and optionally finalize the dispatch artifact in one step. " +
       "Reads session metadata (command, mode, plan, coverage, etc.) from the file persisted by the first " +
       "dispatch_agent_run call. When provenance is provided, calls finalize_review_dispatch internally " +
       "(no LLM round-trip) and returns the finalization result directly. When omitted, returns the payload JSON. " +
+      "Lesson proposals submitted by child agents are collected and returned in a top-level proposals array; " +
+      "call dewey_store_learning for each. " +
       "Automatically resolves the dispatch session from prior dispatch_agent_run calls.",
     args: {
       provenance: ArtifactProvenanceSchema.optional().describe(
@@ -3176,6 +3178,11 @@ export function createConsolidateDispatchTool(
           return { output: `consolidate_dispatch error: failed to read ${file}: ${errorText(error)}` }
         }
       }
+
+      // Collect lesson proposals from all runs, tagged with agent name.
+      const collectedProposals = runs.flatMap((run) =>
+        run.proposals.map((p) => ({ agent: run.agent, information: p.information, tag: p.tag, category: p.category })),
+      )
 
       // Deduplicate findings across all runs.
       const consolidatedFindings = deduplicateFindings(runs)
@@ -3253,10 +3260,22 @@ export function createConsolidateDispatchTool(
           { payload, provenance: input.provenance },
           finalizationDependencies,
         )
-        return { output: JSON.stringify(result, null, 2) }
+        return {
+          output: JSON.stringify(
+            { ...result, proposals: collectedProposals.length > 0 ? collectedProposals : undefined },
+            null,
+            2,
+          ),
+        }
       }
 
-      return { output: JSON.stringify(payload, null, 2) }
+      return {
+        output: JSON.stringify(
+          { ...payload, proposals: collectedProposals.length > 0 ? collectedProposals : undefined },
+          null,
+          2,
+        ),
+      }
     },
   })
 }
