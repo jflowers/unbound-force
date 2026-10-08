@@ -1579,18 +1579,6 @@ async function loadPolicies(dependencies: PlannerDependencies): Promise<{
     // Override file does not exist — use base as-is.
   }
 
-  // Soft-gate warning: when no profile has a model AND no override file is present,
-  // all runs will use host model resolution.
-  if (overrideText === null) {
-    const hasAnyModel = Object.values(baseMatrix.profiles).some((p) => p.model !== undefined)
-    if (!hasAnyModel) {
-      console.warn(
-        "review-dispatch: no profile has a model field and no .uf/review-matrix.override.yaml is present — " +
-          "all runs will use host model resolution",
-      )
-    }
-  }
-
   let matrix = baseMatrix
   if (overrideText !== null) {
     try {
@@ -1601,7 +1589,6 @@ async function loadPolicies(dependencies: PlannerDependencies): Promise<{
         matrix = baseMatrix
       } else {
         const merged = mergeOverride(baseMatrix, override as Record<string, unknown>)
-        console.debug("review-dispatch: loaded override file", MATRIX_OVERRIDE_PATH)
         // Re-validate merged result against the schema and use the sanitized clone.
         matrix = parseReviewMatrix(
           JSON.stringify(merged),
