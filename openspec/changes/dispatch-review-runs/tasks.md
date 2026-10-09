@@ -69,7 +69,8 @@
 - [ ] 3.1 Sync plugin to canonical:
   `cp .opencode/plugins/review-dispatch/index.ts
   internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`.
-  Verify byte-identical.
+  Verify byte-identical via the existing drift detection
+  tests in `internal/scaffold/scaffold_test.go`.
   Files: `internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`
 
 - [ ] 3.2 [P] Sync command files to canonical:
@@ -112,8 +113,9 @@
 - [ ] 5.2 Run `make check` — full CI parity (Go lint,
   vet, test, build, coverage-gate, plugin tests).
 
-- [ ] 5.3 Verify constitution alignment: tool composes
-  existing standalone functions (Principle I/II),
-  returns structured machine-parseable output
-  (Principle III), is testable with injectable
-  dependencies (Principle IV).
+- [ ] 5.3 Verify constitution alignment covers all five
+  principles: composes existing standalone functions
+  (Principle I/II), returns structured machine-parseable
+  output (Principle III), is testable with injectable
+  dependencies (Principle IV), introduces no new input
+  surfaces or dependencies (Principle V).

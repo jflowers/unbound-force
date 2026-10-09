@@ -4,9 +4,11 @@ The review dispatch pipeline currently requires the
 orchestrating agent to make 7-8 sequential tool calls with
 no creative decisions between them: acquire sibling evidence,
 build prompt files for each agent, then dispatch each agent
-run. The agent also calls `dispatch_status` before
+run. Agents also commonly call `dispatch_status` before
 `consolidate_dispatch` even though consolidation reads the
-same run files.
+same run files. This is emergent agent behavior (not
+prescribed in command files) but is consistently observed
+across sessions.
 
 The `build_review_prompts` tool (from the prior change)
 already eliminated prompt assembly reasoning. This change
@@ -35,6 +37,9 @@ phase from ~8 calls to 1.
 - Aggregating the full pipeline end-to-end (plan → dispatch →
   consolidate → finalize) — the agent still decides when to
   plan, when to dispatch, and when to consolidate
+- Including `speckit-testreview` as a consumer — that command
+  uses a single-agent dispatch flow and does not benefit from
+  the multi-run aggregation this tool provides
 
 ## Decisions
 
@@ -121,12 +126,14 @@ in separate sessions.
 
 ### R2: Error recovery granularity
 
-If evidence acquisition fails, the entire tool call fails
-before any runs start. With individual calls, the agent
-could decide to proceed without evidence. Mitigated by:
-evidence acquisition rarely fails, and when it does, a
-retry of the single tool call is simpler than reconstructing
-the multi-call sequence.
+With individual calls, the agent could decide to proceed
+without evidence on failure. The aggregated tool handles
+this internally: if evidence acquisition fails, it proceeds
+with empty sibling evidence rather than failing the entire
+call (see FR-010). This graceful degradation is baked into
+the tool, removing the need for agent-level error recovery
+logic. Evidence acquisition rarely fails, and the tool
+logs the failure in its `warnings` output.
 
 ### R3: Testing complexity
 
