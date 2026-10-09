@@ -418,16 +418,12 @@ It MUST include, without weakening existing instructions:
   review, executing any Prior Learnings queries, loading Source
   Documents, and applying Convention Pack markers defined therein.
 
-Require each response to contain `**Model**: <family>`, one native
-council verdict, and structured findings with severity, category,
-description, root cause, nullable file, and nullable line. It MAY
-contain at most one exact delimited lesson proposal section:
-
-```text
-<!-- uf-lesson-proposal:v1 -->
-<one JSON object>
-<!-- /uf-lesson-proposal -->
-```
+Require each response to contain `**Model**: <family>` and one native
+council verdict. The child MUST call `submit_review_findings` with all
+findings (each with severity, category, description, root_cause,
+nullable file, and nullable line). The child MAY call
+`submit_lesson_proposal` with at most one lesson proposal (information,
+tag, and optional category). These are tool calls, not text formatting.
 
 ### 6. Consolidate Successful Runs
 

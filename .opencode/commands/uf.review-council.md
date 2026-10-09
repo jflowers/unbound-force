@@ -311,22 +311,18 @@ MUST include, without weakening existing instructions:
 Do not truncate required review context to satisfy the invocation bound.
 If the complete required prompt file exceeds the plugin limit, record a
 failed non-voting run and apply no-success cause precedence. The
-`dispatch_agent_run` `promptFile` is bounded to 1 MiB UTF-8; on changes
+`dispatch_agent_run` `promptFile` is bounded to 4 MiB UTF-8; on changes
 whose complete immutable diff plus review context exceeds that bound,
 every included run fails the invoke boundary, the dispatch records a
 `UNAVAILABLE` or `INCONCLUSIVE` no-success result, and automated
 progression is blocked rather than silently truncated.
 
-Require each response to contain `**Model**: <family>`, one native council
-verdict, and structured findings with severity, category, description,
-root cause, nullable file, and nullable line. It MAY contain at most one
-exact delimited lesson proposal section:
-
-```text
-<!-- uf-lesson-proposal:v1 -->
-<one JSON object>
-<!-- /uf-lesson-proposal -->
-```
+Require each response to contain `**Model**: <family>` and one native
+council verdict. The child MUST call `submit_review_findings` with all
+findings (each with severity, category, description, root_cause,
+nullable file, and nullable line). The child MAY call
+`submit_lesson_proposal` with at most one lesson proposal (information,
+tag, and optional category). These are tool calls, not text formatting.
 
 Do not inject a requested model or variant as the self-report. Preserve
 requested model/variant, resolved parent model/variant, reported child

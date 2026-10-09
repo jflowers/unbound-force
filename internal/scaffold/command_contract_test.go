@@ -123,6 +123,7 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 						"acquire_sibling_evidence",
 						"plan_review_dispatch",
 						"invoke_agent",
+						"submit_lesson_proposal",
 						"prepare_lesson_learning",
 						"finalize_review_dispatch",
 					}
@@ -154,14 +155,16 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 					assertNormalizedContains(t, copy.name, normalized, "resolved provenance", "resolved")
 					assertNormalizedContains(t, copy.name, normalized, "reported provenance", "reported")
 
-					for delimiter, want := range map[string]int{
-						"<!-- uf-lesson-proposal:v1 -->": 1,
-						"<!-- /uf-lesson-proposal -->":   1,
-					} {
-						if got := strings.Count(copy.text, delimiter); got != want {
-							t.Errorf("%s: lesson delimiter %q occurs %d times, want %d", copy.name, delimiter, got, want)
+					// submit_lesson_proposal is in all commands; submit_review_findings
+				// only in commands whose children produce code-review findings
+				// (not triage-issue, which produces verdict/category assessments).
+				if strings.Contains(normalized, "submit_review_findings") {
+						if got := strings.Count(normalized, "submit_review_findings"); got != 1 {
+							t.Errorf("%s: submit_review_findings occurs %d times, want 1", copy.name, got)
 						}
-					}
+				} else if command.name != "uf.triage-issue.md" {
+						t.Errorf("%s: expected submit_review_findings for non-triage command", copy.name)
+				}
 				})
 			}
 		})

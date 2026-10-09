@@ -394,13 +394,11 @@ assessment containing:
 | **suggested_approach** | Concrete approach for `ACCEPT`, otherwise nullable |
 | **findings** | Structured severity/category/description/root-cause/location records |
 
-The child MAY append at most one exact lesson proposal:
-
-```text
-<!-- uf-lesson-proposal:v1 -->
-<one JSON object>
-<!-- /uf-lesson-proposal -->
-```
+The child MUST call `submit_review_findings` with all findings (each
+with severity, category, description, root_cause, nullable file, and
+nullable line). The child MAY call `submit_lesson_proposal` with at most
+one lesson proposal (information, tag, and optional category). These are
+tool calls, not text formatting.
 
 Missing or malformed structured output or model self-report is an
 `invalid_output` failed run. Do not inject the requested model or variant as
