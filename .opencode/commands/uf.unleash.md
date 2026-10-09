@@ -709,16 +709,10 @@ Present structured demo instructions to the developer.
      in `FEATURE_DIR/tasks.md`. OpenSpec changes do not
      have a `quickstart.md`.
 
-3. **Key Files Changed**: run:
-   ```bash
-   git diff --name-only main...HEAD
-   ```
-   List the changed files grouped by directory.
-
-4. **Test Results**: summarize the test output from the
+3. **Test Results**: summarize the test output from the
    most recent build/test checkpoint.
 
-5. **Next Steps**: always present exactly these two
+4. **Next Steps**: always present exactly these two
    options as shown in the format block below — do not
    paraphrase, add, or remove options.
    **Note**: The pre-PR `/uf.review-council` requirement
@@ -737,10 +731,6 @@ Format the output as:
 
 [verification commands from quickstart.md or acceptance
  scenarios]
-
-## Key Files Changed
-
-[grouped file list from git diff]
 
 ## Test Results
 
