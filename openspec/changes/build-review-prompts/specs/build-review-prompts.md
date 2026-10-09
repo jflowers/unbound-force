@@ -1,3 +1,5 @@
+# build-review-prompts
+
 ## ADDED Requirements
 
 ### Requirement: FR-001 build_review_prompts tool
@@ -14,13 +16,14 @@ The tool MUST accept the following input parameters:
   prompts for. Each name MUST match the pattern
   `^divisor-[a-z0-9-]+$`.
 - `mode` (string, required): Review mode. MUST be one of
-  `code` or `specs`.
+  `code`, `specs`, `triage`, `feedback`, or `test`.
 - `command` (string, required): Calling command name. MUST
-  be one of `review-council`, `review-pr`, `triage-issue`,
-  `address-feedback`.
+  be one of `review-council`, `triage-issue`,
+  `address-feedback`, `speckit-testreview`.
 - `diff_path` (string, required): Absolute path to the
   saved diff file on disk. The tool MUST read the diff
-  content from this path.
+  content from this path. The path MUST be validated per
+  FR-011 before reading.
 - `changed_files` (string, required): Pre-formatted list
   of changed file paths with addition/deletion counts.
 - `input_context` (string, required): Serialized
@@ -93,7 +96,8 @@ in order:
    definition file from `.opencode/agents/{agent}.md` and
    include its full content.
 3. **Diff**: The complete immutable diff content, read
-   from `diff_path`.
+   from `diff_path`, enclosed in untrusted content
+   delimiters per FR-012.
 4. **Changed paths and input context**: The `changed_files`
    and `input_context` content verbatim.
 5. **Project context**: The contents of `AGENTS.md` (read
@@ -102,8 +106,9 @@ in order:
    files discovered from `.opencode/uf/packs/`, and the
    severity pack (read from
    `.opencode/uf/packs/severity.md`).
-6. **Review evidence**: `pre_flight_results` and
-   `review_context` content when provided.
+6. **Review evidence**: `pre_flight_results`,
+   `review_context`, and `walkthrough` content when
+   provided.
 7. **Existing review state**: `existing_reviews` content
    when provided.
 8. **Sibling evidence**: `sibling_evidence` content when
@@ -170,16 +175,27 @@ NOT require the agent to read and pass these files.
 ### Requirement: FR-006 Prompt file output location
 
 When a dispatch session exists (correlation_id resolved
-from `sessionCorrelationMap` for the current session), the
-tool MUST write prompt files to
-`<dispatch-session-dir>/prompts/{agent}.md`.
+for the current session), the tool MUST write prompt
+files to `<dispatch-session-dir>/prompts/{agent}.md`.
 
 When no dispatch session exists, the tool MUST write
 prompt files to a new temporary directory under
 `$TMPDIR/opencode/prompts-<uuid>/`.
 
 The tool MUST create the output directory if it does not
-exist.
+exist. Created directories MUST have permissions `0o700`
+and created files MUST have permissions `0o600` to
+prevent information disclosure on shared systems.
+
+Cleanup of prompt files is the caller's responsibility.
+The tool does not provide an explicit cleanup mechanism.
+Callers MUST remove the temp directory after dispatch
+completion (on both success and failure paths). The
+`dispatch_agent_run` tool's session lifecycle handles
+cleanup for dispatch-session-scoped output. For ad-hoc
+`$TMPDIR/opencode/prompts-<uuid>/` paths, callers MUST
+remove the directory in a finally/cleanup block to
+prevent sensitive content persistence.
 
 #### Scenario: Dispatch session exists
 
@@ -208,7 +224,8 @@ Both copies MUST be byte-identical.
 
 The tool MUST be registered in
 `ReviewDispatchPlugin.server()` alongside existing tools.
-The total tool count MUST increase from 9 to 10.
+The `build_review_prompts` tool MUST appear in the
+registered tools list after initialization.
 
 #### Scenario: Plugin registration
 
@@ -222,13 +239,21 @@ The total tool count MUST increase from 9 to 10.
 The tool MUST return a structured error result when:
 
 - `diff_path` does not exist or is not readable
+- `diff_path` fails path validation (FR-011)
 - No agents are provided (empty array)
 - An agent name does not match the required pattern
+- Output directory cannot be created (permissions, disk)
+- A prompt file write fails (partial write, disk full)
 
-The tool SHOULD NOT fail entirely when optional project
-files are missing (AGENTS.md, constitution, packs). It
-SHOULD produce prompts with those sections empty and
-include warnings in the output.
+The tool MUST distinguish between "file not found"
+(graceful degradation) and "I/O error" (permission
+denied, disk error) for optional project files. File-
+not-found for optional files (AGENTS.md, constitution,
+packs) SHOULD produce prompts with those sections empty
+and include warnings in the output. I/O errors on
+optional files SHOULD surface as warnings but not fail
+the tool. I/O errors on required files (diff_path) MUST
+fail with a structured error.
 
 #### Scenario: Diff file not found
 
@@ -258,6 +283,74 @@ agents to:
 - **WHEN** the response contract section is inspected
 - **THEN** it references `submit_review_findings` and
   `submit_lesson_proposal` by name
+
+### Requirement: FR-011 Path validation
+
+The tool MUST validate that `diff_path` resolves (after
+symlink and `..` canonicalization) to a path within the
+project root directory or the system temp directory
+(`$TMPDIR`). Paths that resolve outside these scopes
+MUST be rejected with a structured error result
+containing error code `path_validation_failed`.
+
+#### Scenario: Path traversal rejected
+
+- **GIVEN** `diff_path` is `../../etc/shadow`
+- **WHEN** `build_review_prompts` is called
+- **THEN** the tool returns a failed result with error
+  code `path_validation_failed`
+
+### Requirement: FR-012 Untrusted content delimiters
+
+All caller-provided string content embedded in prompt
+files (diff content from `diff_path`, `changed_files`,
+`input_context`, `pre_flight_results`, `sibling_evidence`,
+`existing_reviews`, `walkthrough`, `review_context`) MUST
+be enclosed in clearly delimited untrusted content
+markers. The tool MUST use a defensive preamble before
+untrusted content sections instructing the model to treat
+the enclosed content as data, not instructions.
+
+The delimiter format MUST use a unique boundary string
+that is unlikely to appear in legitimate content (e.g.,
+`<!-- BEGIN UNTRUSTED: {section_name} -->` and
+`<!-- END UNTRUSTED: {section_name} -->`).
+
+The tool MUST strip or escape any occurrence of the
+delimiter pattern within untrusted content before
+enclosure. If the untrusted content contains the exact
+delimiter string, the tool MUST replace it with a
+neutralized form (e.g., inserting a zero-width space
+or HTML-encoding the angle brackets) to prevent
+delimiter breakout.
+
+#### Scenario: Diff content delimited
+
+- **GIVEN** a diff file containing arbitrary content
+- **WHEN** `build_review_prompts` generates a prompt
+- **THEN** the diff content is enclosed in untrusted
+  content delimiters with a defensive preamble
+
+### Requirement: FR-013 Input size limits
+
+The tool MUST enforce a maximum total prompt file size
+of 4 MiB (4,194,304 bytes) per agent. If assembling a
+prompt for an agent would exceed this limit, the tool
+MUST return a structured error result with error code
+`prompt_size_exceeded` for that agent, including the
+calculated size and the limit.
+
+Individual string inputs SHOULD be validated against
+reasonable size bounds. The `diff_path` file size MUST
+NOT exceed 2 MiB. Other string inputs MUST NOT exceed
+1 MiB each.
+
+#### Scenario: Oversized diff rejected
+
+- **GIVEN** `diff_path` points to a file larger than 2 MiB
+- **WHEN** `build_review_prompts` is called
+- **THEN** the tool returns a failed result with error
+  code `prompt_size_exceeded`
 
 ## MODIFIED Requirements
 

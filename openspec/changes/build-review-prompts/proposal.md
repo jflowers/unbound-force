@@ -40,12 +40,12 @@ files for each included Divisor agent run.
   `{ prompts: [{ agent, path, size_bytes }] }`.
 
 ### Modified Capabilities
-- Command files (`uf.review-council`, `uf.review-pr`,
-  `uf.triage-issue`, `uf.address-feedback`): Replace prompt
-  construction prose with a single `build_review_prompts` call.
-  Each command still owns its own review context gathering (CI
-  checks, diff fetch, pre-flight, sibling evidence) — the tool
-  only handles assembly.
+- Command files (`uf.review-council`, `uf.triage-issue`,
+  `uf.address-feedback`, `speckit-testreview`): Will replace
+  prompt construction prose with a single
+  `build_review_prompts` call in a subsequent change. This
+  change defines and implements the tool only; command file
+  migration is tracked independently.
 
 ### Removed Capabilities
 - None. The tool is additive. Manual prompt construction
@@ -57,8 +57,8 @@ files for each included Divisor agent run.
   prose replaced per command by a single tool call.
 - **review-dispatch plugin**: New tool registered alongside
   existing 9 tools (10 total).
-- **Shared lib**: New template constants in
-  `.opencode/lib/` or inline in the tool.
+- **Template constants**: Static prompt template constants
+  inline in `review-dispatch/index.ts` (per design D1).
 - **Dual-copy sync**: Both `.opencode/plugins/` and
   `internal/scaffold/assets/opencode/plugins/` copies.
 - **Tests**: New test file for the tool + updated smoke and
@@ -107,3 +107,17 @@ directory. All I/O dependencies are injectable via the existing
 `readText`/`readFile` patterns. Tests can provide fixture agent
 definitions, convention packs, and diff content without
 requiring external services or network access.
+
+### V. Security by Default
+
+**Assessment**: PASS
+
+The tool validates `diff_path` against path traversal (FR-011),
+encloses all caller-provided content in untrusted content
+delimiters to mitigate prompt injection (FR-012), enforces
+input size limits (FR-013), and writes output files with
+restrictive permissions (FR-006: 0o700 dirs, 0o600 files).
+Input validation is enforced by the Zod schema for agent name
+patterns. The tool reads files from known project-relative
+paths and the validated `diff_path`, applying least-privilege
+I/O scope.
