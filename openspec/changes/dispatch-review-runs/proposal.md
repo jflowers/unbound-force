@@ -16,10 +16,11 @@ and construct the next call. Between these calls, the
 agent spends 15-50 seconds "thinking" about what is
 actually a deterministic pipeline.
 
-Additionally, `dispatch_status` is called before
-`consolidate_dispatch` in every session even though
+Additionally, agents commonly call `dispatch_status`
+before `consolidate_dispatch` in every session even though
 `consolidate_dispatch` reads the same run files — this
-is a redundant tool call that wastes tokens and time.
+is emergent agent behavior (not prescribed in command
+files) that wastes tokens and time.
 
 ## What Changes
 
@@ -73,6 +74,11 @@ consolidation tool already reads the same data.
   `internal/scaffold/assets/opencode/plugins/` copies.
 - **Tests**: New test file + updated smoke/integration
   tests for tool count.
+- **Documentation**: AGENTS.md project structure
+  (plugin tool count), CHANGELOG.md entry for new tool
+  and command file simplification. Documentation issue
+  to be assessed at implementation time per the
+  documentation gate.
 
 ## Constitution Alignment
 
@@ -118,3 +124,15 @@ tests verify the orchestration sequence: evidence
 acquired, prompts built, runs dispatched, results
 aggregated. All dependencies are injectable via the
 existing factory pattern.
+
+### V. Security by Default
+
+**Assessment**: N/A
+
+This change introduces no new external input surfaces,
+dependencies, or privilege boundaries. The tool
+orchestrates existing functions that already validate
+their inputs. No new secrets, file permissions, or
+shell execution paths are introduced. Supply chain
+integrity is maintained through the existing dual-copy
+sync and drift detection pattern.

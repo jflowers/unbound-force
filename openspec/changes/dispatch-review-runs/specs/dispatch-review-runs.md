@@ -11,11 +11,11 @@ a single deterministic tool call.
 
 The tool MUST accept the following input parameters:
 
-- `mode` (string, required): Review mode (`code` or
-  `specs`).
+- `mode` (string, required): Review mode (`code`,
+  `specs`, `triage`, or `feedback`).
 - `command` (string, required): Calling command name
   (`review-council`, `review-pr`, `triage-issue`,
-  `address-feedback`).
+  `address-feedback`, `speckit-testreview`).
 - `diff_path` (string, required): Absolute path to the
   saved diff file on disk.
 - `changed_files` (string, required): Pre-formatted list
@@ -63,7 +63,8 @@ The tool MUST return a JSON object with shape:
   runs_failed: number,
   runs_skipped: number,
   findings: number,
-  proposals: number
+  proposals: number,
+  warnings: string[]
 }
 ```
 
@@ -181,8 +182,8 @@ Both copies MUST be byte-identical.
 If `acquireSiblingEvidence` fails, the tool MUST still
 attempt to build prompts and dispatch runs using empty
 sibling evidence, rather than failing entirely. The
-evidence failure SHOULD be recorded as a warning in the
-output.
+evidence failure MUST be recorded in the `warnings`
+array of the output (see FR-003).
 
 #### Scenario: Evidence unavailable
 
