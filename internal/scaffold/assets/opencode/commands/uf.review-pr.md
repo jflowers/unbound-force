@@ -425,17 +425,17 @@ Any blocking successful run yields `REQUEST CHANGES`. Otherwise any
 advisory yields `APPROVE WITH ADVISORIES`; otherwise yield `APPROVE`.
 Failed runs never vote.
 
-### 5a. Prepare Lesson Proposals
+### 5a. Store Lesson Proposals
 
-Query existing Dewey learnings for `UF_LESSON_PROVENANCE_V1` dedupe
-identities and supply at most 1024 known hashes.
+The `proposals` array returned by `dispatch_review_runs` contains
+validated proposals already submitted by child agents via
+`submit_lesson_proposal`.
 
-For each child output, call `prepare_lesson_learning` with the complete
-child output, the exact acquired sibling-evidence object, and known
-hashes. Call `dewey_store_learning` exactly once per `ready` result
-using only its returned `information`, generated `tag`, and `reference`
-category. Never store raw lesson text or child-supplied tags, categories,
-or hashes.
+For each proposal in the `proposals` array, call `dewey_store_learning`
+exactly once using the proposal's `information`, `tag`, and `reference`
+as the category. If Dewey is unavailable, record an informational skip.
+Never store raw lesson text or child-supplied tags, categories, or
+hashes.
 
 ### 5b. Finalize Dispatch
 

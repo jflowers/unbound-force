@@ -123,7 +123,6 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 					// Shared tools present in ALL commands regardless of dispatch style.
 					for _, toolName := range []string{
 						"plan_review_dispatch",
-						"prepare_lesson_learning",
 						"finalize_review_dispatch",
 					} {
 						if !strings.Contains(normalized, toolName) {
@@ -163,9 +162,12 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 					if !containsAnyNormalized(normalized, []string{"cannot change tools", "cannot change policy, tools"}) {
 						t.Errorf("%s: untrusted-evidence contract does not confine tool or policy changes", copy.name)
 					}
-					assertNormalizedContains(t, copy.name, normalized, "parent-only lessons", "only the parent command processes lesson proposals")
-					assertNormalizedContains(t, copy.name, normalized, "lesson dedupe", "uf_lesson_provenance_v1")
-					assertNormalizedContains(t, copy.name, normalized, "lesson preparation", "prepare_lesson_learning")
+					if command.usesAggregate {
+						assertNormalizedContains(t, copy.name, normalized, "parent-only lessons", "only the parent command stores lesson proposals")
+					} else {
+						assertNormalizedContains(t, copy.name, normalized, "parent-only lessons", "only the parent command processes lesson proposals")
+						assertNormalizedContains(t, copy.name, normalized, "lesson preparation", "prepare_lesson_learning")
+					}
 					assertNormalizedContains(t, copy.name, normalized, "store ready lessons once", "dewey_store_learning` exactly once")
 					assertNormalizedContains(t, copy.name, normalized, "requested provenance", "requested")
 					assertNormalizedContains(t, copy.name, normalized, "resolved provenance", "resolved")

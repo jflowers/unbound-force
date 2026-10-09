@@ -93,11 +93,13 @@ or human review.
 
 ## Invocation Tool
 
-All dispatch-planned runs MUST be executed through `dispatch_agent_run`, not
-`invoke_agent`. The `dispatch_agent_run` tool is purpose-built for planned
-Divisor review runs and supports `promptFile` for large prompts (up to 1 MiB).
-Write the complete child prompt to a temporary file and pass it via `promptFile`.
-Reserve `invoke_agent` for ad-hoc, non-dispatch agent calls only.
+All dispatch-planned runs MUST be executed through `dispatch_review_runs`,
+not `invoke_agent` or individual `dispatch_agent_run` calls.
+`dispatch_review_runs` acquires sibling evidence, builds review prompts,
+and dispatches all included plan entries in parallel batches — replacing
+7-8 sequential tool calls with one deterministic aggregation. Pass the
+plan entries array from `plan_review_dispatch` directly. Reserve
+`invoke_agent` for ad-hoc, non-dispatch agent calls only.
 
 Execution belongs to the separate invocation contract; this skill does not
 invoke agents or persist the legacy fullsend cost log.
