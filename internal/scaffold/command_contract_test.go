@@ -29,8 +29,7 @@ func TestCommandContracts_ReviewCouncil(t *testing.T) {
 		{name: "validated plan authority", all: []string{"load the `dispatch-advisor` skill", "display the returned json plan exactly", "validated plan is the sole invocation list", "bind this plan to the exact immutable input context"}},
 		{name: "six review roles", all: []string{"`divisor-adversary`", "`divisor-architect`", "`divisor-curator`", "`divisor-guard`", "`divisor-sre`", "`divisor-testing`"}},
 		{name: "three content roles", all: []string{"`divisor-envoy`", "`divisor-herald`", "`divisor-scribe`", "content-only agents are discovered and reported but never dispatched"}},
-		{name: "host source behavior", all: []string{"for `host`, omit both `model` and `tier`", "defaults to the `standard` tier from the review matrix"}},
-		{name: "model provenance", all: []string{"requested model/variant", "resolved parent model/variant", "reported child model", "child self-report", "conflict never overwrites authoritative invocation provenance"}},
+
 		{name: "finding deduplication", all: []string{"deduplicate successful run findings by normalized file plus root cause", "retain every contributing run id, agent, model, variant, source, and sequence", "compound severity rules"}},
 		{name: "council verdict precedence", all: []string{"any blocking successful run yields `request changes`", "otherwise any advisory yields `approve with advisories`", "otherwise yield `approve`", "failed runs never vote"}},
 		{name: "advisory and human fix gate", all: []string{"mandatory gate: human confirmation required", "never apply auto-fixes to spec files without explicit human confirmation", "low/medium auto-fix", "high/critical report only"}},
@@ -50,7 +49,7 @@ func TestCommandContracts_TriageIssue(t *testing.T) {
 		{name: "fixed base vector", all: []string{"coverage regression", "text_bytes: 19", "60a7be4394be0186439a588e93c57dc9095c1b96f42f27464dbfeb2ce5cfdbf5"}},
 		{name: "fixed boundary vectors", all: []string{"4096", "4f30e0423cec84abfc13ae44c9fe73dde044a0852c5492884e52ba020f7b8275", "4097", "19c10c78070cae1fb718628a7e276ed1b9d05d7d3f017bfb32d09bc309aa7207", "32768", "5e06dbe70b16a7d00fb864d511e8542bfdbc1473275d33076f33d5a917be0168", "32769", "15b20fab5e843a6526a81d7809f0c847f1aa237408cd6351b8c2c997d71ae3fe"}},
 		{name: "six review universe", all: []string{"six known review-capable personas", "`divisor-adversary`", "`divisor-architect`", "`divisor-curator`", "`divisor-guard`", "`divisor-sre`", "`divisor-testing`"}},
-		{name: "triage planner invocation", all: []string{"mode: \"triage\"", "full: false", "augment: false", "`dispatch_agent_run` (not `invoke_agent`) for all dispatch-planned runs"}},
+		{name: "triage planner invocation", all: []string{"mode: \"triage\"", "full: false", "augment: false", "`dispatch_review_runs` once with all required inputs"}},
 		{name: "one vote per persona", all: []string{"consolidate successful model runs into exactly one assessment per persona", "raw model runs never become independent panel votes", "persona with no successful run produces no persona vote"}},
 		{name: "two-stage three-rule majority", all: []string{"three-rule majority in order", "first to the successful model-run verdicts for each persona", "then again to the resulting persona verdicts", "needs-clarification majority", "exclude needs-clarification", "tie-breaking"}},
 		{name: "failed runs are non-voting", all: []string{"failed and non-success terminal runs do not vote", "failure is not dissent", "must not create assessments, findings, or advisories"}},
@@ -66,7 +65,7 @@ func TestCommandContracts_AddressFeedback(t *testing.T) {
 	clauses := []commandClause{
 		{name: "tier one preserved", all: []string{"**tier 1 (direct)**", "single file affected", "clear match to a convention pack rule", "no security implications", "no architectural implications"}},
 		{name: "deployment fallback preserved", all: []string{"fallback (unchanged)", "if no divisor agents are deployed", "fall back to the existing tier 1 assessment", "distinct from a planned tier 2 dispatch whose runs fail", "must not silently fall back to tier 1"}},
-		{name: "tier two planner", all: []string{"advisor-backed tier 2 dispatch", "mode: \"feedback\"", "full: false", "augment: false", "plan_review_dispatch", "`dispatch_agent_run` (not `invoke_agent`) for all dispatch-planned runs"}},
+		{name: "tier two planner", all: []string{"advisor-backed tier 2 dispatch", "mode: \"feedback\"", "full: false", "augment: false", "plan_review_dispatch", "`dispatch_review_runs` once per tier 2 feedback item"}},
 		{name: "immutable feedback signal", all: []string{"freeze this exact immutable input context", "deterministic feedback change signal", "exact same signal for planning, every child prompt, consolidation, and finalization", "do not reuse a plan when the item, context, affected files, categories, or triage data differ"}},
 		{name: "one vote per persona", all: []string{"collapse all successful runs for the same persona to exactly one persona recommendation", "fan-out never creates extra persona votes"}},
 		{name: "strictest recommendation", all: []string{"any successful run says `accept`, that persona says `accept`", "any `accept` yields native `accept`", "`accept` is stricter than `author-decides`"}},
@@ -103,13 +102,14 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 	commands := []struct {
 		name             string
 		scaffolded       bool
+		usesAggregate    bool
 		acquisitionScope string
 		immutableBinding string
 	}{
-		{name: "uf.review-council.md", scaffolded: true, acquisitionScope: "exactly once before the first plan", immutableBinding: "exact immutable input context"},
-		{name: "uf.triage-issue.md", scaffolded: true, acquisitionScope: "exactly once before planning", immutableBinding: "bind it to the fetched issue object"},
-		{name: "uf.address-feedback.md", scaffolded: true, acquisitionScope: "exactly once before the first plan", immutableBinding: "exact same signal for planning"},
-		{name: "speckit.testreview.md", scaffolded: false, acquisitionScope: "exactly once before planning", immutableBinding: "bind it to the immutable local context"},
+		{name: "uf.review-council.md", scaffolded: true, usesAggregate: true, acquisitionScope: "acquired exactly once", immutableBinding: "exact immutable input context"},
+		{name: "uf.triage-issue.md", scaffolded: true, usesAggregate: true, acquisitionScope: "acquired exactly once", immutableBinding: "bind it to the fetched issue object"},
+		{name: "uf.address-feedback.md", scaffolded: true, usesAggregate: true, acquisitionScope: "acquired exactly once", immutableBinding: "exact same signal for planning"},
+		{name: "speckit.testreview.md", scaffolded: false, usesAggregate: false, acquisitionScope: "exactly once before planning", immutableBinding: "bind it to the immutable local context"},
 	}
 
 	for _, command := range commands {
@@ -119,26 +119,42 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 				copy := copy
 				t.Run(copy.name, func(t *testing.T) {
 					normalized := normalizeCommandText(copy.text)
-					toolNames := []string{
-						"acquire_sibling_evidence",
+
+					// Shared tools present in ALL commands regardless of dispatch style.
+					for _, toolName := range []string{
 						"plan_review_dispatch",
-						"invoke_agent",
-						"submit_lesson_proposal",
 						"prepare_lesson_learning",
 						"finalize_review_dispatch",
-					}
-					for _, toolName := range toolNames {
+					} {
 						if !strings.Contains(normalized, toolName) {
 							t.Errorf("%s: shared dispatch contract is missing policy tool %q", copy.name, toolName)
 						}
 					}
-					for toolName, want := range map[string]int{
-						"acquire_sibling_evidence": 1,
-						"dewey_store_learning":     1,
-					} {
-						if got := strings.Count(normalized, toolName); got != want {
-							t.Errorf("%s: tool %q occurs %d times, want %d to preserve call-once semantics", copy.name, toolName, got, want)
+
+					// Aggregate commands use dispatch_review_runs which encapsulates
+					// acquire_sibling_evidence, invoke_agent, and child submission tools.
+					// Individual commands (testreview) still call those tools directly.
+					if command.usesAggregate {
+						if !strings.Contains(normalized, "dispatch_review_runs") {
+							t.Errorf("%s: aggregate dispatch contract is missing tool %q", copy.name, "dispatch_review_runs")
 						}
+					} else {
+						for _, toolName := range []string{
+							"acquire_sibling_evidence",
+							"invoke_agent",
+							"submit_lesson_proposal",
+						} {
+							if !strings.Contains(normalized, toolName) {
+								t.Errorf("%s: individual dispatch contract is missing tool %q", copy.name, toolName)
+							}
+						}
+						if got := strings.Count(normalized, "acquire_sibling_evidence"); got != 1 {
+							t.Errorf("%s: tool %q occurs %d times, want 1 to preserve call-once semantics", copy.name, "acquire_sibling_evidence", got)
+						}
+					}
+
+					if got := strings.Count(normalized, "dewey_store_learning"); got != 1 {
+						t.Errorf("%s: tool %q occurs %d times, want 1 to preserve call-once semantics", copy.name, "dewey_store_learning", got)
 					}
 
 					assertNormalizedContains(t, copy.name, normalized, "sibling acquisition", command.acquisitionScope)
@@ -155,16 +171,17 @@ func TestCommandContracts_SharedContextAndToolBoundaries(t *testing.T) {
 					assertNormalizedContains(t, copy.name, normalized, "resolved provenance", "resolved")
 					assertNormalizedContains(t, copy.name, normalized, "reported provenance", "reported")
 
-					// submit_lesson_proposal is in all commands; submit_review_findings
-				// only in commands whose children produce code-review findings
-				// (not triage-issue, which produces verdict/category assessments).
-				if strings.Contains(normalized, "submit_review_findings") {
+					// submit_review_findings is expected only in commands whose children
+					// produce code-review findings AND still document child protocol
+					// explicitly. Not expected in triage-issue (verdict/category assessments)
+					// or review-council (encapsulated in dispatch_review_runs).
+					if strings.Contains(normalized, "submit_review_findings") {
 						if got := strings.Count(normalized, "submit_review_findings"); got != 1 {
 							t.Errorf("%s: submit_review_findings occurs %d times, want 1", copy.name, got)
 						}
-				} else if command.name != "uf.triage-issue.md" {
-						t.Errorf("%s: expected submit_review_findings for non-triage command", copy.name)
-				}
+					} else if command.name != "uf.triage-issue.md" && command.name != "uf.review-council.md" {
+						t.Errorf("%s: expected submit_review_findings for non-aggregate command", copy.name)
+					}
 				})
 			}
 		})

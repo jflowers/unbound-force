@@ -54,11 +54,11 @@ off on re-run.
 - [x] Step 3: Clarify (Step 1)
 - [x] Step 4: Plan (Step 2)
 - [x] Step 5: Tasks (Step 3)
-- [x] Step 6: Spec Review (Step 4) -- iteration: 3/3 PASSED
+- [x] Step 6: Spec Review (Step 4) -- iteration: 2/3 PASSED
 - [x] Step 7: Implement (Step 5) -- all 5 phases complete, make check PASS
-- [x] Step 8: Code Review (Step 6) -- iteration: 2/3 PASSED (APPROVE)
-- [x] Step 9: Retrospective (Step 7) -- 3 learnings stored
-- [x] Step 10: Demo (Step 8)
+- [ ] Step 8: Code Review (Step 6)
+- [ ] Step 9: Retrospective (Step 7)
+- [ ] Step 10: Demo (Step 8)
 ```
 
 ### TodoWrite Progress Tracking
