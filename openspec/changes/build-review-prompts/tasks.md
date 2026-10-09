@@ -12,7 +12,7 @@
 
 ## 1. Tool Implementation
 
-- [ ] 1.1 Define `BuildReviewPromptsInputSchema` with
+- [x] 1.1 Define `BuildReviewPromptsInputSchema` with
   Zod validation in `review-dispatch/index.ts`: agents
   (array of AgentNameSchema), mode (enum), command
   (enum), diff_path (string), changed_files (string),
@@ -21,14 +21,14 @@
   review_context.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 1.2 Define static prompt template constants:
+- [x] 1.2 Define static prompt template constants:
   confinement rule text, prohibition text, and response
   contract text (referencing `submit_review_findings` and
   `submit_lesson_proposal` tools). Add as string constants
   in `review-dispatch/index.ts` near the tool definition.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 1.3 Implement `buildReviewPrompts()` function:
+- [x] 1.3 Implement `buildReviewPrompts()` function:
   read agent definition files from
   `.opencode/agents/{agent}.md`, read AGENTS.md,
   constitution, convention packs from
@@ -38,16 +38,15 @@
   return `{ prompts: [{ agent, path, size_bytes }] }`.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 1.4 Implement `createBuildReviewPromptsTool()`
+- [x] 1.4 Implement `createBuildReviewPromptsTool()`
   factory function wrapping `buildReviewPrompts()` with
   tool description and args. Wire into
-  `ReviewDispatchPlugin.server()` registration (tool
-  count 9 -> 10).
+  `ReviewDispatchPlugin.server()` registration.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
 ## 2. Dual-Copy Sync
 
-- [ ] 2.1 Sync scaffolded copy to canonical:
+- [x] 2.1 Sync scaffolded copy to canonical:
   `cp .opencode/plugins/review-dispatch/index.ts
   internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`.
   Verify byte-identical.
@@ -55,7 +54,11 @@
 
 ## 3. Tests
 
-- [ ] 3.1 [P] Create `build-review-prompts.test.ts` with
+Coverage strategy: unit tests for tool logic (task 3.1),
+integration/smoke tests for registration (tasks 3.2-3.3),
+85% branch coverage gate (task 4.1).
+
+- [x] 3.1 [P] Create `build-review-prompts.test.ts` with
   test cases:
   - Produces one prompt file per agent in the agents array
   - Prompt contains agent definition content from disk
@@ -71,29 +74,44 @@
   - Handles missing convention packs directory gracefully
   - Handles missing agent definition file gracefully
   - Output prompts array matches input agents order
+  - Rejects path traversal in diff_path (FR-011)
+  - Encloses diff content in untrusted delimiters (FR-012)
+  - Escapes delimiter patterns within untrusted content (FR-012)
+  - Rejects oversized diff file (FR-013)
+  - Sets restrictive file permissions on output (FR-006)
   Files: `.opencode/test/build-review-prompts.test.ts`
 
-- [ ] 3.2 [P] Update `scratch-smoke.test.ts` expected
-  tool count from 9 to 10, add `build_review_prompts`
-  to tool name list.
+- [x] 3.2 [P] Update `scratch-smoke.test.ts` to verify
+  `build_review_prompts` appears in the registered
+  tool list.
   Files: `.opencode/test/scratch-smoke.test.ts`
 
-- [ ] 3.3 [P] Update `plugin-integration.test.ts`
-  expected tool count from 9 to 10, add
-  `build_review_prompts` to tool name list.
+- [x] 3.3 [P] Update `plugin-integration.test.ts` to
+  verify `build_review_prompts` appears in the
+  registered tool list.
   Files: `.opencode/test/plugin-integration.test.ts`
 
 ## 4. Verification
 
-- [ ] 4.1 Run `make plugin-test` — all tests pass,
+- [x] 4.1 Run `make plugin-test` — all tests pass,
   branch coverage >= 85%.
 
-- [ ] 4.2 Run `make check` — full CI parity (Go lint,
+- [x] 4.2 Run `make check` — full CI parity (Go lint,
   vet, test, build, coverage-gate, plugin tests).
 
-- [ ] 4.3 Verify constitution alignment: tool produces
+- [x] 4.3 Verify constitution alignment: tool produces
   self-contained artifacts (Principle I), has no mandatory
   external dependencies (Principle II), returns structured
   machine-parseable output (Principle III), is testable
   with fixture files and no external services
-  (Principle IV).
+  (Principle IV), validates paths and enforces input
+  boundaries and restrictive permissions (Principle V).
+
+- [x] 4.4 Assess documentation impact: determine if
+  AGENTS.md or CHANGELOG.md need updates for the new
+  tool registration. File documentation issue if
+  user-facing changes require it per AGENTS.md
+  behavioral rules.
+
+<!-- spec-review: passed -->
+<!-- code-review: passed -->

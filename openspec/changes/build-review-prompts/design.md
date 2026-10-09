@@ -25,9 +25,12 @@ pipeline.
   context files from disk without agent involvement
 - Produce one self-contained prompt file per included
   agent in a temp directory
-- Support all four command workflows (review-council,
-  review-pr, triage-issue, address-feedback) with a
-  single tool
+- Support all four dispatch command workflows
+  (review-council, triage-issue, address-feedback,
+  speckit-testreview) with a single tool. Note:
+  `uf.review-pr` uses the dispatch pipeline but maps
+  to `command: "review-council"` at the dispatch layer
+  and is not a separate command enum value.
 - Reduce per-session reasoning time by ~75s and context
   pressure by ~200K chars
 
@@ -71,21 +74,21 @@ project files from disk.
 The prompt template implements the 11 required sections
 from the command files:
 
-1. Persona role and mode-specific focus (from agent def)
-2. Complete immutable diff (from diff_path)
-3. All changed paths and exact base/head input context
-4. AGENTS.md, constitution, active convention packs,
+1. Step 0: read own agent definition file instruction
+2. Persona role and mode-specific focus (from agent def)
+3. Complete immutable diff (from diff_path, delimited)
+4. All changed paths and exact base/head input context
+5. AGENTS.md, constitution, active convention packs,
    severity
-5. Review-context and pre-flight evidence
-6. Existing review state (within token budget)
-7. Identical delimited sibling evidence with provenance
-8. Changed-line and downstream-impact confinement rule
-9. Prohibition on issue creation and scope changes
-10. Structured response contract (findings + verdict)
-11. Step 0: read own agent definition file instruction
+6. Pre-flight evidence and review-context
+7. Existing review state (within token budget)
+8. Identical delimited sibling evidence with provenance
+9. Changed-line and downstream-impact confinement rule
+10. Prohibition on issue creation and scope changes
+11. Structured response contract (findings + verdict)
 
-Sections 8-10 are static text baked into the template.
-Section 11 is agent-name-parameterized.
+Section 1 is agent-name-parameterized. Sections 9-11
+are static text baked into the template.
 
 ### D4: Convention packs discovered from disk
 
@@ -118,7 +121,8 @@ context sections as pre-formatted strings or file paths:
   (optional)
 - `walkthrough: string` — PR walkthrough (optional)
 - `review_context: string` — spec/issue context (optional)
-- `mode: string` — "code" or "specs"
+- `mode: string` — "code", "specs", "triage", "feedback",
+  or "test"
 - `command: string` — which command is calling
 - `agents: string[]` — agent names to build prompts for
 
