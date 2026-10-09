@@ -148,6 +148,7 @@ describe("plugin integration with a fake OpenCode client", () => {
         "build_review_prompts",
         "consolidate_dispatch",
         "dispatch_agent_run",
+        "dispatch_review_runs",
         "dispatch_status",
         "finalize_review_dispatch",
         "plan_review_dispatch",

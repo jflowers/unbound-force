@@ -12,7 +12,7 @@
 
 ## 1. Tool Implementation
 
-- [ ] 1.1 Define `DispatchReviewRunsInputSchema` with
+- [x] 1.1 Define `DispatchReviewRunsInputSchema` with
   Zod validation in `review-dispatch/index.ts`: mode,
   command, diff_path, changed_files, input_context,
   plan_entries (array), max_parallel_runs, budget_usd
@@ -21,7 +21,7 @@
   existing_reviews, walkthrough, review_context.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 1.2 Implement `dispatchReviewRuns()` function:
+- [x] 1.2 Implement `dispatchReviewRuns()` function:
   (a) call `acquireSiblingEvidence` internally, handle
   failure gracefully with empty-evidence fallback;
   (b) call `buildReviewPrompts` with acquired evidence
@@ -37,7 +37,7 @@
   runs_failed, runs_skipped, findings, proposals }`.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 1.3 Implement `createDispatchReviewRunsTool()`
+- [x] 1.3 Implement `createDispatchReviewRunsTool()`
   factory function wrapping `dispatchReviewRuns()` with
   tool description and args. Wire into
   `ReviewDispatchPlugin.server()` registration (tool
@@ -46,34 +46,34 @@
 
 ## 2. Command File Updates
 
-- [ ] 2.1 [P] Update `uf.review-council.md`: replace
+- [x] 2.1 [P] Update `uf.review-council.md`: replace
   Steps 4c-5 multi-step sequence with single
   `dispatch_review_runs` call. Remove `dispatch_status`
   call before `consolidate_dispatch`.
   Files: `.opencode/commands/uf.review-council.md`
 
-- [ ] 2.2 [P] Update `uf.review-pr.md`: same changes
+- [x] 2.2 [P] Update `uf.review-pr.md`: same changes
   as 2.1.
   Files: `.opencode/commands/uf.review-pr.md`
 
-- [ ] 2.3 [P] Update `uf.triage-issue.md`: same changes
+- [x] 2.3 [P] Update `uf.triage-issue.md`: same changes
   as 2.1.
   Files: `.opencode/commands/uf.triage-issue.md`
 
-- [ ] 2.4 [P] Update `uf.address-feedback.md`: same
+- [x] 2.4 [P] Update `uf.address-feedback.md`: same
   changes as 2.1.
   Files: `.opencode/commands/uf.address-feedback.md`
 
 ## 3. Dual-Copy Sync
 
-- [ ] 3.1 Sync plugin to canonical:
+- [x] 3.1 Sync plugin to canonical:
   `cp .opencode/plugins/review-dispatch/index.ts
   internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`.
   Verify byte-identical via the existing drift detection
   tests in `internal/scaffold/scaffold_test.go`.
   Files: `internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 3.2 [P] Sync command files to canonical:
+- [x] 3.2 [P] Sync command files to canonical:
   `cp .opencode/commands/uf.review-council.md
   internal/scaffold/assets/opencode/commands/uf.review-council.md`
   (repeat for all 4 commands). Verify byte-identical.
@@ -81,7 +81,7 @@
 
 ## 4. Tests
 
-- [ ] 4.1 [P] Create `dispatch-review-runs.test.ts`
+- [x] 4.1 [P] Create `dispatch-review-runs.test.ts`
   with test cases:
   - Dispatches all included plan entries and returns
     compact summary
@@ -95,27 +95,29 @@
     missing diff_path)
   Files: `.opencode/test/dispatch-review-runs.test.ts`
 
-- [ ] 4.2 [P] Update `scratch-smoke.test.ts` expected
+- [x] 4.2 [P] Update `scratch-smoke.test.ts` expected
   tool count from 10 to 11, add
   `dispatch_review_runs` to tool name list.
   Files: `.opencode/test/scratch-smoke.test.ts`
 
-- [ ] 4.3 [P] Update `plugin-integration.test.ts`
+- [x] 4.3 [P] Update `plugin-integration.test.ts`
   expected tool count from 10 to 11, add
   `dispatch_review_runs` to tool name list.
   Files: `.opencode/test/plugin-integration.test.ts`
 
 ## 5. Verification
 
-- [ ] 5.1 Run `make plugin-test` — all tests pass,
+- [x] 5.1 Run `make plugin-test` — all tests pass,
   branch coverage >= 85%.
 
-- [ ] 5.2 Run `make check` — full CI parity (Go lint,
+- [x] 5.2 Run `make check` — full CI parity (Go lint,
   vet, test, build, coverage-gate, plugin tests).
 
-- [ ] 5.3 Verify constitution alignment covers all five
+- [x] 5.3 Verify constitution alignment covers all five
   principles: composes existing standalone functions
   (Principle I/II), returns structured machine-parseable
   output (Principle III), is testable with injectable
   dependencies (Principle IV), introduces no new input
   surfaces or dependencies (Principle V).
+
+<!-- spec-review: passed -->

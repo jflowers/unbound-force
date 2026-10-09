@@ -40,8 +40,10 @@ export {
   type PreparedLessonLearning,
 } from "../../lib/review-dispatch-lesson-proposal.js"
 import {
+  acquireSiblingEvidence,
   createAcquireSiblingEvidenceTool,
   createSiblingAcquisitionDependencies,
+  type SiblingAcquisitionDependencies,
 } from "../../lib/review-dispatch-sibling-evidence.js"
 export {
   acquireSiblingEvidence,
@@ -3289,6 +3291,45 @@ const BuildReviewPromptsInputSchema = z
   })
   .strict()
 
+// ── dispatch_review_runs schemas ─────────────────────────────
+
+const DispatchReviewRunsInputSchema = z
+  .object({
+    mode: z.enum(["code", "specs", "triage", "feedback"]),
+    command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
+    diff_path: z.string().min(1),
+    changed_files: z.string().min(1),
+    input_context: z.string().min(1),
+    plan_entries: z.array(DispatchPlanEntrySchema).min(1),
+    max_parallel_runs: z.number().int().positive().default(DEFAULT_LIMITS.max_parallel_runs),
+    budget_usd: z.number().positive().optional(),
+    per_run_timeout_ms: z.number().int().positive().optional(),
+    session_metadata: SessionMetadataSchema,
+    pre_flight_results: z.string().optional(),
+    existing_reviews: z.string().optional(),
+    walkthrough: z.string().optional(),
+    review_context: z.string().optional(),
+  })
+  .strict()
+
+const DispatchReviewRunsOutputSchema = z.object({
+  status: z.enum(["ok", "error"]),
+  runs_completed: z.number().int().nonnegative(),
+  runs_failed: z.number().int().nonnegative(),
+  runs_skipped: z.number().int().nonnegative(),
+  findings: z.array(RunFindingSchema),
+  proposals: z.array(
+    z.object({
+      information: z.string(),
+      tag: z.string(),
+      category: z.string().optional(),
+    }),
+  ),
+  warnings: z.array(z.string()),
+  message: z.string().optional(),
+  retryable: z.boolean().optional(),
+})
+
 const CONFINEMENT_RULE = `## Confinement Rule
 
 You MUST confine your review findings to:
@@ -3662,6 +3703,268 @@ function createBuildReviewPromptsTool(projectRoot: string): ReturnType<typeof to
   })
 }
 
+// ── dispatch_review_runs implementation ──────────────────────
+
+/**
+ * Aggregate evidence-acquisition, prompt-building, and agent-dispatching into a
+ * single deterministic orchestration call. Replaces sequential calls to
+ * acquire_sibling_evidence, build_review_prompts, and dispatch_agent_run.
+ *
+ * Internal sequencing (FR-004):
+ *   1. Acquire sibling evidence (graceful degradation on failure per FR-010).
+ *   2. Build per-agent review prompt files using the acquired evidence.
+ *   3. Dispatch runs in parallel batches respecting max_parallel_runs (FR-005).
+ *
+ * @param rawInput Untrusted tool input validated against DispatchReviewRunsInputSchema.
+ * @param context Calling tool context for session and abort signal.
+ * @param deps Dispatch agent run dependencies (planner, client, directory).
+ * @param siblingDeps Sibling evidence acquisition dependencies.
+ * @param projectRoot Absolute project worktree path.
+ * @returns Aggregate output with run counts, findings, proposals, and warnings.
+ */
+async function dispatchReviewRuns(
+  rawInput: unknown,
+  context: ToolContext,
+  deps: DispatchAgentRunDependencies,
+  siblingDeps: SiblingAcquisitionDependencies,
+  projectRoot: string,
+): Promise<z.infer<typeof DispatchReviewRunsOutputSchema>> {
+  const parsed = DispatchReviewRunsInputSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    return {
+      status: "error",
+      runs_completed: 0,
+      runs_failed: 0,
+      runs_skipped: 0,
+      findings: [],
+      proposals: [],
+      warnings: [],
+      message: `input validation failed: ${formatValidationError(parsed.error)}`,
+      retryable: false,
+    }
+  }
+
+  const input = parsed.data
+  const warnings: string[] = []
+
+  // Step 1 (FR-004): Acquire sibling evidence with graceful degradation (FR-010).
+  let siblingEvidence = ""
+  try {
+    const evidenceResult = await acquireSiblingEvidence({}, siblingDeps)
+    siblingEvidence = evidenceResult.prompt
+    if (evidenceResult.status !== "ok") {
+      warnings.push(`sibling evidence acquisition returned status: ${evidenceResult.status}`)
+    }
+  } catch (error: unknown) {
+    warnings.push(`sibling evidence acquisition failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  // Filter plan entries to only those with decision "include".
+  const includedEntries = input.plan_entries.filter((entry) => entry.decision === "include")
+  if (includedEntries.length === 0) {
+    return {
+      status: "ok",
+      runs_completed: 0,
+      runs_failed: 0,
+      runs_skipped: input.plan_entries.length,
+      findings: [],
+      proposals: [],
+      warnings: [...warnings, "no plan entries with decision 'include'"],
+    }
+  }
+
+  // Step 2 (FR-004): Build review prompts for included agents.
+  const correlationId = sessionCorrelationMap.get(context.sessionID)
+  const promptResult = await buildReviewPrompts(
+    {
+      agents: includedEntries.map((entry) => entry.agent),
+      mode: input.mode,
+      command: input.command,
+      diff_path: input.diff_path,
+      changed_files: input.changed_files,
+      input_context: input.input_context,
+      pre_flight_results: input.pre_flight_results,
+      sibling_evidence: siblingEvidence || undefined,
+      existing_reviews: input.existing_reviews,
+      walkthrough: input.walkthrough,
+      review_context: input.review_context,
+    },
+    projectRoot,
+    correlationId,
+  )
+
+  if (!promptResult.ok) {
+    return {
+      status: "error",
+      runs_completed: 0,
+      runs_failed: 0,
+      runs_skipped: includedEntries.length,
+      findings: [],
+      proposals: [],
+      warnings,
+      message: `prompt building failed: ${promptResult.error}`,
+      retryable: promptResult.code === "diff_read_failed",
+    }
+  }
+
+  if (promptResult.result.warnings) {
+    warnings.push(...promptResult.result.warnings)
+  }
+
+  // Build a map from agent name to prompt file path.
+  const promptPathMap = new Map<string, string>()
+  for (const prompt of promptResult.result.prompts) {
+    promptPathMap.set(prompt.agent, prompt.path)
+  }
+
+  // Step 3 (FR-004, FR-005): Dispatch agent runs in batches.
+  let runsCompleted = 0
+  let runsFailed = 0
+  let runsSkipped = input.plan_entries.length - includedEntries.length
+  let cumulativeCostUsd = 0
+  let budgetExceeded = false
+  let isFirstRun = true
+
+  // Split included entries into batches of max_parallel_runs (FR-005).
+  const batches: (typeof includedEntries)[] = []
+  for (let i = 0; i < includedEntries.length; i += input.max_parallel_runs) {
+    batches.push(includedEntries.slice(i, i + input.max_parallel_runs))
+  }
+
+  for (const batch of batches) {
+    // FR-005: Budget exceeded — skip remaining batches.
+    if (budgetExceeded) {
+      runsSkipped += batch.length
+      continue
+    }
+
+    // Dispatch all runs in the batch concurrently (FR-006: error isolation via Promise.allSettled).
+    const batchPromises = batch.map((entry) => {
+      const promptPath = promptPathMap.get(entry.agent)
+      if (!promptPath) {
+        return Promise.reject(new Error(`no prompt file found for agent ${entry.agent}`))
+      }
+
+      const runInput: Record<string, unknown> = {
+        agent: entry.agent,
+        promptFile: promptPath,
+        read_only: entry.read_only,
+        source: entry.source,
+        sequence: entry.sequence,
+      }
+      // Pass tier OR model (mutually exclusive), converting null to undefined.
+      if (entry.model !== null) {
+        runInput.model = entry.model
+      } else if (entry.tier !== null) {
+        runInput.tier = entry.tier
+      }
+      if (entry.variant !== null) {
+        runInput.variant = entry.variant
+      }
+      if (input.per_run_timeout_ms !== undefined) {
+        runInput.timeout = input.per_run_timeout_ms
+      }
+      // FR-007: Pass session_metadata only on the FIRST dispatchAgentRun call.
+      if (isFirstRun) {
+        runInput.session_metadata = input.session_metadata
+        isFirstRun = false
+      }
+
+      return dispatchAgentRun(runInput, context, deps)
+    })
+
+    const results = await Promise.allSettled(batchPromises)
+
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        const runResult = result.value
+        if (runResult.error === null) {
+          runsCompleted++
+        } else {
+          runsFailed++
+        }
+        // Track cost for budget checking.
+        if (runResult.usage?.cost_usd != null) {
+          cumulativeCostUsd += runResult.usage.cost_usd
+        }
+      } else {
+        runsFailed++
+        warnings.push(`run rejected: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+      }
+    }
+
+    // FR-005: Check cumulative cost against budget between batches.
+    if (input.budget_usd !== undefined && cumulativeCostUsd > input.budget_usd) {
+      budgetExceeded = true
+      warnings.push(
+        `budget exceeded: cumulative cost $${cumulativeCostUsd.toFixed(2)} exceeds budget $${input.budget_usd.toFixed(2)}`,
+      )
+    }
+  }
+
+  // Collect findings and proposals from persisted run files (FR-003).
+  const allFindings: z.infer<typeof RunFindingSchema>[] = []
+  const allProposals: Array<{ information: string; tag: string; category?: string }> = []
+  const resolvedCorrelationId = sessionCorrelationMap.get(context.sessionID)
+  if (resolvedCorrelationId) {
+    try {
+      const dir = dispatchSessionDir(resolvedCorrelationId)
+      const dirEntries = await readdir(dir)
+      const runFiles = dirEntries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
+      for (const file of runFiles) {
+        try {
+          const content = await readFile(join(dir, file), "utf8")
+          const runData = JSON.parse(content) as PersistedRunData
+          allFindings.push(...runData.findings)
+          allProposals.push(...runData.proposals)
+        } catch {
+          // Best-effort collection.
+        }
+      }
+    } catch {
+      warnings.push("could not read dispatch session directory for findings collection")
+    }
+  }
+
+  return {
+    status: runsFailed > 0 && runsCompleted === 0 ? "error" : "ok",
+    runs_completed: runsCompleted,
+    runs_failed: runsFailed,
+    runs_skipped: runsSkipped,
+    findings: allFindings,
+    proposals: allProposals,
+    warnings,
+  }
+}
+
+/**
+ * Creates the dispatch_review_runs tool for aggregate evidence, prompt, and run dispatching.
+ * @param deps Dispatch agent run dependencies.
+ * @param siblingDeps Sibling evidence acquisition dependencies.
+ * @param projectRoot Absolute project worktree path.
+ * @returns An OpenCode tool definition.
+ */
+function createDispatchReviewRunsTool(
+  deps: DispatchAgentRunDependencies,
+  siblingDeps: SiblingAcquisitionDependencies,
+  projectRoot: string,
+): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Aggregate evidence-acquisition, prompt-building, and agent-dispatching into a single deterministic tool call. " +
+      "Replaces sequential calls to acquire_sibling_evidence, build_review_prompts, and dispatch_agent_run.",
+    args: DispatchReviewRunsInputSchema.shape,
+    async execute(
+      args,
+      context,
+    ): Promise<{ readonly output: string; readonly metadata: z.infer<typeof DispatchReviewRunsOutputSchema> }> {
+      const result = await dispatchReviewRuns(args, context, deps, siblingDeps, projectRoot)
+      const summary = `dispatch_review_runs: ${result.status} — ${result.runs_completed} completed, ${result.runs_failed} failed, ${result.runs_skipped} skipped, ${result.findings.length} findings, ${result.proposals.length} proposals`
+      return { output: summary, metadata: result }
+    },
+  })
+}
+
 // ── dispatch_status ──────────────────────────────────────────
 
 /**
@@ -3759,6 +4062,11 @@ export const ReviewDispatchPlugin = {
         submit_review_findings: createSubmitReviewFindingsTool(),
         submit_lesson_proposal: createSubmitLessonProposalTool(),
         consolidate_dispatch: createConsolidateDispatchTool(createFinalizationDependencies(projectRoot)),
+        dispatch_review_runs: createDispatchReviewRunsTool(
+          { plannerDependencies: dependencies, client, directory: projectRoot },
+          createSiblingAcquisitionDependencies(projectRoot, createBunYamlParser()),
+          projectRoot,
+        ),
         dispatch_status: createDispatchStatusTool(),
       },
     }
