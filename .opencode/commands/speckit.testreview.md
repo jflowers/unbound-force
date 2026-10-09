@@ -222,13 +222,10 @@ Require each child response to contain:
 - the six existing Testability Summary dimensions; and
 - the existing Metrics values required by Section 4.
 
-A child MAY append at most one exact lesson proposal section:
-
-```text
-<!-- uf-lesson-proposal:v1 -->
-<one JSON object>
-<!-- /uf-lesson-proposal -->
-```
+The child MUST call `submit_review_findings` with all findings. The
+child MAY call `submit_lesson_proposal` with at most one lesson proposal
+(information, tag, and optional category). These are tool calls, not
+text formatting.
 
 Missing or malformed structured output or model self-report is an
 `invalid_output` failed run. Do not inject requested model or variant as the

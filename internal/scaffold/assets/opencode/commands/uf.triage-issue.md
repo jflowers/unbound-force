@@ -275,13 +275,9 @@ triage assessment with these fields:
 | **reasoning** | Evidence-based explanation for the verdict and category |
 | **split_recommendation** | `null` or an array of `{title, description}` |
 
-The child MAY append at most one exact lesson proposal section:
-
-```text
-<!-- uf-lesson-proposal:v1 -->
-<one JSON object>
-<!-- /uf-lesson-proposal -->
-```
+The child MAY call `submit_lesson_proposal` with at most one lesson
+proposal (information, tag, and optional category). This is a tool call,
+not text formatting.
 
 Missing or malformed structured output or model self-report is an
 `invalid_output` failed run. Do not inject the requested model or variant as the
