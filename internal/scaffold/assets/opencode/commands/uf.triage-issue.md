@@ -279,20 +279,17 @@ or invalid-output failures are terminal, informational, and non-voting when
 another run succeeds. They MUST NOT create assessments, findings, or
 advisories.
 
-### 2.4 Prepare Parent-Only Lessons
+### 2.4 Store Lesson Proposals
 
-Only the parent command processes lesson proposals. Query Dewey for existing
-`UF_LESSON_PROVENANCE_V1` dedupe identities and supply at most 1024 known
-hashes. If Dewey is unavailable, record one informational unavailable-Dewey
-skip and do not change triage results.
+Only the parent command stores lesson proposals. The `proposals` array
+returned by `dispatch_review_runs` contains validated proposals already
+submitted by child agents via `submit_lesson_proposal`.
 
-For each complete child output, call `prepare_lesson_learning` with that output,
-the sibling-evidence object from Phase 2.3 dispatch, and the known hashes. Call
-`dewey_store_learning` exactly once only when the result is `ready`, using only
-its returned `information`, generated `tag`, and `reference` category. Never
-store raw `> learn:` text or child-supplied tags, categories, or hashes. Record
-every absent, duplicate, malformed, unsafe, ungrounded, or unavailable-Dewey
-skip as informational.
+For each proposal in the `proposals` array, call `dewey_store_learning`
+exactly once using the proposal's `information`, `tag`, and `reference`
+as the category. If Dewey is unavailable, record an informational skip
+and do not change triage results. Never store raw `> learn:` text or
+child-supplied tags, categories, or hashes.
 
 ---
 

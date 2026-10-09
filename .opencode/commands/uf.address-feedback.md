@@ -430,20 +430,17 @@ They MUST NOT be converted to `AUTHOR-DECIDES`, approval, a fabricated finding,
 or an automatic suggested approach. The normal Phase 3 human decision remains
 required, so the item is neither skipped nor lost.
 
-#### 2.3.7 Prepare Parent-Only Lessons
+#### 2.3.7 Store Lesson Proposals
 
-Only the parent command processes lesson proposals. Query Dewey for existing
-`UF_LESSON_PROVENANCE_V1` dedupe identities and supply at most 1024 unique
-lowercase hashes. If Dewey is unavailable, record an informational
-unavailable-Dewey skip and do not change the recommendation.
+Only the parent command stores lesson proposals. The `proposals` array
+returned by `dispatch_review_runs` contains validated proposals already
+submitted by child agents via `submit_lesson_proposal`.
 
-For each complete child output, call `prepare_lesson_learning` with that output,
-the sibling-evidence object from Section 2.3.4 dispatch, and the known hashes. Call
-`dewey_store_learning` exactly once for each `ready` result, using only its
-returned `information`, generated `tag`, and `reference` category. Never store
-raw `> learn:` text or child-supplied tags, categories, or hashes. Record every
-absent, duplicate, malformed, unsafe, ungrounded, or unavailable-Dewey skip as
-informational.
+For each proposal in the `proposals` array, call `dewey_store_learning`
+exactly once using the proposal's `information`, `tag`, and `reference`
+as the category. If Dewey is unavailable, record an informational skip
+and do not change the recommendation. Never store raw `> learn:` text
+or child-supplied tags, categories, or hashes.
 
 #### 2.3.8 Finalize Every Tier 2 Dispatch
 
