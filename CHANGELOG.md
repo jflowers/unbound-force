@@ -12,6 +12,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
   use the default pass-through branch. (Spec:
   openspec/changes/move-schemas-to-uf/, Fixes: #649)
 
+### Fixed
+- fix-stale-base-ref: New `resolve_base_ref` tool in uf-workflow
+  plugin with three-level fallback (`upstream/main` → `origin/main`
+  → `main`) replaces hardcoded `main` ref in review-council local
+  path. Prevents phantom files in diffs when local `main` is stale.
+  Also removes token-wasting Key Files Changed block from
+  uf.unleash demo output. (Spec:
+  openspec/changes/fix-stale-base-ref/, Closes: #687)
+
 ### Added
 - uf-workflow-scaffold: New `uf-workflow` plugin scaffold with
   `ToolSuccess<T>`, `ToolFailure`, `ToolResult<T>` result envelope

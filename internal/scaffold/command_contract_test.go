@@ -25,7 +25,7 @@ func TestCommandContracts_ReviewCouncil(t *testing.T) {
 		{name: "mode pr full precedence", all: []string{"a pr implies `code`", "an explicit valid mode otherwise wins", "existing auto-detection rules", "parsed `full` value"}},
 		{name: "argument rejection boundary", all: []string{"`specs` together with a pr number", "repeated modes, pr numbers, or `--full` flags", "conflicting `code` and `specs` modes", "zero, a sign, a decimal, unicode digits, or a value above 999999", "before any discovery or dispatch"}},
 		{name: "immutable pr references", all: []string{"baserefname", "baserefoid", "headrefname", "headrefoid", "^[0-9a-f]{40}$", "use only `base_sha...head_sha`", "never substitute the current checkout or later ref values"}},
-		{name: "local immutable references", all: []string{"base `main` and the current branch head", "resolve both refs to immutable shas", "use only the resolved `base_sha...head_sha` afterward"}},
+		{name: "local immutable references", all: []string{"call `resolve_base_ref`", "upstream/main", "origin/main", "resolve the head ref to an immutable sha", "use only the resolved `base_sha...head_sha` afterward"}},
 		{name: "validated plan authority", all: []string{"load the `dispatch-advisor` skill", "display the returned json plan exactly", "validated plan is the sole invocation list", "bind this plan to the exact immutable input context"}},
 		{name: "six review roles", all: []string{"`divisor-adversary`", "`divisor-architect`", "`divisor-curator`", "`divisor-guard`", "`divisor-sre`", "`divisor-testing`"}},
 		{name: "three content roles", all: []string{"`divisor-envoy`", "`divisor-herald`", "`divisor-scribe`", "content-only agents are discovered and reported but never dispatched"}},

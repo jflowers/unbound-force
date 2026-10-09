@@ -121,9 +121,15 @@ values for a PR review. Ensure both exact commit objects are available
 without checking out or switching branches; fetch the immutable objects
 when necessary and verify their hashes before diffing.
 
-Without a PR, select the same local base and head refs used by the
-existing branch review: base `main` and the current branch head. Resolve
-both refs to immutable SHAs and record a local context with null
+Without a PR, call `resolve_base_ref` to determine the best available
+base ref. The tool tries `upstream/main`, `origin/main`, then `main`
+(no network access) and returns the ref name, its resolved SHA, and a
+source label. If the tool returns failure, abort the review with its
+error message — do not fall back or proceed without a valid base.
+Announce the selected base ref and its source before continuing.
+
+Use the returned ref as the base and the current branch head. Resolve
+the head ref to an immutable SHA and record a local context with null
 `pr_number`. Use only the resolved `base_sha...head_sha` afterward when
 the branch head differs from base. When the branch head resolves to the
 same SHA as base (no commits ahead) but the working tree holds
