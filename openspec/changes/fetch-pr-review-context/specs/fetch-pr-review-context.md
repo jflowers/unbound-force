@@ -10,7 +10,8 @@ needed for review dispatch in one deterministic call.
 
 The tool MUST accept:
 
-- `pr_number` (number, required): Positive integer PR number.
+- `pr_number` (number, required): Positive integer PR
+  number (1–999999).
 
 #### Scenario: Valid PR number
 
@@ -57,6 +58,13 @@ The tool MUST return a JSON object with shape:
 }
 ```
 
+> **Trust boundary**: Fields derived from `gh` CLI output
+> (`title`, `body`, `author`, `existing_reviews`,
+> `inline_comments`) contain untrusted user input.
+> Consumers MUST treat these fields as unsanitized and
+> MUST NOT interpolate them into shell commands, prompts,
+> or HTML without appropriate escaping.
+
 #### Scenario: Complete output
 
 - **GIVEN** a PR with CI checks, reviews, and inline comments
@@ -85,7 +93,9 @@ authentication before making API calls.
 The tool MUST save the complete PR diff to a temp file at
 `$TMPDIR/opencode/pr-<number>-diff.patch` with permissions
 `0o600`. The tool MUST create parent directories if needed
-with permissions `0o700`.
+with permissions `0o700`. The temp file MUST be created
+with `O_EXCL` semantics (exclusive create, fail if exists)
+or equivalent to prevent symlink/TOCTOU attacks.
 
 #### Scenario: Diff saved to disk
 
@@ -114,8 +124,20 @@ The tool MUST return structured errors for:
 - `gh` authentication failure (`gh_auth_failed`)
 - PR not found (`pr_not_found`)
 - API/network errors (`api_error`)
+- `gh` CLI call timeout (`timeout`)
+- GitHub API rate limit exceeded (`rate_limited`)
 
-Errors MUST include `retryable: boolean`.
+Errors MUST include `retryable: boolean`. The `timeout`
+and `rate_limited` codes MUST set `retryable: true`.
+
+Partial data retrieval failures (e.g., CI checks succeed
+but reviews fetch fails) are handled via graceful
+degradation: the tool returns a successful result with
+the degraded field set to its empty default and a warning
+appended to the `warnings` array identifying which
+sub-call failed. This approach provides better UX than a
+discrete `partial_failure` error code because consumers
+receive all available data rather than a blanket failure.
 
 #### Scenario: PR not found
 
@@ -136,6 +158,36 @@ The tool implementation MUST be maintained in both
 `internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`.
 Both copies MUST be byte-identical.
 
+### Requirement: FR-010 Structured warnings
+
+The tool MUST populate the `warnings` array in the output
+when non-fatal issues are detected during execution:
+
+- When `ci_pending` is true: include a warning with
+  message indicating CI checks are still in progress.
+- When `exceeds_threshold` is true: include a warning
+  noting the diff exceeds the size advisory threshold.
+- When any `gh` sub-call returns partial data (e.g.,
+  reviews fetch succeeds but inline comments fail): include
+  a warning identifying the degraded field.
+
+Warnings MUST be human-readable strings. An empty array
+indicates no warnings.
+
+#### Scenario: CI checks pending warning
+
+- **GIVEN** PR #100 has CI checks with `status: in_progress`
+- **WHEN** `fetch_pr_review_context` succeeds
+- **THEN** `warnings` contains a string matching
+  "CI checks are still in progress"
+
+#### Scenario: Diff exceeds threshold warning
+
+- **GIVEN** PR #200 has a diff exceeding 1500 lines
+- **WHEN** `fetch_pr_review_context` succeeds
+- **THEN** `warnings` contains a string matching
+  "Diff exceeds size advisory threshold"
+
 ## MODIFIED Requirements
 
 ### Requirement: Command file Steps 0-3.5
@@ -155,3 +207,26 @@ this tool implementation.
 ## REMOVED Requirements
 
 None.
+
+## Coverage Strategy
+
+The testing approach for this tool follows three tiers:
+
+1. **Unit tests** (one per FR): Each functional requirement
+   has at least one dedicated test case verifying its
+   acceptance scenario. FR-002 validates input rejection;
+   FR-003 validates output shape; FR-004 validates `gh`
+   CLI detection; FR-005 validates file permissions and
+   `O_EXCL` semantics; FR-006 validates pre-computed
+   fields; FR-007 validates each error code; FR-010
+   validates warning population.
+
+2. **Smoke tests**: Verify tool registration appears in
+   the plugin's tool list (`scratch-smoke.test.ts` and
+   `plugin-integration.test.ts`).
+
+3. **Spec-level expectations**: Branch coverage >= 85%
+   for the tool implementation. All error paths MUST be
+   exercised. All warning conditions MUST be exercised.
+   Security-specific cases (command injection resistance,
+   file permission verification) MUST be included.

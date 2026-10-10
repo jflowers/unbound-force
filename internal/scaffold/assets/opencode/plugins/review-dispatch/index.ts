@@ -300,6 +300,12 @@ const IssueContentSchema = z
   })
   .strict()
 
+const FetchPrReviewContextInputSchema = z
+  .object({
+    pr_number: z.number().int().min(1).max(999_999),
+  })
+  .strict()
+
 const PlanInputSchema = z
   .object({
     mode: z.enum(["code", "specs", "triage", "feedback", "test"]),
@@ -4034,6 +4040,404 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
   })
 }
 
+// ── fetch_pr_review_context ──────────────────────────────────
+
+/** Lines-of-diff threshold above which `exceeds_threshold` is set. */
+const DIFF_THRESHOLD = 1500
+
+/** Timeout (ms) applied to individual `gh` CLI invocations. */
+const GH_CLI_TIMEOUT_MS = 30_000
+
+/** Structured error shape returned on failure. */
+interface FetchContextError {
+  readonly error: true
+  readonly code: string
+  readonly message: string
+  readonly retryable: boolean
+}
+
+/** Output shape for a successful fetch_pr_review_context call. */
+interface FetchPrReviewContextOutput {
+  readonly pr_number: number
+  readonly title: string
+  readonly body: string
+  readonly base_ref: string
+  readonly base_sha: string
+  readonly head_ref: string
+  readonly head_sha: string
+  readonly files: ReadonlyArray<{ path: string; additions: number; deletions: number }>
+  readonly diff_path: string
+  readonly diff_lines: number
+  readonly diff_bytes: number
+  readonly exceeds_threshold: boolean
+  readonly ci_checks: ReadonlyArray<{ name: string; status: string; conclusion: string | null }>
+  readonly ci_pending: boolean
+  readonly existing_reviews: ReadonlyArray<{
+    author: string
+    state: string
+    body: string
+    submitted_at: string
+  }>
+  readonly inline_comments: ReadonlyArray<{
+    author: string
+    path: string
+    line: number | null
+    body: string
+  }>
+  readonly input_context: string
+  readonly changed_files: string
+  readonly warnings: string[]
+}
+
+/**
+ * Run a `gh` CLI command via Bun.spawn with an argument array.
+ *
+ * Uses Bun.spawn (NOT template literals or BunShell) to prevent
+ * command injection from untrusted PR metadata. All arguments
+ * are passed as discrete array elements.
+ *
+ * @param args CLI arguments (e.g. ["pr", "view", "123", "--json", "..."]).
+ * @returns Resolved stdout as a UTF-8 string.
+ * @throws On non-zero exit, timeout, or rate-limit detection.
+ */
+async function runGhCommand(args: readonly string[]): Promise<string> {
+  const process = Bun.spawn(["gh", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    signal: AbortSignal.timeout(GH_CLI_TIMEOUT_MS),
+  })
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ])
+
+  if (exitCode !== 0) {
+    const lower = stderr.toLowerCase()
+    // Detect timeout from AbortSignal (already thrown) or gh-reported timeout.
+    if (lower.includes("timed out") || lower.includes("timeout")) {
+      throw Object.assign(new Error(`gh CLI timed out: ${stderr.trim()}`), { ghCode: "timeout" })
+    }
+    // Detect rate limiting from GitHub API.
+    if (lower.includes("rate limit") || lower.includes("api rate limit exceeded") || exitCode === 4) {
+      throw Object.assign(new Error(`GitHub API rate limited: ${stderr.trim()}`), { ghCode: "rate_limited" })
+    }
+    throw Object.assign(new Error(`gh CLI failed (exit ${exitCode}): ${stderr.trim()}`), { ghCode: "api_error" })
+  }
+
+  return stdout
+}
+
+/**
+ * Classify a caught error into a structured FetchContextError.
+ *
+ * Detects AbortSignal timeout errors, gh-annotated error codes,
+ * and falls back to generic api_error for unknown failures.
+ */
+function classifyError(error: unknown, fallbackCode: string, fallbackMessage: string): FetchContextError {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return { error: true, code: "timeout", message: "gh CLI call timed out", retryable: true }
+  }
+  if (error instanceof Error) {
+    const ghCode = (error as Error & { ghCode?: string }).ghCode
+    if (ghCode === "timeout") return { error: true, code: "timeout", message: error.message, retryable: true }
+    if (ghCode === "rate_limited")
+      return { error: true, code: "rate_limited", message: error.message, retryable: true }
+    return { error: true, code: ghCode ?? fallbackCode, message: error.message, retryable: false }
+  }
+  return { error: true, code: fallbackCode, message: fallbackMessage, retryable: false }
+}
+
+/**
+ * Fetch all PR review context in one deterministic call.
+ *
+ * Orchestrates gh CLI calls for PR metadata, CI checks, diff,
+ * existing reviews, and inline comments. Pre-computes derived
+ * fields (input_context, changed_files, exceeds_threshold,
+ * ci_pending) and populates warnings for non-fatal degradation.
+ *
+ * Security: All gh CLI calls use Bun.spawn with argument arrays
+ * to prevent shell injection. The diff temp file is created with
+ * O_EXCL semantics and 0o600 permissions. Untrusted PR fields
+ * (title, body, author, review bodies) are never interpolated
+ * into shell commands.
+ *
+ * @param prNumber Validated positive integer PR number (1–999999).
+ * @returns Structured output or structured error.
+ */
+async function fetchPrReviewContext(
+  prNumber: number,
+): Promise<FetchPrReviewContextOutput | FetchContextError> {
+  // Pre-compute string representation once (DRY — used in multiple gh CLI calls).
+  const prNumberStr = String(prNumber)
+
+  // ── 1.2a: Validate gh CLI availability and auth ──────────
+  try {
+    const whichProcess = Bun.spawn(["which", "gh"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      signal: AbortSignal.timeout(5_000),
+    })
+    const whichExit = await whichProcess.exited
+    if (whichExit !== 0) {
+      return {
+        error: true,
+        code: "gh_not_found",
+        message: "gh CLI not found in PATH. Install from https://cli.github.com/",
+        retryable: false,
+      }
+    }
+  } catch {
+    return {
+      error: true,
+      code: "gh_not_found",
+      message: "gh CLI not found in PATH. Install from https://cli.github.com/",
+      retryable: false,
+    }
+  }
+
+  try {
+    await runGhCommand(["auth", "status"])
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "gh auth status failed"
+    return { error: true, code: "gh_auth_failed", message, retryable: false }
+  }
+
+  // ── 1.2b: Fetch PR metadata ─────────────────────────────
+  let prMeta: {
+    number: number
+    title: string
+    body: string
+    baseRefName: string
+    baseRefOid: string
+    headRefName: string
+    headRefOid: string
+    files: Array<{ path: string; additions: number; deletions: number }>
+  }
+  try {
+    const raw = await runGhCommand([
+      "pr",
+      "view",
+      prNumberStr,
+      "--json",
+      "number,title,body,baseRefName,baseRefOid,headRefName,headRefOid,files",
+    ])
+    prMeta = JSON.parse(raw)
+  } catch (error: unknown) {
+    // Detect PR not found from error message.
+    if (error instanceof Error && /not found|no pull request|could not find/i.test(error.message)) {
+      return {
+        error: true,
+        code: "pr_not_found",
+        message: `PR #${prNumber} not found in the current repository`,
+        retryable: false,
+      }
+    }
+    return classifyError(error, "api_error", `Failed to fetch PR #${prNumber} metadata`)
+  }
+
+  const warnings: string[] = []
+
+  // ── 1.2c: Fetch CI checks ───────────────────────────────
+  let ciChecks: Array<{ name: string; status: string; conclusion: string | null }> = []
+  try {
+    const raw = await runGhCommand(["pr", "checks", prNumberStr, "--json", "name,state,conclusion"])
+    const parsed = JSON.parse(raw) as Array<{
+      name: string
+      state: string
+      conclusion: string | null
+    }>
+    ciChecks = parsed.map((check) => ({
+      name: check.name,
+      status: check.state,
+      conclusion: check.conclusion ?? null,
+    }))
+  } catch (error: unknown) {
+    // Non-fatal: CI checks may be unavailable (e.g. no checks configured).
+    const msg = error instanceof Error ? error.message : String(error)
+    warnings.push(`ci_checks degraded: ${msg}`)
+  }
+
+  // ── 1.2d: Fetch diff and save to temp file ──────────────
+  let diffContent: string
+  try {
+    diffContent = await runGhCommand(["pr", "diff", prNumberStr])
+  } catch (error: unknown) {
+    return classifyError(error, "api_error", `Failed to fetch diff for PR #${prNumber}`)
+  }
+
+  const diffDir = join(tmpdir(), "opencode")
+  const diffPath = join(diffDir, `pr-${prNumber}-diff.patch`)
+
+  try {
+    // Create parent directory with 0o700 permissions.
+    await mkdir(diffDir, { recursive: true, mode: 0o700 })
+
+    // Write diff with O_EXCL semantics: unlink existing file first, then
+    // create exclusively to prevent symlink/TOCTOU attacks.
+    try {
+      await unlink(diffPath)
+    } catch {
+      // File may not exist — that is the happy path.
+    }
+
+    // Open with 'wx' flags (O_WRONLY | O_CREAT | O_EXCL) for exclusive create.
+    const fileHandle = await open(diffPath, "wx", 0o600)
+    try {
+      const diffBuffer = Buffer.from(diffContent, "utf8")
+      await fileHandle.writeFile(diffBuffer)
+    } finally {
+      await fileHandle.close()
+    }
+
+    // Explicitly set permissions in case umask interfered.
+    await chmod(diffPath, 0o600)
+  } catch (error: unknown) {
+    return classifyError(error, "api_error", `Failed to write diff to ${diffPath}`)
+  }
+
+  const diffBytes = Buffer.byteLength(diffContent, "utf8")
+  const diffLines = diffContent.split("\n").length
+
+  // ── 1.2e: Fetch existing reviews and inline comments ────
+  // Derive owner/repo from `gh repo view` for API calls.
+  let repoSlug: string
+  try {
+    const raw = await runGhCommand(["repo", "view", "--json", "nameWithOwner"])
+    const parsed = JSON.parse(raw) as { nameWithOwner: string }
+    repoSlug = parsed.nameWithOwner
+  } catch (error: unknown) {
+    return classifyError(error, "api_error", "Failed to determine repository owner/name")
+  }
+
+  let existingReviews: Array<{ author: string; state: string; body: string; submitted_at: string }> = []
+  try {
+    const raw = await runGhCommand(["api", `repos/${repoSlug}/pulls/${prNumberStr}/reviews`])
+    const parsed = JSON.parse(raw) as Array<{
+      user: { login: string }
+      state: string
+      body: string
+      submitted_at: string
+    }>
+    existingReviews = parsed.map((review) => ({
+      author: review.user?.login ?? "unknown",
+      state: review.state,
+      body: review.body ?? "",
+      submitted_at: review.submitted_at ?? "",
+    }))
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
+    warnings.push(`existing_reviews degraded: ${msg}`)
+  }
+
+  let inlineComments: Array<{ author: string; path: string; line: number | null; body: string }> = []
+  try {
+    const raw = await runGhCommand(["api", `repos/${repoSlug}/pulls/${prNumberStr}/comments`])
+    const parsed = JSON.parse(raw) as Array<{
+      user: { login: string }
+      path: string
+      line: number | null
+      body: string
+    }>
+    inlineComments = parsed.map((comment) => ({
+      author: comment.user?.login ?? "unknown",
+      path: comment.path ?? "",
+      line: comment.line ?? null,
+      body: comment.body ?? "",
+    }))
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
+    warnings.push(`inline_comments degraded: ${msg}`)
+  }
+
+  // ── 1.2f: Pre-compute derived fields ────────────────────
+  const inputContext = [
+    `kind: pr`,
+    `pr_number: ${prNumber}`,
+    `base_ref: ${prMeta.baseRefName}`,
+    `base_sha: ${prMeta.baseRefOid}`,
+    `head_ref: ${prMeta.headRefName}`,
+    `head_sha: ${prMeta.headRefOid}`,
+  ].join("\n")
+
+  const changedFiles = (prMeta.files ?? [])
+    .map((file) => `${file.path} (+${file.additions}/-${file.deletions})`)
+    .join("\n")
+
+  const exceedsThreshold = diffLines > DIFF_THRESHOLD
+  const ciPending = ciChecks.some((check) => check.status !== "completed")
+
+  // ── 1.2g: Populate warnings ─────────────────────────────
+  if (ciPending) {
+    warnings.push("CI checks are still in progress")
+  }
+  if (exceedsThreshold) {
+    warnings.push(`Diff exceeds size advisory threshold (${DIFF_THRESHOLD} lines)`)
+  }
+
+  // ── 1.2h: Assemble result (error codes handled above) ───
+  return {
+    pr_number: prMeta.number,
+    title: prMeta.title ?? "",
+    body: prMeta.body ?? "",
+    base_ref: prMeta.baseRefName,
+    base_sha: prMeta.baseRefOid,
+    head_ref: prMeta.headRefName,
+    head_sha: prMeta.headRefOid,
+    files: prMeta.files ?? [],
+    diff_path: diffPath,
+    diff_lines: diffLines,
+    diff_bytes: diffBytes,
+    exceeds_threshold: exceedsThreshold,
+    ci_checks: ciChecks,
+    ci_pending: ciPending,
+    existing_reviews: existingReviews,
+    inline_comments: inlineComments,
+    input_context: inputContext,
+    changed_files: changedFiles,
+    warnings,
+  }
+}
+
+/**
+ * Creates the fetch_pr_review_context OpenCode tool.
+ *
+ * Fetches all PR metadata needed for review dispatch in one
+ * deterministic call: PR metadata, CI checks, diff (persisted
+ * to disk), existing reviews, inline comments, and pre-computed
+ * derived fields. Returns structured output on success or
+ * structured error on failure.
+ *
+ * @returns An OpenCode tool definition with validated PR number input.
+ */
+function createFetchPrReviewContextTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Fetch all PR metadata needed for review dispatch in one deterministic call. " +
+      "Returns PR metadata, CI checks, diff path, existing reviews, inline comments, " +
+      "and pre-computed fields (input_context, changed_files, exceeds_threshold, ci_pending). " +
+      "Saves the diff to a temp file. Returns structured errors with error codes on failure.",
+    args: {
+      pr_number: FetchPrReviewContextInputSchema.shape.pr_number,
+    },
+    async execute(args): Promise<{ readonly output: string }> {
+      const parsed = FetchPrReviewContextInputSchema.safeParse(args)
+      if (!parsed.success) {
+        const result: FetchContextError = {
+          error: true,
+          code: "api_error",
+          message: `Invalid input: ${formatValidationError(parsed.error)}`,
+          retryable: false,
+        }
+        return { output: JSON.stringify(result, null, 2) }
+      }
+      const result = await fetchPrReviewContext(parsed.data.pr_number)
+      return { output: JSON.stringify(result, null, 2) }
+    },
+  })
+}
+
 /** Auto-discovered OpenCode policy plugin for deterministic review planning and finalization. */
 export const ReviewDispatchPlugin = {
   id: "review-dispatch",
@@ -4068,6 +4472,7 @@ export const ReviewDispatchPlugin = {
           projectRoot,
         ),
         dispatch_status: createDispatchStatusTool(),
+        fetch_pr_review_context: createFetchPrReviewContextTool(),
       },
     }
   },
