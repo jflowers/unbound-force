@@ -37,13 +37,28 @@ plugin. Rationale: PR context is consumed by review
 dispatch tools (`dispatch_review_runs`, `consolidate_dispatch`).
 Avoids a new plugin registration.
 
-### D2: BunShell for gh CLI calls
+### D2: Bun.spawn with argument arrays for gh CLI calls
 
-Uses BunShell (`input.$`) for `gh` CLI execution rather
-than Node.js `child_process`. BunShell is already available
-in the plugin context and provides cleaner syntax for
-shell commands. Falls back to `execFile` if BunShell is
-unavailable.
+Uses `Bun.spawn` with discrete argument arrays for `gh`
+CLI execution rather than BunShell template literals or
+Node.js `child_process`. Bun.spawn passes each argument
+as a separate element in the argv array, preventing shell
+interpretation entirely — no quoting, escaping, or shell
+metacharacter issues. This is a stronger security posture
+than BunShell template literals because no shell is
+invoked at all.
+
+> **Design evolution note**: The original design proposed
+> BunShell (`input.$`) with template literal interpolation.
+> During implementation, Bun.spawn was chosen instead for
+> its stronger injection resistance — untrusted PR metadata
+> (titles, bodies) never passes through any shell layer.
+
+If `gh` is not installed or not in PATH, the tool MUST
+fail fast with a structured `gh_not_found` error (see
+FR-004) rather than producing a cryptic spawn error. The
+tool MUST check for `gh` availability before any API
+calls.
 
 ### D3: Diff saved to temp file, not returned inline
 

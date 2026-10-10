@@ -32,7 +32,8 @@ deterministic tool call.
   metadata (title, body, SHAs, files with line counts),
   CI check results, the complete diff (saved to temp file),
   and existing review state. Returns a single structured
-  JSON response containing all data needed for Steps 2-3.10.
+  JSON response containing all data formerly gathered
+  in Steps 0–3.5, ready for the dispatch pipeline.
 
 ### Modified Capabilities
 - Command files (`uf.review-pr`, `uf.review-council`,

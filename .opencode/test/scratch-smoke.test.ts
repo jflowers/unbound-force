@@ -72,6 +72,7 @@ describe("provider-free scratch-repository smoke test", () => {
         "dispatch_agent_run",
         "dispatch_review_runs",
         "dispatch_status",
+        "fetch_pr_review_context",
         "finalize_review_dispatch",
         "plan_review_dispatch",
         "prepare_lesson_learning",

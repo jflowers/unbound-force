@@ -22,6 +22,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/fix-stale-base-ref/, Closes: #687)
 
 ### Added
+- fetch-pr-review-context: New `fetch_pr_review_context` tool in
+  the review-dispatch plugin. Fetches all PR metadata needed for
+  review dispatch in one deterministic call: PR metadata, CI
+  checks, diff (persisted to disk with 0o600 permissions), existing
+  reviews, inline comments, and pre-computed derived fields. Uses
+  Bun.spawn with argument arrays for shell injection resistance.
+  (Spec: openspec/changes/fetch-pr-review-context/, Docs: #696)
 - uf-workflow-scaffold: New `uf-workflow` plugin scaffold with
   `ToolSuccess<T>`, `ToolFailure`, `ToolResult<T>` result envelope
   types and `success()`/`failure()` helper functions. Includes plugin
