@@ -3439,11 +3439,21 @@ async function validateDiffPath(diffPath: string, projectRoot: string): Promise<
     } catch {
       canonicalTmp = tmpdir()
     }
+    // Also allow the system /tmp directory (macOS: /tmp -> /private/tmp).
+    // Agents commonly write to /tmp rather than the user-specific $TMPDIR.
+    let canonicalSystemTmp: string
+    try {
+      canonicalSystemTmp = await realpath("/tmp")
+    } catch {
+      canonicalSystemTmp = "/tmp"
+    }
     if (
       !resolved.startsWith(canonicalRoot + "/") &&
       !resolved.startsWith(canonicalTmp + "/") &&
+      !resolved.startsWith(canonicalSystemTmp + "/") &&
       resolved !== canonicalRoot &&
-      resolved !== canonicalTmp
+      resolved !== canonicalTmp &&
+      resolved !== canonicalSystemTmp
     ) {
       return "path_validation_failed"
     }
