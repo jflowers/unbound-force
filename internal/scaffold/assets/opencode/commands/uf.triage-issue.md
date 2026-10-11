@@ -225,7 +225,10 @@ included plan runs in parallel batches:
 
 - `mode`: `triage`;
 - `command`: `triage-issue`;
-- `changed_files`: not applicable (no diff for issue triage);
+- `issue_content`: JSON string containing the issue object from Phase 1
+  (`{"title": "...", "body": "..." | null, "comments": [...], "labels":
+  [...], "author_association": "...", "created_at": "..."}`). This is
+  the primary content for triage prompts (replaces the diff section);
 - `input_context`: issue input context with validated number, URL, and
   planner-returned content SHA256;
 - `plan_entries`: the plan entries array from `plan_review_dispatch`;
@@ -237,6 +240,9 @@ included plan runs in parallel batches:
   converted to milliseconds; and
 - `review_context`: repository context and duplicate candidates from
   Phase 1.
+
+Do NOT pass `diff_path` or `changed_files` — triage mode rejects both
+fields. The `issue_content` field carries all primary content instead.
 
 The tool returns `status`, `runs_completed`, `runs_failed`, `runs_skipped`
 counters, consolidated `findings`, `proposals` for lesson processing, and

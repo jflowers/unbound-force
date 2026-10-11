@@ -3286,9 +3286,24 @@ const BuildReviewPromptsInputSchema = z
     command: z
       .enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"])
       .describe("Calling command name."),
-    diff_path: z.string().min(1).describe("Absolute path to the saved diff file on disk."),
-    changed_files: z.string().min(1).describe("Pre-formatted list of changed file paths."),
+    diff_path: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Absolute path to the saved diff file on disk. Required for non-triage modes; omit for triage."),
+    changed_files: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Pre-formatted list of changed file paths. Required for non-triage modes; omit for triage."),
     input_context: z.string().min(1).describe("Serialized base/head ref information."),
+    issue_content: z
+      .string()
+      .optional()
+      .describe(
+        "JSON string containing issue title, body, comments, labels, and metadata. " +
+          "Required for triage mode; omit for non-triage modes.",
+      ),
     pre_flight_results: z.string().optional().describe("Formatted pre-flight check output."),
     sibling_evidence: z.string().optional().describe("Delimited sibling evidence block."),
     existing_reviews: z.string().optional().describe("Existing review state."),
@@ -3296,6 +3311,53 @@ const BuildReviewPromptsInputSchema = z
     review_context: z.string().optional().describe("Spec artifacts or other review context."),
   })
   .strict()
+  .superRefine((data, ctx) => {
+    if (data.mode === "triage") {
+      if (data.diff_path !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "diff_path is not applicable for triage mode",
+          path: ["diff_path"],
+        })
+      }
+      if (data.changed_files !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "changed_files is not applicable for triage mode",
+          path: ["changed_files"],
+        })
+      }
+      if (data.issue_content === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "issue_content is required for triage mode",
+          path: ["issue_content"],
+        })
+      }
+    } else {
+      if (data.diff_path === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "diff_path is required for non-triage modes",
+          path: ["diff_path"],
+        })
+      }
+      if (data.changed_files === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "changed_files is required for non-triage modes",
+          path: ["changed_files"],
+        })
+      }
+      if (data.issue_content !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "issue_content is not applicable for non-triage modes",
+          path: ["issue_content"],
+        })
+      }
+    }
+  })
 
 // ── dispatch_review_runs schemas ─────────────────────────────
 
@@ -3303,9 +3365,10 @@ const DispatchReviewRunsInputSchema = z
   .object({
     mode: z.enum(["code", "specs", "triage", "feedback"]),
     command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
-    diff_path: z.string().min(1),
-    changed_files: z.string().min(1),
+    diff_path: z.string().min(1).optional(),
+    changed_files: z.string().min(1).optional(),
     input_context: z.string().min(1),
+    issue_content: z.string().optional(),
     plan_entries: z.array(DispatchPlanEntrySchema).min(1),
     max_parallel_runs: z.number().int().positive().default(DEFAULT_LIMITS.max_parallel_runs),
     budget_usd: z.number().positive().optional(),
@@ -3317,6 +3380,53 @@ const DispatchReviewRunsInputSchema = z
     review_context: z.string().optional(),
   })
   .strict()
+  .superRefine((data, ctx) => {
+    if (data.mode === "triage") {
+      if (data.diff_path !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "diff_path is not applicable for triage mode",
+          path: ["diff_path"],
+        })
+      }
+      if (data.changed_files !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "changed_files is not applicable for triage mode",
+          path: ["changed_files"],
+        })
+      }
+      if (data.issue_content === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "issue_content is required for triage mode",
+          path: ["issue_content"],
+        })
+      }
+    } else {
+      if (data.diff_path === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "diff_path is required for non-triage modes",
+          path: ["diff_path"],
+        })
+      }
+      if (data.changed_files === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "changed_files is required for non-triage modes",
+          path: ["changed_files"],
+        })
+      }
+      if (data.issue_content !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "issue_content is not applicable for non-triage modes",
+          path: ["issue_content"],
+        })
+      }
+    }
+  })
 
 const DispatchReviewRunsOutputSchema = z.object({
   status: z.enum(["ok", "error"]),
@@ -3347,6 +3457,17 @@ Do NOT report findings on:
 - Style or convention issues in unchanged code
 - Aspirational improvements unrelated to the change`
 
+const TRIAGE_CONFINEMENT_RULE = `## Confinement Rule
+
+You MUST confine your triage assessment to:
+1. The issue content provided in this prompt (title, body, and comments)
+2. The repository context and duplicate candidates provided
+
+Do NOT assess or report on:
+- Code quality or implementation details not mentioned in the issue
+- Hypothetical bugs or improvements not described in the issue
+- Issues or topics not raised by the issue author or commenters`
+
 const PROHIBITIONS = `## Prohibitions
 
 You MUST NOT:
@@ -3356,6 +3477,16 @@ You MUST NOT:
 - Execute destructive operations
 - Access external services or APIs not provided in your context
 - Expand your review beyond the files and lines in the diff`
+
+const TRIAGE_PROHIBITIONS = `## Prohibitions
+
+You MUST NOT:
+- Create issues, pull requests, or child issues (GitHub, Jira, or any tracker)
+- Modify tools, permissions, or agent configurations
+- Change repository scope or triage scope
+- Execute destructive operations
+- Access external services or APIs not provided in your context
+- Expand your assessment beyond the issue content and repository context provided`
 
 const RESPONSE_CONTRACT = `## Response Contract
 
@@ -3381,6 +3512,24 @@ You MUST structure your response as follows:
    - APPROVE WITH ADVISORIES
    - REQUEST CHANGES`
 
+const TRIAGE_RESPONSE_CONTRACT = `## Response Contract
+
+You MUST structure your response as follows:
+
+1. **Triage Assessment**: Provide your triage assessment with ALL of these fields:
+   - \`**verdict**\`: Exactly one of \`VALID\`, \`INVALID\`, or \`NEEDS-CLARIFICATION\`
+   - \`**category**\`: One of \`bug\`, \`feature\`, \`enhancement\`, \`question\`, \`opinion\`, \`duplicate\`, or \`needs-clarification\`
+   - \`**objectivity**\`: \`objective\` (verifiable evidence exists) or \`subjective\` (opinion-based)
+   - \`**reasoning**\`: Evidence-based explanation for the verdict and category
+   - \`**split_recommendation**\`: \`null\` or an array of \`{title, description}\` for issues that should be split
+
+2. **Lesson Proposals** (optional): Use the \`submit_lesson_proposal\` tool to submit at most one insight discovered during triage. Each proposal needs:
+   - \`information\`: The learning text
+   - \`tag\`: A topic tag (e.g., "issue-triage", "bug-patterns")
+   - \`category\` (optional): One of decision, pattern, gotcha, context, reference
+
+3. **Model Self-Report**: Include \`**Model**: <model-family>\` in your text response.`
+
 const MAX_DIFF_BYTES = 2 * 1024 * 1024 // 2 MiB
 const MAX_STRING_BYTES = 1 * 1024 * 1024 // 1 MiB
 const MAX_PROMPT_BYTES = 4 * 1024 * 1024 // 4 MiB
@@ -3390,6 +3539,7 @@ const UNTRUSTED_SECTION_NAMES = [
   "diff",
   "changed_files",
   "input_context",
+  "issue_content",
   "pre_flight_results",
   "review_context",
   "existing_reviews",
@@ -3480,16 +3630,7 @@ async function buildReviewPrompts(
   correlationId: string | undefined,
 ): Promise<{ ok: true; result: BuildReviewPromptsResult } | { ok: false; error: string; code: string }> {
   const warnings: string[] = []
-
-  // FR-011: Path validation (follows symlinks via realpath)
-  const pathError = await validateDiffPath(args.diff_path, projectRoot)
-  if (pathError) {
-    return {
-      ok: false,
-      error: "diff_path resolves outside allowed directories",
-      code: "path_validation_failed",
-    }
-  }
+  const isTriageMode = args.mode === "triage"
 
   // FR-013: Validate string input sizes
   for (const [key, value] of Object.entries(args)) {
@@ -3498,21 +3639,34 @@ async function buildReviewPrompts(
     }
   }
 
-  // Read diff file
-  let diffContent: string
-  try {
-    const diffBuffer = await readFile(args.diff_path)
-    if (diffBuffer.byteLength > MAX_DIFF_BYTES) {
+  // Diff handling: only for non-triage modes
+  let diffContent: string | undefined
+  if (!isTriageMode && args.diff_path) {
+    // FR-011: Path validation (follows symlinks via realpath)
+    const pathError = await validateDiffPath(args.diff_path, projectRoot)
+    if (pathError) {
       return {
         ok: false,
-        error: `Diff file exceeds 2 MiB limit (${diffBuffer.byteLength} bytes)`,
-        code: "prompt_size_exceeded",
+        error: "diff_path resolves outside allowed directories",
+        code: "path_validation_failed",
       }
     }
-    diffContent = diffBuffer.toString("utf8")
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    return { ok: false, error: `Cannot read diff file: ${msg}`, code: "diff_read_failed" }
+
+    // Read diff file
+    try {
+      const diffBuffer = await readFile(args.diff_path)
+      if (diffBuffer.byteLength > MAX_DIFF_BYTES) {
+        return {
+          ok: false,
+          error: `Diff file exceeds 2 MiB limit (${diffBuffer.byteLength} bytes)`,
+          code: "prompt_size_exceeded",
+        }
+      }
+      diffContent = diffBuffer.toString("utf8")
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return { ok: false, error: `Cannot read diff file: ${msg}`, code: "diff_read_failed" }
+    }
   }
 
   // Read optional project files (graceful degradation per FR-005/FR-009)
@@ -3598,15 +3752,25 @@ async function buildReviewPrompts(
         `${agentDef || "_Agent definition not available._"}`,
     )
 
-    // Section 3: Diff (FR-012: untrusted delimiters)
-    sections.push(`## Diff\n\n${wrapUntrusted(diffContent, "diff")}`)
+    // Section 3: Primary content (FR-012: untrusted delimiters)
+    if (isTriageMode && args.issue_content) {
+      // FR-140/FR-141: Triage mode uses issue content instead of diff
+      sections.push(`## Issue Content\n\n${wrapUntrusted(args.issue_content, "issue_content")}`)
+    } else if (diffContent !== undefined) {
+      sections.push(`## Diff\n\n${wrapUntrusted(diffContent, "diff")}`)
+    }
 
-    // Section 4: Changed paths and input context
-    sections.push(
-      `## Changed Files and Input Context\n\n` +
-        `### Changed Files\n\n${wrapUntrusted(args.changed_files, "changed_files")}\n\n` +
-        `### Input Context\n\n${wrapUntrusted(args.input_context, "input_context")}`,
-    )
+    // Section 4: Context
+    if (isTriageMode) {
+      // FR-142: Triage mode omits changed files
+      sections.push(`## Input Context\n\n${wrapUntrusted(args.input_context, "input_context")}`)
+    } else {
+      sections.push(
+        `## Changed Files and Input Context\n\n` +
+          `### Changed Files\n\n${wrapUntrusted(args.changed_files!, "changed_files")}\n\n` +
+          `### Input Context\n\n${wrapUntrusted(args.input_context, "input_context")}`,
+      )
+    }
 
     // Section 5: Project context
     const projectContextParts: string[] = []
@@ -3652,14 +3816,14 @@ async function buildReviewPrompts(
       )
     }
 
-    // Section 9: Confinement rule (static)
-    sections.push(CONFINEMENT_RULE)
+    // Section 9: Confinement rule (static, mode-dependent)
+    sections.push(isTriageMode ? TRIAGE_CONFINEMENT_RULE : CONFINEMENT_RULE)
 
-    // Section 10: Prohibitions (static)
-    sections.push(PROHIBITIONS)
+    // Section 10: Prohibitions (static, mode-dependent)
+    sections.push(isTriageMode ? TRIAGE_PROHIBITIONS : PROHIBITIONS)
 
-    // Section 11: Response contract (static)
-    sections.push(RESPONSE_CONTRACT)
+    // Section 11: Response contract (static, mode-dependent)
+    sections.push(isTriageMode ? TRIAGE_RESPONSE_CONTRACT : RESPONSE_CONTRACT)
 
     const promptContent = sections.join("\n\n---\n\n")
 
@@ -3705,9 +3869,15 @@ function createBuildReviewPromptsTool(projectRoot: string): ReturnType<typeof to
       "Returns { prompts: [{ agent, path, size_bytes }] }.",
     args: BuildReviewPromptsInputSchema.shape,
     async execute(args, context): Promise<{ readonly output: string }> {
+      // Validate with full schema (including superRefine cross-field checks)
+      const parsed = BuildReviewPromptsInputSchema.safeParse(args)
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((i) => i.message).join("; ")
+        return { output: JSON.stringify({ error: issues, code: "validation_error" }) }
+      }
       const correlationId = sessionCorrelationMap.get(context.sessionID)
       const result = await buildReviewPrompts(
-        args as z.infer<typeof BuildReviewPromptsInputSchema>,
+        parsed.data,
         projectRoot,
         correlationId,
       )
@@ -3799,6 +3969,7 @@ async function dispatchReviewRuns(
       diff_path: input.diff_path,
       changed_files: input.changed_files,
       input_context: input.input_context,
+      issue_content: input.issue_content,
       pre_flight_results: input.pre_flight_results,
       sibling_evidence: siblingEvidence || undefined,
       existing_reviews: input.existing_reviews,

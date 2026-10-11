@@ -144,6 +144,27 @@ function baseArgs(directory: string, diffPath: string, agents?: string[]) {
   }
 }
 
+const SAMPLE_ISSUE_CONTENT = JSON.stringify({
+  title: "Coverage regression in auth module",
+  body: "After merging PR #42, test coverage dropped from 85% to 72%.",
+  comments: [
+    { id: 1, created_at: "2026-10-01T10:00:00Z", body: "Can reproduce locally." },
+  ],
+  labels: ["bug"],
+  author_association: "MEMBER",
+  created_at: "2026-10-01T09:00:00Z",
+})
+
+function triageArgs(agents?: string[]) {
+  return {
+    agents: agents ?? ["divisor-guard", "divisor-adversary"],
+    mode: "triage" as const,
+    command: "triage-issue" as const,
+    issue_content: SAMPLE_ISSUE_CONTENT,
+    input_context: '{"kind":"issue","issue_number":99,"issue_url":"https://github.com/unbound-force/unbound-force/issues/99","content_sha256":"' + "a".repeat(64) + '"}',
+  }
+}
+
 afterEach(async () => {
   await Promise.all(scratchDirectories.splice(0).map((d) => rm(d, { recursive: true, force: true })))
 })
@@ -672,6 +693,272 @@ describe("build_review_prompts", () => {
       expect(data.error).toBeDefined()
       expect(data.code).toBe("prompt_size_exceeded")
       expect(data.error).toContain("4 MiB")
+    })
+  })
+
+  // ── Triage mode tests (FR-100..FR-171) ──────────────────────
+
+  // 21. Triage mode produces Issue Content section instead of Diff
+  it("triage mode produces Issue Content section instead of Diff (FR-140)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        triageArgs(["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.prompts).toHaveLength(1)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("## Issue Content")
+      expect(promptContent).not.toContain("## Diff")
+      expect(promptContent).toContain("Coverage regression in auth module")
+      expect(promptContent).toContain("Can reproduce locally")
+    })
+  })
+
+  // 22. Triage mode uses Input Context section without Changed Files
+  it("triage mode uses Input Context without Changed Files (FR-141)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        triageArgs(["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("## Input Context")
+      expect(promptContent).not.toContain("## Changed Files")
+    })
+  })
+
+  // 23. Triage mode uses TRIAGE_RESPONSE_CONTRACT verdicts
+  it("triage mode uses triage response contract with VALID/INVALID/NEEDS-CLARIFICATION (FR-120)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        triageArgs(["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("VALID")
+      expect(promptContent).toContain("INVALID")
+      expect(promptContent).toContain("NEEDS-CLARIFICATION")
+      expect(promptContent).not.toContain("APPROVE WITH ADVISORIES")
+      expect(promptContent).not.toContain("REQUEST CHANGES")
+    })
+  })
+
+  // 24. Triage mode uses TRIAGE_CONFINEMENT_RULE (no diff references)
+  it("triage mode uses triage confinement rule without diff references (FR-110)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        triageArgs(["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("## Confinement Rule")
+      expect(promptContent).toContain("issue content")
+      // The triage confinement rule must NOT reference diffs
+      expect(promptContent).not.toContain("Lines that are added or modified in the diff")
+    })
+  })
+
+  // 25. Triage mode uses TRIAGE_PROHIBITIONS
+  it("triage mode uses triage prohibitions (FR-130)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        triageArgs(["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("## Prohibitions")
+    })
+  })
+
+  // 26. Triage mode rejects when issue_content is missing (FR-101)
+  it("triage mode rejects when issue_content is missing (FR-101)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        {
+          agents: ["divisor-guard"],
+          mode: "triage" as const,
+          command: "triage-issue" as const,
+          input_context: "issue context",
+        },
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.error).toBeDefined()
+      expect(data.error).toContain("issue_content")
+    })
+  })
+
+  // 27. Triage mode rejects when diff_path is provided (FR-152)
+  it("triage mode rejects when diff_path is provided (FR-152)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const diffPath = await createDiffFile(project)
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        {
+          ...triageArgs(["divisor-guard"]),
+          diff_path: diffPath,
+        },
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.error).toBeDefined()
+      expect(data.error).toContain("diff_path")
+    })
+  })
+
+  // 28. Triage mode rejects when changed_files is provided (FR-153)
+  it("triage mode rejects when changed_files is provided (FR-153)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        {
+          ...triageArgs(["divisor-guard"]),
+          changed_files: "src/foo.ts (+1, -0)",
+        },
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.error).toBeDefined()
+      expect(data.error).toContain("changed_files")
+    })
+  })
+
+  // 29. Non-triage mode rejects when issue_content is provided (FR-103)
+  it("non-triage mode rejects when issue_content is provided (FR-103)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const diffPath = await createDiffFile(project)
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        {
+          ...baseArgs(project, diffPath, ["divisor-guard"]),
+          issue_content: SAMPLE_ISSUE_CONTENT,
+        },
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.error).toBeDefined()
+      expect(data.error).toContain("issue_content")
+    })
+  })
+
+  // 30. Non-triage mode still produces Diff section (backward compat)
+  it("non-triage mode still produces Diff section (backward compat)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const diffPath = await createDiffFile(project)
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        baseArgs(project, diffPath, ["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("## Diff")
+      expect(promptContent).not.toContain("## Issue Content")
+      expect(promptContent).toContain("APPROVE")
+      expect(promptContent).toContain("REQUEST CHANGES")
+    })
+  })
+
+  // 31. Triage mode wraps issue_content with untrusted delimiters (FR-012)
+  it("triage mode wraps issue_content with untrusted delimiters (FR-012)", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.build_review_prompts.execute(
+        triageArgs(["divisor-guard"]),
+        toolContext(project),
+      )
+
+      const data = JSON.parse(result.output)
+      const promptContent = await readFile(data.prompts[0].path, "utf8")
+      expect(promptContent).toContain("BEGIN UNTRUSTED: issue_content")
+      expect(promptContent).toContain("END UNTRUSTED: issue_content")
     })
   })
 })

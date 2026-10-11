@@ -196,6 +196,52 @@ function makeBaseInput(diffPath: string, planEntries: Record<string, unknown>[])
   }
 }
 
+function makeTriageSessionMetadata(): Record<string, unknown> {
+  return {
+    command: "triage-issue",
+    mode: "triage",
+    full: false,
+    input_context: {
+      kind: "issue",
+      issue_number: 99,
+      issue_url: "https://github.com/unbound-force/unbound-force/issues/99",
+      content_sha256: "a".repeat(64),
+    },
+    change_profile: {
+      kind: "issue",
+      text_bytes: 200,
+      comment_count: 1,
+      content_sha256: "a".repeat(64),
+      matched_rules: [],
+      security_sensitive: false,
+      user_facing: true,
+      categories: ["standard"],
+      tier: "standard",
+    },
+    plan: [],
+    coverage: { preflight_verdict: "NOT_RUN", checks_total: 0, checks_passed: 0 },
+  }
+}
+
+function makeTriageInput(planEntries: Record<string, unknown>[]): Record<string, unknown> {
+  return {
+    mode: "triage",
+    command: "triage-issue",
+    issue_content: JSON.stringify({
+      title: "Coverage regression",
+      body: "Coverage dropped.",
+      comments: [],
+      labels: ["bug"],
+      author_association: "MEMBER",
+      created_at: "2026-10-01T09:00:00Z",
+    }),
+    input_context: '{"kind":"issue","issue_number":99,"issue_url":"https://github.com/unbound-force/unbound-force/issues/99","content_sha256":"' + "a".repeat(64) + '"}',
+    plan_entries: planEntries,
+    max_parallel_runs: 4,
+    session_metadata: makeTriageSessionMetadata(),
+  }
+}
+
 // ── Tests ───────────────────────────────────────────────────
 
 describe("dispatch_review_runs", () => {
@@ -603,6 +649,82 @@ describe("dispatch_review_runs", () => {
         const meta = response.metadata as Record<string, unknown>
         expect(meta.status).toBe("error")
         expect(meta.runs_completed).toBe(0)
+      })
+    })
+  })
+
+  // ── Triage mode tests ──────────────────────────────────────
+
+  describe("triage mode dispatches without diff", () => {
+    it("dispatches triage entries successfully without diff_path or changed_files", async () => {
+      await withBun(async () => {
+        const { directory } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeTriageInput([
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+        expect(meta.runs_failed).toBe(0)
+      })
+    })
+
+    it("rejects triage mode when diff_path is provided", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = {
+          ...makeTriageInput([makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          diff_path: diffPath,
+        }
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("error")
+        expect(typeof meta.message).toBe("string")
+        expect((meta.message as string).toLowerCase()).toContain("diff_path")
+      })
+    })
+
+    it("rejects triage mode when issue_content is missing", async () => {
+      await withBun(async () => {
+        const { directory } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = {
+          mode: "triage",
+          command: "triage-issue",
+          input_context: "issue context",
+          plan_entries: [makePlanEntry({ agent: "divisor-guard", sequence: 1 })],
+          max_parallel_runs: 4,
+          session_metadata: makeTriageSessionMetadata(),
+        }
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("error")
+        expect(typeof meta.message).toBe("string")
+        expect((meta.message as string).toLowerCase()).toContain("issue_content")
       })
     })
   })
