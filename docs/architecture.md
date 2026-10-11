@@ -771,7 +771,7 @@ Compiled defaults
 
 ### Config Sections
 
-The `.uf/config.yaml` file has 7 sections:
+The `.uf/config.yaml` file has 6 sections:
 
 | Section | Controls |
 |---------|----------|

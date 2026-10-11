@@ -56,7 +56,7 @@ considered valid because compiled defaults are used.
 
 ## Configuration Sections
 
-The config file has seven top-level sections. Each section is
+The config file has six top-level sections. Each section is
 independent and can be included or omitted as needed.
 
 ---

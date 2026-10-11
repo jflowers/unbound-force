@@ -25,6 +25,9 @@ dist/
 # Node
 node_modules/
 
+# Gaze build artifacts
+.gaze/
+
 # Vitest output artifacts
 .opencode/.vitest/
 
