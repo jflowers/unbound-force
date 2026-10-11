@@ -5,6 +5,20 @@ Each entry follows the format: `- <change-name>: <summary>`.
 
 ## Unreleased
 
+### Removed
+
+- remove-mutimind-mxf-orchestration: Removed Muti-Mind product owner
+  hero (cmd/mutimind, internal/backlog, internal/sync, schemas/hero-manifest,
+  schemas/backlog-item, .opencode/agents/muti-mind-po.md, 12 muti-mind
+  commands). Removed Mx F manager hero (cmd/mxf, internal/coaching,
+  internal/dashboard, internal/impediment, internal/metrics, internal/sprint,
+  schemas/acceptance-decision, schemas/metrics-snapshot, schemas/coaching-record,
+  schemas/workflow-record, .opencode/agents/mx-f-coach.md, 5 workflow commands).
+  Removed internal/orchestration swarm orchestration engine. Updated
+  documentation, configuration, and constitution references. Constitution
+  amended to v1.3.1 (PATCH: remove Muti-Mind and Mx F references).
+  (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
+
 ### Changed
 - move-schemas-to-uf: Scaffold schema assets relocated from
   `schemas/` to `uf/schemas/`. The `schemas/` prefix no longer

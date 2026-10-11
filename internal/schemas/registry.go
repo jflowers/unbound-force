@@ -23,11 +23,6 @@ func registeredTypes() []schemaEntry {
 		{TypeName: "envelope", Value: EnvelopeSchema{}},
 		{TypeName: "quality-report", Value: QualityReportPayload{}},
 		{TypeName: "review-verdict", Value: ReviewVerdictPayload{}},
-		{TypeName: "backlog-item", Value: BacklogItemPayload{}},
-		{TypeName: "acceptance-decision", Value: AcceptanceDecisionPayload{}},
-		{TypeName: "metrics-snapshot", Value: MetricsSnapshotPayload{}},
-		{TypeName: "coaching-record", Value: CoachingRecordPayload{}},
-		{TypeName: "workflow-record", Value: WorkflowRecordPayload{}},
 	}
 }
 

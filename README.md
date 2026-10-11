@@ -9,10 +9,8 @@ Unbound Force is an organization of AI agent personas (heroes) that collaborate 
 | Hero | Role | Status |
 |------|------|--------|
 | **Gaze** | Tester (Quality Sentinel) | Implemented |
-| **Muti-Mind** | Product Owner (Vision Keeper) | Implemented |
 | **Cobalt-Crush** | Developer (Engineering Core) | Implemented (embedded in `unbound-force`) |
 | **The Divisor** | PR Reviewer (Council) | Implemented (embedded in `unbound-force`) |
-| **Mx F** | Manager (Flow Facilitator) | Implemented (`mxf` CLI + coaching agent) |
 
 ## Constitution
 
@@ -51,7 +49,6 @@ The framework provides:
 
 - **Speckit** (strategic): Full 9-phase pipeline for architectural work (`/speckit.specify` through `/speckit.implement`)
 - **OpenSpec** (tactical): Lightweight workflow for bug fixes and small changes (`/opsx-propose` through `/opsx-archive`)
-- **Workflow orchestration**: Hero lifecycle commands (`/workflow start`, `/workflow status`, `/workflow list`, `/workflow advance`) for managing the 6-stage feature lifecycle
 - **Constitution governance bridge**: Every proposal includes alignment assessment against the four org principles
 
 `uf init` scaffolds 50 files into your repository: templates, scripts, commands, agents, Divisor review personas, convention packs, and the custom `unbound-force` OpenSpec schema. Use `uf init --divisor` to deploy only the PR review agents and convention packs. Use `--lang` to override language auto-detection for convention pack selection. User-owned files are skipped on re-run; tool-owned files are auto-updated when content changes.
@@ -66,8 +63,7 @@ This repo contains architectural design specs for all heroes and shared standard
 
 - **`specs/`** -- 35 architectural specifications covering constitution, hero architectures, swarm orchestration, tooling, and workflows
 - **`cmd/unbound-force/`** -- Go CLI binary for framework distribution
-- **`cmd/mutimind/`** -- Muti-Mind product owner backend CLI
-- **`internal/`** -- Business logic packages (scaffold, sandbox, gateway, config, doctor, setup, orchestration, schemas, artifacts, backlog, sync, coaching, dashboard, impediment, metrics, sprint)
+- **`internal/`** -- Business logic packages (scaffold, sandbox, gateway, config, doctor, setup, schemas, artifacts, coveragegate, textutil, homebrew)
 - **`.specify/memory/constitution.md`** -- The org constitution (highest authority)
 - **`openspec/`** -- OpenSpec tactical workflow configuration and schema
 - **`schemas/`** -- JSON Schema registry

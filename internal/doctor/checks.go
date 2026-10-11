@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/unbound-force/unbound-force/internal/orchestration"
 	"gopkg.in/yaml.v3"
 )
 
@@ -846,85 +845,6 @@ func checkDirWithCount(dir, name, label, ext string) CheckResult {
 		Severity: Pass,
 		Message:  fmt.Sprintf("%d %s", count, label),
 	}
-}
-
-// checkHeroAvailability checks for all 5 heroes per FR-007,
-// reusing orchestration.DetectHeroes.
-func checkHeroAvailability(opts *Options) CheckGroup {
-	group := CheckGroup{
-		Name:    "Hero Availability",
-		Results: []CheckResult{},
-	}
-
-	agentDir := filepath.Join(opts.TargetDir, ".opencode", "agents")
-	heroes, err := orchestration.DetectHeroes(agentDir, opts.LookPath)
-	if err != nil {
-		group.Results = append(group.Results, CheckResult{
-			Name:     "detection",
-			Severity: Warn,
-			Message:  fmt.Sprintf("hero detection failed: %v", err),
-		})
-		return group
-	}
-
-	// Map hero names to human-readable display names.
-	displayNames := map[string]string{
-		"muti-mind":    "Muti-Mind (PO)",
-		"cobalt-crush": "Cobalt-Crush (Dev)",
-		"gaze":         "Gaze (Tester)",
-		"divisor":      "The Divisor (Reviewer)",
-		"mx-f":         "Mx F (Manager)",
-	}
-
-	for _, h := range heroes {
-		displayName := displayNames[h.Name]
-		if displayName == "" {
-			displayName = h.Name
-		}
-
-		if h.Available {
-			method := "agent: " + h.AgentFile
-			if h.DetectionMethod == "exec_lookpath" {
-				method = "binary"
-			}
-			// Special case: Divisor shows persona count.
-			if h.Name == "divisor" {
-				count := countDivisorPersonas(agentDir)
-				if count > 1 {
-					method = fmt.Sprintf("agent: %s (+%d personas)", h.AgentFile, count-1)
-				}
-			}
-			group.Results = append(group.Results, CheckResult{
-				Name:     displayName,
-				Severity: Pass,
-				Message:  method,
-			})
-		} else {
-			group.Results = append(group.Results, CheckResult{
-				Name:        displayName,
-				Severity:    Warn,
-				Message:     "not available",
-				InstallHint: "Run: uf init",
-			})
-		}
-	}
-
-	return group
-}
-
-// countDivisorPersonas counts divisor-*.md files in the agent dir.
-func countDivisorPersonas(agentDir string) int {
-	entries, err := os.ReadDir(agentDir)
-	if err != nil {
-		return 0
-	}
-	count := 0
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "divisor-") && strings.HasSuffix(e.Name(), ".md") {
-			count++
-		}
-	}
-	return count
 }
 
 // checkMCPConfig parses opencode.json and checks MCP server

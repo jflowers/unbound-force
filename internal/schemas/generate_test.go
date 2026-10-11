@@ -11,7 +11,7 @@ import (
 )
 
 // TestGenerateAll_ProducesValidSchemas verifies that GenerateAll
-// creates all 8 schema files (envelope + 7 artifact types) in the
+// creates all 3 schema files (envelope + 2 artifact types) in the
 // output directory. Each file must be valid JSON and contain a
 // $schema field indicating draft 2020-12 (SC-001, SC-002).
 func TestGenerateAll_ProducesValidSchemas(t *testing.T) {
@@ -22,8 +22,8 @@ func TestGenerateAll_ProducesValidSchemas(t *testing.T) {
 	}
 
 	expectedTypes := schemas.RegisteredTypeNames()
-	if len(expectedTypes) != 8 {
-		t.Fatalf("expected 8 registered types, got %d", len(expectedTypes))
+	if len(expectedTypes) != 3 {
+		t.Fatalf("expected 3 registered types, got %d", len(expectedTypes))
 	}
 
 	for _, typeName := range expectedTypes {
@@ -73,14 +73,9 @@ func TestValidateArtifact_AllSamples(t *testing.T) {
 
 	// Sample files map: type name → sample file path (relative to repo root)
 	samples := map[string]string{
-		"envelope":            "../../schemas/envelope/samples/sample-envelope.json",
-		"quality-report":      "../../schemas/quality-report/samples/sample-quality-report.json",
-		"review-verdict":      "../../schemas/review-verdict/samples/sample-review-verdict.json",
-		"backlog-item":        "../../schemas/backlog-item/samples/sample-backlog-item.json",
-		"acceptance-decision": "../../schemas/acceptance-decision/samples/sample-acceptance-decision.json",
-		"metrics-snapshot":    "../../schemas/metrics-snapshot/samples/sample-metrics-snapshot.json",
-		"coaching-record":     "../../schemas/coaching-record/samples/sample-coaching-record.json",
-		"workflow-record":     "../../schemas/workflow-record/samples/sample-workflow-record.json",
+		"envelope":       "../../schemas/envelope/samples/sample-envelope.json",
+		"quality-report": "../../schemas/quality-report/samples/sample-quality-report.json",
+		"review-verdict": "../../schemas/review-verdict/samples/sample-review-verdict.json",
 	}
 
 	for typeName, samplePath := range samples {

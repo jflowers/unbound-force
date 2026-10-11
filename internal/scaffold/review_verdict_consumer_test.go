@@ -22,16 +22,9 @@ func TestReviewVerdictConsumers_AgentMigrationContracts(t *testing.T) {
 		t.Fatalf("read scaffolded Cobalt-Crush consumer: %v", err)
 	}
 
-	mutiMindPath := filepath.Join(root, ".opencode", "agents", "muti-mind-po.md")
-	mutiMind, err := os.ReadFile(mutiMindPath)
-	if err != nil {
-		t.Fatalf("read Muti-Mind consumer %s: %v", mutiMindPath, err)
-	}
-
 	consumers := []commandCopy{
 		{name: "Cobalt-Crush canonical", text: string(cobalt)},
 		{name: "Cobalt-Crush scaffold", text: string(embeddedCobalt)},
-		{name: "Muti-Mind", text: string(mutiMind)},
 	}
 	commonClauses := []commandClause{
 		{

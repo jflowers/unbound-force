@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/unbound-force/unbound-force/internal/backlog"
 )
 
 // Envelope represents the Spec 002 Artifact Envelope
@@ -21,17 +19,6 @@ type Envelope struct {
 	SchemaVersion string          `json:"schema_version"`
 	Context       json.RawMessage `json:"context,omitempty"`
 	Payload       json.RawMessage `json:"payload"`
-}
-
-// AcceptanceDecision represents the payload for an acceptance-decision artifact
-type AcceptanceDecision struct {
-	ItemID         string   `json:"item_id"`
-	Decision       string   `json:"decision"` // accept, reject, conditional
-	Rationale      string   `json:"rationale"`
-	CriteriaMet    []string `json:"criteria_met"`
-	CriteriaFailed []string `json:"criteria_failed"`
-	GazeReportRef  string   `json:"gaze_report_ref"`
-	DecidedAt      string   `json:"decided_at"`
 }
 
 // ArtifactContext provides workflow-level metadata for artifact envelopes.
@@ -47,7 +34,7 @@ type ArtifactContext struct {
 const Version = "1.0.0"
 
 // WriteArtifact writes a JSON artifact envelope to the given directory.
-// The hero parameter identifies the producing hero (e.g., "mx-f", "muti-mind").
+// The hero parameter identifies the producing hero (e.g., "gaze", "divisor").
 func WriteArtifact(dir, hero, artifactType, id string, payload interface{}) error {
 	return WriteArtifactWithContext(dir, hero, artifactType, id, payload, nil)
 }
@@ -203,12 +190,4 @@ func CheckSchemaVersion(envelope *Envelope, expectedVersion string) (compatible 
 	return true, fmt.Sprintf("minor/patch version differs: envelope=%q expected=%q", envelope.SchemaVersion, expectedVersion)
 }
 
-// GenerateBacklogItemArtifact generates a backlog-item JSON artifact
-func GenerateBacklogItemArtifact(dir string, item *backlog.Item) error {
-	return WriteArtifact(dir, "muti-mind", "backlog-item", item.ID, item)
-}
 
-// GenerateAcceptanceDecision generates an acceptance-decision JSON artifact
-func GenerateAcceptanceDecision(dir string, decision *AcceptanceDecision) error {
-	return WriteArtifact(dir, "muti-mind", "acceptance-decision", decision.ItemID, decision)
-}

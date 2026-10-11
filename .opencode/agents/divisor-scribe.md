@@ -128,4 +128,4 @@ These domains are owned by other agents — do NOT produce content for them:
 - **Blog posts and announcements** → The Herald
 - **Press releases and social media** → The Envoy
 - **Code review findings** → The Divisor review council
-- **Product decisions and prioritization** → Muti-Mind
+

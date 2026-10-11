@@ -156,7 +156,6 @@ func Run(opts Options) (*Report, error) {
 		checkConfiguration(&opts),
 		checkAgentContext(&opts),
 		checkScaffoldedFiles(&opts),
-		checkHeroAvailability(&opts),
 		checkMCPConfig(&opts),
 		checkAgentSkillIntegrity(&opts),
 	}

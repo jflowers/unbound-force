@@ -33,8 +33,6 @@ by slash commands. You rarely need to call them directly.
 |-------|-----------|------|
 | `cobalt-crush-dev` | `/uf.cobalt-crush` | Developer persona |
 | `divisor-*` (9 agents) | `/uf.review-council` | Review council personas |
-| `muti-mind-po` | `/muti-mind.*` | Product owner |
-| `mx-f-coach` | `@mx-f-coach` | Coaching and retrospectives |
 | `gaze-reporter` | `/gaze` | Quality analysis |
 | `gaze-test-generator` | `/gaze-fix` | Test generation |
 
@@ -231,9 +229,7 @@ outside of OpenCode:
 See **[CLI Reference](cli-reference.md)** for full
 command documentation with flags and examples.
 
-The `mutimind` CLI provides terminal-based backlog
-management. See **[CLI Reference](cli-reference.md#mutimind)**
-for details.
+
 
 ## Quick Reference
 
@@ -267,20 +263,9 @@ for details.
 | `/forge-status` | Check parallel execution status |
 | `/uf.init` | Run uf init from within OpenCode |
 | `/uf.constitution-check` | Check constitution alignment |
-| `/workflow-start` | Begin hero lifecycle workflow |
-| `/workflow-status` | Check workflow state |
-| `/workflow-advance` | Advance workflow to next stage |
-| `/workflow-list` | List all workflows |
-| `/workflow-seed` | Seed workflow with initial data |
 
 ## See Also
 
-- **Backlog management** -- `/muti-mind.init` to set up,
-  `/muti-mind.backlog-add` to create items,
-  `/muti-mind.prioritize` to rank them
-- **Workflow orchestration** -- `/workflow-start`,
-  `/workflow-status`, `/workflow-advance` for the
-  6-stage hero lifecycle
 - **Parallel execution** -- `/forge` to decompose tasks
   and run multiple agents concurrently
 - **[AGENTS.md](../AGENTS.md)** -- Full reference for all

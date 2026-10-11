@@ -262,43 +262,6 @@ embedding:
   host: http://localhost:11434
 ```
 
----
-
-### workflow
-
-Controls the hero lifecycle workflow, defining which pipeline
-phases are executed by humans and which by the AI swarm.
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `execution_modes` | map of string to string | (see below) | Per-phase execution mode. |
-| `spec_review` | bool | `false` | Enable spec review before implementation. |
-
-Default `execution_modes`:
-
-| Phase | Default Mode |
-|-------|-------------|
-| `define` | `human` |
-| `implement` | `swarm` |
-| `validate` | `swarm` |
-| `review` | `swarm` |
-| `accept` | `human` |
-| `reflect` | `swarm` |
-
-Valid values for each mode: `human`, `swarm`.
-
-```yaml
-workflow:
-  execution_modes:
-    define: human
-    implement: swarm
-    validate: swarm
-    review: swarm
-    accept: human
-    reflect: swarm
-  spec_review: true
-```
-
 ## Review Council Configuration
 
 The review council is configured through four separate `.uf/` files,

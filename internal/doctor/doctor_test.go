@@ -829,49 +829,7 @@ func TestCheckDCPConfig_MalformedJSON(t *testing.T) {
 	}
 }
 
-func TestCheckHeroAvailability(t *testing.T) {
-	dir := t.TempDir()
-	agentDir := filepath.Join(dir, ".opencode", "agents")
 
-	// Create agent files.
-	createFile(t, dir, ".opencode/agents/muti-mind-po.md", "# agent")
-	createFile(t, dir, ".opencode/agents/cobalt-crush-dev.md", "# agent")
-	createFile(t, dir, ".opencode/agents/divisor-guard.md", "# agent")
-	createFile(t, dir, ".opencode/agents/divisor-architect.md", "# agent")
-	createFile(t, dir, ".opencode/agents/divisor-adversary.md", "# agent")
-	createFile(t, dir, ".opencode/agents/divisor-sre.md", "# agent")
-	createFile(t, dir, ".opencode/agents/divisor-testing.md", "# agent")
-	createFile(t, dir, ".opencode/agents/mx-f-coach.md", "# agent")
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPathSimple(map[string]bool{"gaze": true}),
-	}
-
-	group := checkHeroAvailability(opts)
-
-	if group.Name != "Hero Availability" {
-		t.Errorf("group name = %q, want Hero Availability", group.Name)
-	}
-
-	// All 5 heroes should be available.
-	for _, r := range group.Results {
-		if r.Severity != Pass {
-			t.Errorf("hero %q severity = %v, want Pass", r.Name, r.Severity)
-		}
-	}
-
-	// Check Divisor shows persona count.
-	for _, r := range group.Results {
-		if strings.Contains(r.Name, "Divisor") {
-			if !strings.Contains(r.Message, "+4 personas") {
-				t.Errorf("Divisor message = %q, want '+4 personas'", r.Message)
-			}
-		}
-	}
-
-	_ = agentDir // used via dir
-}
 
 func TestCheckMCPConfig(t *testing.T) {
 	dir := t.TempDir()
@@ -1057,7 +1015,7 @@ func TestDoctorRun(t *testing.T) {
 		t.Log("Run returned nil error (all checks passed or only warnings)")
 	}
 
-	// Verify 10 groups in correct order.
+	// Verify 9 groups in correct order.
 	expectedGroups := []string{
 		"Detected Environment",
 		"Core Tools",
@@ -1066,7 +1024,6 @@ func TestDoctorRun(t *testing.T) {
 		"Configuration",
 		"Agent Context",
 		"Scaffolded Files",
-		"Hero Availability",
 		"MCP Server Config",
 		"Agent/Skill Integrity",
 	}
@@ -1226,8 +1183,8 @@ func TestDoctorRun_NonGitDir(t *testing.T) {
 	}
 
 	// All checks should still execute.
-	if len(report.Groups) != 10 {
-		t.Errorf("expected 10 groups, got %d", len(report.Groups))
+	if len(report.Groups) != 9 {
+		t.Errorf("expected 9 groups, got %d", len(report.Groups))
 	}
 }
 
@@ -2373,46 +2330,9 @@ func TestCheckDewey_OllamaNotAvailable(t *testing.T) {
 	}
 }
 
-func TestCheckHeroAvailability_NoneAvailable(t *testing.T) {
-	dir := t.TempDir()
 
-	opts := &Options{
-		TargetDir: dir,
-		LookPath:  stubLookPathSimple(map[string]bool{}),
-	}
 
-	group := checkHeroAvailability(opts)
 
-	for _, r := range group.Results {
-		if r.Severity != Warn {
-			t.Errorf("hero %q should be Warn when not available, got %v", r.Name, r.Severity)
-		}
-	}
-}
-
-func TestCheckHeroAvailability_BinaryOnly(t *testing.T) {
-	dir := t.TempDir()
-
-	opts := &Options{
-		TargetDir: dir,
-		LookPath: stubLookPath(map[string]string{
-			"gaze": "/usr/local/bin/gaze",
-		}),
-	}
-
-	group := checkHeroAvailability(opts)
-
-	for _, r := range group.Results {
-		if strings.Contains(r.Name, "Gaze") {
-			if r.Severity != Pass {
-				t.Errorf("Gaze should be Pass, got %v", r.Severity)
-			}
-			if !strings.Contains(r.Message, "binary") {
-				t.Errorf("Gaze message = %q, want 'binary'", r.Message)
-			}
-		}
-	}
-}
 
 func TestValidateAgents_NoAgents(t *testing.T) {
 	dir := t.TempDir()

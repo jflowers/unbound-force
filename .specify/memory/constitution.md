@@ -1,7 +1,7 @@
 <!--
   SYNC IMPACT REPORT
   ==================
-  Version change: 1.2.0 → 1.3.0 (MINOR: gatekeeping guidance expanded)
+  Version change: 1.3.0 → 1.3.1 (PATCH: remove Muti-Mind and Mx F references)
 
   Added or expanded guidance:
     - Gatekeeping Integrity now permits narrowly bounded, verified
@@ -90,7 +90,7 @@ value without introducing mandatory dependencies.
   require patching or forking another hero to integrate.
 - When two or more heroes are deployed together, their combination
   MUST produce value greater than the sum of their individual
-  capabilities (e.g., Gaze quality reports informing Mx F metrics).
+  capabilities (e.g., Gaze quality reports informing review verdicts).
   This additive value MUST NOT come at the cost of standalone
   functionality.
 - Heroes SHOULD auto-detect the presence of other heroes and
@@ -126,11 +126,10 @@ automated, reproducible evidence.
   without bespoke parsing.
 
 **Rationale**: A swarm that cannot measure its own performance
-cannot improve. Machine-parseable output enables Mx F to track
-trends, Muti-Mind to make data-driven prioritization decisions,
-and The Divisor to ground reviews in evidence rather than opinion.
-Provenance metadata ensures that every data point is traceable to
-its source, preventing "trust me" assertions.
+cannot improve. Machine-parseable output enables heroes to make
+data-driven decisions and ground reviews in evidence rather than
+opinion. Provenance metadata ensures that every data point is
+traceable to its source, preventing "trust me" assertions.
 
 ### IV. Testability
 
@@ -290,4 +289,4 @@ and project-specific guidance.
   implicit priority over another; resolution is context-dependent
   and requires written justification.
 
-**Version**: 1.3.0 | **Ratified**: 2026-02-25 | **Last Amended**: 2026-09-14
+**Version**: 1.3.1 | **Ratified**: 2026-02-25 | **Last Amended**: 2026-10-10

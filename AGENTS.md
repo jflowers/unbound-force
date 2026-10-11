@@ -11,8 +11,8 @@ the org-level constitution, the architectural specs for all
 heroes, and the shared standards that every hero repo must follow.
 
 - **Type**: Meta repository (specifications, governance, standards)
-- **Heroes**: Muti-Mind (PO), Cobalt-Crush (Dev), Gaze (Tester),
-  The Divisor (Reviewer), Mx F (Manager) -- all implemented
+- **Heroes**: Cobalt-Crush (Dev), Gaze (Tester),
+  The Divisor (Reviewer) -- all implemented
 - **Tooling**: [Speckit](https://github.com/github/spec-kit) +
   [OpenCode](https://opencode.ai) +
   [Replicator](https://github.com/unbound-force/replicator)
@@ -74,8 +74,8 @@ unbound-force/
 ├── .specify/                         # Speckit framework (templates, scripts, memory)
 ├── .uf/                              # Review config (review matrix, reviewer manifest, sibling repos)
 ├── .opencode/
-│   ├── agents/                       # Hero persona agents (18 active)
-│   ├── commands/                     # Slash commands (49 files)
+│   ├── agents/                       # Hero persona agents (16 active)
+│   ├── commands/                     # Slash commands (32 files)
 │   ├── plugins/                      # Review plugins registered in opencode.json (invoke-agent, review-dispatch, uf-workflow)
 │   ├── lib/                          # Shared TypeScript plugin library
 │   ├── test/                         # TypeScript plugin unit/integration/smoke tests
@@ -89,28 +89,18 @@ unbound-force/
 │   ├── test/                         # Pipeline tests (91 assertions)
 │   └── docs/                         # Architecture, decisions, security, testing
 ├── cmd/unbound-force/                # Cobra CLI entry point
-├── cmd/mutimind/                     # Muti-Mind backend CLI
-├── cmd/mxf/                          # Mx F backend CLI
 ├── cmd/coverage-gate/                # Scope-based Go coverage gate CLI
 ├── internal/
 │   ├── artifacts/                    # Artifact envelope I/O
-│   ├── backlog/                      # Muti-Mind backlog parsing
-│   ├── coaching/                     # Mx F coaching and retrospective data
 │   ├── config/                       # Unified config loading
 │   ├── coveragegate/                 # Scope-based Go coverage gate
-│   ├── dashboard/                    # Mx F dashboard rendering
 │   ├── doctor/                       # Environment health checks
 │   ├── gateway/                      # LLM reverse proxy (Vertex/Bedrock/Anthropic)
 │   ├── homebrew/                     # Homebrew Cask release-publishing helpers
-│   ├── impediment/                   # Impediment tracking and detection
-│   ├── metrics/                      # Metrics collection and health analysis
-│   ├── orchestration/                # Swarm orchestration engine
 │   ├── sandbox/                      # Containerized sessions (Podman/DevPod)
 │   ├── scaffold/                     # Core scaffold engine (embed.FS)
 │   ├── schemas/                      # JSON Schema generation/validation
 │   ├── setup/                        # Automated tool installation
-│   ├── sprint/                       # Sprint lifecycle management
-│   ├── sync/                         # GitHub issue sync
 │   └── textutil/                     # Shared text formatting helpers
 ├── docs/                             # User-facing documentation
 │   └── decisions/                    # Architecture Decision Records (ADRs)

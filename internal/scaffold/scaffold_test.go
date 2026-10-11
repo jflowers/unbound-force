@@ -647,10 +647,9 @@ var expectedAssetPaths = []string{
 	"opencode/commands/uf.run-pipeline-plan.md",
 	"opencode/commands/uf.triage-issue.md",
 	"opencode/commands/uf.unleash.md",
-	// OpenCode agents — Divisor personas (6) + Cobalt-Crush (1) + Mx F coach (1) + constitution-check (1)
+	// OpenCode agents — Divisor personas (6) + Cobalt-Crush (1) + constitution-check (1)
 	"opencode/agents/cobalt-crush-dev.md",
 	"opencode/agents/constitution-check.md",
-	"opencode/agents/mx-f-coach.md", // Spec 007: Mx F coaching persona (user-owned, not in --divisor subset, not tool-owned)
 	"opencode/agents/divisor-adversary.md",
 	"opencode/agents/divisor-architect.md",
 	"opencode/agents/divisor-curator.md",
@@ -1971,7 +1970,6 @@ var knownNonEmbeddedFiles = map[string]bool{
 	// Agents — local-only tooling, not scaffolded by uf init
 	".opencode/agents/gaze-reporter.md":       true,
 	".opencode/agents/gaze-test-generator.md": true,
-	".opencode/agents/muti-mind-po.md":        true,
 	// Legacy reviewer agents — superseded by divisor-* (Spec 019)
 	".opencode/agents/reviewer-adversary.md": true,
 	".opencode/agents/reviewer-architect.md": true,
@@ -1982,29 +1980,11 @@ var knownNonEmbeddedFiles = map[string]bool{
 	".opencode/commands/gaze.md":                       true,
 	".opencode/commands/gaze-fix.md":                   true,
 	".opencode/commands/speckit.testreview.md":         true,
-	".opencode/commands/muti-mind.backlog-add.md":      true,
-	".opencode/commands/muti-mind.backlog-list.md":     true,
-	".opencode/commands/muti-mind.backlog-show.md":     true,
-	".opencode/commands/muti-mind.backlog-update.md":   true,
-	".opencode/commands/muti-mind.generate-stories.md": true,
-	".opencode/commands/muti-mind.init.md":             true,
-	".opencode/commands/muti-mind.prioritize.md":       true,
-	".opencode/commands/muti-mind.sync-project.md":     true,
-	".opencode/commands/muti-mind.sync-pull.md":        true,
-	".opencode/commands/muti-mind.sync-push.md":        true,
-	".opencode/commands/muti-mind.sync-status.md":      true,
-	".opencode/commands/muti-mind.sync.md":             true,
 	// OpenSpec skill commands — local workflow tooling, not scaffolded by uf init
 	".opencode/commands/opsx-apply.md":   true,
 	".opencode/commands/opsx-archive.md": true,
 	".opencode/commands/opsx-explore.md": true,
 	".opencode/commands/opsx-propose.md": true,
-	// Workflow commands — Spec 008 swarm orchestration, local-only
-	".opencode/commands/workflow-start.md":   true,
-	".opencode/commands/workflow-status.md":  true,
-	".opencode/commands/workflow-list.md":    true,
-	".opencode/commands/workflow-advance.md": true,
-	".opencode/commands/workflow-seed.md":    true,
 	// Swarm skills — Spec 008, local-only
 	".opencode/skill/unbound-force-heroes/SKILL.md": true,
 	// Replicator-scaffolded agents and commands — created by replicator init,
@@ -5838,18 +5818,13 @@ func TestEnsureGitignore_FreshDir(t *testing.T) {
 	}
 	// Verify representative patterns from each section.
 	for _, pattern := range []string{
-		".uf/workflows/",
 		".uf/dewey/graph.db",
 		".uf/dewey/cache/",
 		".uf/replicator/*.db",
-		".uf/muti-mind/artifacts/",
-		".uf/mx-f/data/",
 		".devcontainer/",
 		".dewey/",
 		".hive/",
 		".unbound-force/",
-		".muti-mind/",
-		".mx-f/",
 	} {
 		if !strings.Contains(text, pattern) {
 			t.Errorf("expected pattern %q in .gitignore", pattern)

@@ -1,7 +1,7 @@
 // Package coveragegate implements the additive, scope-based Go coverage
 // gate introduced by the review-council-multi-model-fanout change (design
 // D14). It complements -- never weakens -- the existing global 80 percent
-// and internal/backlog 90 percent ratchets in ci_local.yml by enforcing
+// and the 90 percent internal ratchet in ci_local.yml by enforcing
 // per-scope minimum statement coverage on packages changed in a PR.
 //
 // # Package-to-scope classification
@@ -9,12 +9,10 @@
 // Contributors adding a new package under internal/ MUST place it in exactly
 // one scope in coverage-gate.json. The taxonomy is:
 //
-//   - helper (80%): packages whose primary responsibility is orchestration,
-//     I/O coordination, environment health, metrics collection, or
-//     scaffolding -- non-pure code that drives external systems or provides
-//     cross-cutting utilities. Today: internal/scaffold, internal/doctor,
-//     internal/orchestration, internal/metrics, internal/artifacts,
-//     internal/schemas.
+//   - helper (80%): packages whose primary responsibility is I/O
+//     coordination, environment health, or scaffolding -- non-pure code that
+//     drives external systems or provides cross-cutting utilities. Today:
+//     internal/scaffold, internal/doctor, internal/artifacts, internal/schemas.
 //   - artifact (90%): pure envelope serialization, deserialization, and
 //     validation. No packages currently -- internal/artifacts is classified
 //     helper (80%) because it performs filesystem I/O (scanning, reading, and

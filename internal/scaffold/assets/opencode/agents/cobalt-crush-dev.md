@@ -214,13 +214,12 @@ learning storage and retrieval).
    about the files you will modify. Example queries:
    - "scaffold.go patterns and edge cases"
    - "doctor checks.go implementation decisions"
-   - "orchestration workflow state management"
+   - "sandbox session lifecycle management"
 
 2. **Related specs governing the feature**: Query
    `dewey_search` for spec references that constrain
    the implementation. Example queries:
    - "FR-001 implementation requirements"
-   - "spec 008 workflow stages"
    - "constitution testability principle"
 
 3. **Architectural patterns from conventions**: Query

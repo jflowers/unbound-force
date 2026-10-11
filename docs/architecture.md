@@ -153,22 +153,10 @@ from a different angle (security, architecture, testing,
 operations, intent drift, and more). Not a separate
 repository -- distributed through the `uf` binary.
 
-**Muti-Mind** -- The product owner agent. Manages
-backlogs, generates user stories, syncs with GitHub
-issues, and makes acceptance decisions. Exists as an
-embedded agent persona plus a separate `mutimind` CLI
-binary built from this repository.
-
 **Cobalt-Crush** -- The developer agent persona. Writes
 code following specs, convention packs, and engineering
 principles. Embedded in `uf init` as an agent file -- no
 separate binary.
-
-**Mx F** -- The manager agent. Facilitates retrospectives,
-tracks team metrics, coaches on process improvement, and
-removes impediments. Exists as an embedded coaching agent. The `mxf` CLI
-(unbound-force/mxf) is available separately but is not
-installed by `uf setup`.
 
 
 ## What `uf init` Does
@@ -203,15 +191,13 @@ by `uf init`, plus more from companion tools):
 Companion tools add their own commands during `uf init`:
 Speckit adds the `/speckit.*` pipeline commands, Gaze
 adds `/gaze` and `/gaze-fix`, Replicator adds `/forge`,
-`/forge-status`, `/handoff`, `/inbox`, and `/org`, and
-Muti-Mind adds the `/muti-mind.*` backlog commands.
+`/forge-status`, `/handoff`, `/inbox`, and `/org`.
 A full scaffold produces ~46 command files total.
 
-**Agent personas** (user-owned, 12 active agents):
+**Agent personas** (user-owned, 16 active agents):
 ```
 .opencode/agents/
-  cobalt-crush-dev.md     muti-mind-po.md
-  mx-f-coach.md           gaze-reporter.md
+  cobalt-crush-dev.md     gaze-reporter.md
   gaze-test-generator.md  divisor-guard.md
   divisor-architect.md    divisor-adversary.md
   divisor-sre.md          divisor-testing.md
@@ -349,11 +335,9 @@ ownership (destructive -- resets your customizations).
 
 | Hero | Role | What It Does Today | Where It Lives |
 |------|------|--------------------|----------------|
-| **Muti-Mind** | Product Owner | Backlog management, user story generation, GitHub issue sync, acceptance decisions | Embedded agent + `mutimind` CLI in this repo |
 | **Cobalt-Crush** | Developer | Spec-driven code implementation, convention pack adherence, test hook generation | Embedded agent in `uf init` |
 | **Gaze** | Tester | CRAP scores, coverage metrics, side effect classification, test generation (Go) | Separate repo: unbound-force/gaze |
 | **The Divisor** | Reviewer | 9-persona review council, auto-detected code vs spec mode, convention-based criteria | Embedded in `uf init` (9 agent files) |
-| **Mx F** | Manager | Retrospectives, coaching, metrics tracking, impediment removal | Embedded agent in `uf init` |
 
 See [docs/heroes.md](heroes.md) for full hero
 descriptions with current vs planned capabilities.
@@ -737,13 +721,6 @@ without direct coordination.
     quality-report/    Gaze analysis output
     review-verdict/    Divisor review decisions
     feedback-triage/   Author response to review feedback
-    acceptance-decision/  Muti-Mind accept/reject
-  muti-mind/
-    backlog.yaml       Product backlog
-    stories/           Generated user stories
-  mx-f/
-    metrics/           Sprint and velocity data
-    coaching/          Coaching session records
 ```
 
 ### Artifact Envelope Format
@@ -804,7 +781,6 @@ The `.uf/config.yaml` file has 7 sections:
 | `sandbox` | Backend (podman/devpod), image, resources, mode |
 | `gateway` | Port, provider override |
 | `embedding` | Model name, dimensions (used by Dewey and Replicator) |
-| `workflow` | Workflow stage definitions and transitions |
 
 ### Getting Started with Config
 

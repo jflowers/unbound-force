@@ -118,4 +118,4 @@ These domains are owned by other agents — do NOT produce content for them:
 - **Technical documentation** (READMEs, API docs, CLI help) → The Scribe
 - **Blog posts and release notes** → The Herald
 - **Code review findings** → The Divisor review council
-- **Product decisions and prioritization** → Muti-Mind
+
