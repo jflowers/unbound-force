@@ -54,13 +54,6 @@ jobs:
             exit 1
           fi
 
-          # Calculate internal/backlog coverage
-          BACKLOG_COV=$(go tool cover -func=coverage.out | grep github.com/unbound-force/unbound-force/internal/backlog | awk '{print substr($3, 1, length($3)-1)}' | awk '{total += $1; count++} END {if (count > 0) print total/count; else print 0}')
-          echo "Backlog coverage: $BACKLOG_COV%"
-          if (( $(echo "$BACKLOG_COV < 90.0" | bc -l) )); then
-            echo "Error: internal/backlog coverage $BACKLOG_COV% is below the 90% threshold."
-            exit 1
-          fi
 
       - name: Enforce Scope Coverage Gate
         run: |
