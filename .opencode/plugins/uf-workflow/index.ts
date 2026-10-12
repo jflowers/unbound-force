@@ -114,10 +114,12 @@ export function sanitizeSlug(input: string): string {
   const result = input
     .replace(/\//g, "-")
     .replace(/[^a-zA-Z0-9._-]/g, "")
+    .replace(/\.{2,}/g, ".")
     .slice(0, MAX_SLUG_LENGTH)
   if (result === "") {
+    const safe = input.slice(0, 100).replace(/[\x00-\x1f]/g, "?")
     throw new Error(
-      `Invalid input: "${input}" produces empty slug after sanitization`,
+      `Invalid input: "${safe}" produces empty slug after sanitization`,
     )
   }
   return result
