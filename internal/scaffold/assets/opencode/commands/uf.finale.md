@@ -148,6 +148,21 @@ Run `git status --short` to inspect the working tree.
 
 - **Stage all changes**: `git add .`
 
+- **Stage Dewey knowledge artifacts**: Dewey learnings and
+  compiled articles produced during this change are knowledge
+  artifacts that belong in the feature PR. They capture
+  patterns, decisions, and gotchas discovered during the
+  workflow and are essential for team knowledge continuity.
+
+  ```bash
+  git add .uf/dewey/learnings/ .uf/dewey/compiled/ 2>/dev/null
+  ```
+
+  Do NOT skip this step. Even though `git add .` may have
+  already staged these files, this explicit step ensures
+  Dewey artifacts are never accidentally excluded from the
+  commit.
+
 **Checkpoint**: Call `checkpoint` with `command:
 "uf.finale"` and `step: "check-changes"` before
 proceeding.
