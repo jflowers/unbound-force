@@ -178,7 +178,7 @@ func TestUnleashCommand_WorkflowTierBranching(t *testing.T) {
 	}{
 		{
 			name:           "spec review exit",
-			content:        between(t, command, "- If HIGH or CRITICAL findings remain", "> CHECKPOINT: Mark Step 6 complete"),
+			content:        between(t, command, "- If HIGH or CRITICAL findings remain", "> CHECKPOINT: Call `checkpoint` with `command:"),
 			speckit:        "`/speckit.clarify` to address the findings",
 			openspec:       "artifacts under `openspec/changes/<name>/` to\n    address the findings",
 			requiresReread: true,
