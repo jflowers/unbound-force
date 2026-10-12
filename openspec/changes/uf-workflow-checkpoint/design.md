@@ -164,12 +164,12 @@ Each command defines named steps for checkpointing:
 
 | Command | Steps |
 |---------|-------|
-| `uf.unleash` | init, clarify, plan, tasks, spec-review, pre-flight, implement, code-review, review-submit |
+| `uf.unleash` | startup-cleanup, branch-safety-gate, resumability-detection, clarify, plan, tasks, spec-review, implement, code-review, retrospective, demo |
 | `uf.finale` | init, secrets, stage, commit, push, pr-create, ci-watch, merge |
 | `uf.review-council` | init, pre-flight, context, dispatch, aggregate, post |
 | `uf.review-pr` | init, pre-flight, context, dispatch, aggregate, post |
 | `uf.triage-issue` | init, context, dispatch, aggregate, post, artifact |
-| `uf.address-feedback` | init, context, assess, implement, commit, push, reply, artifact |
+| `uf.address-feedback` | ingest, assess, triage, commits, review-council, push, reply-comments |
 
 ## Command Integration Pattern
 

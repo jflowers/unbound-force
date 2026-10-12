@@ -35,11 +35,8 @@ off on re-run.
 > command after context compression or a session restart,
 > STOP and re-read this entire template before continuing.
 > Do NOT infer which steps are complete from compressed
-> context summaries. Only filesystem markers are
-> authoritative for resumability:
-> - Task checkboxes (`[x]` vs `[ ]`) in `tasks.md`
-> - `<!-- spec-review: passed -->` in `tasks.md`
-> - `<!-- code-review: passed -->` in `tasks.md`
+> context summaries. Only checkpoint state is
+> authoritative for resumability.
 >
 > Use the `checkpoint` tool to record progress after
 > each step completes. Call `get_progress` on resume to
@@ -362,18 +359,12 @@ analysis + quality validation) in a single pass.
 
 **Processing results**:
 
-- If all reviewers APPROVE: write the spec review marker
-  to `FEATURE_DIR/tasks.md`:
-  ```
-  <!-- spec-review: passed -->
-  ```
-  Append this marker at the very end of
-  `FEATURE_DIR/tasks.md`. Proceed to step 5.
+- If all reviewers APPROVE: proceed to step 5.
 
 - If only LOW and MEDIUM findings exist: auto-fix them
   (the review council handles this per its hybrid fix
   policy). After fixes, re-run the review. If all
-  APPROVE after fixes, write the marker and proceed.
+  APPROVE after fixes, proceed.
 
   > CHECKPOINT: Call `checkpoint` with `command:
   > "uf.unleash"`, `step: "spec-review"`, and
@@ -598,14 +589,7 @@ quality data.
 **Processing results**:
 
 - If all reviewers APPROVE (and CI passes):
-  Write the code review marker to
-  `FEATURE_DIR/tasks.md`:
-  ```
-  <!-- code-review: passed -->
-  ```
-  Append this marker at the very end of
-  `FEATURE_DIR/tasks.md` (after the spec-review marker
-  if present). Proceed to step 7.
+  Proceed to step 7.
 
 - If findings exist: attempt to fix them. For each
   iteration (up to 3 total):
