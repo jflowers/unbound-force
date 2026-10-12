@@ -1,5 +1,16 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import type { PluginInput } from "@opencode-ai/plugin"
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import {
   failure,
@@ -10,9 +21,15 @@ import {
 } from "../lib/uf-workflow-types.js"
 import UfWorkflowPlugin from "../plugins/uf-workflow/index.js"
 import {
+  createCheckpointTool,
+  createClearProgressTool,
+  createGetProgressTool,
   createResolveBaseRefTool,
   type GitExec,
+  type ProgressState,
   type ResolveBaseRefData,
+  resolveKey,
+  sanitizeSlug,
 } from "../plugins/uf-workflow/index.js"
 
 // ---------------------------------------------------------------------------
@@ -98,7 +115,12 @@ describe("UfWorkflowPlugin", () => {
     const result = await UfWorkflowPlugin.server(fakeInput)
     expect(result).toBeDefined()
     expect(result.tool).toBeDefined()
-    expect(Object.keys(result.tool)).toContain("resolve_base_ref")
+    expect(Object.keys(result.tool).sort()).toEqual([
+      "checkpoint",
+      "clear_progress",
+      "get_progress",
+      "resolve_base_ref",
+    ])
   })
 })
 
@@ -216,5 +238,433 @@ describe("resolve_base_ref", () => {
 
     expect(capturedCwds.length).toBeGreaterThan(0)
     expect(capturedCwds[0]).toBe("/my/project")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// sanitizeSlug tests (FR-004)
+// ---------------------------------------------------------------------------
+
+describe("sanitizeSlug()", () => {
+  it("replaces / with -", () => {
+    expect(sanitizeSlug("opsx/my-branch")).toBe("opsx-my-branch")
+  })
+
+  it("strips non-allowed characters", () => {
+    expect(sanitizeSlug("feat/add @stuff!")).toBe("feat-addstuff")
+  })
+
+  it("preserves dots and underscores", () => {
+    expect(sanitizeSlug("v1.2_beta")).toBe("v1.2_beta")
+  })
+
+  it("truncates to 100 characters", () => {
+    const long = "a".repeat(150)
+    expect(sanitizeSlug(long).length).toBe(100)
+  })
+
+  it("throws on empty result after sanitization", () => {
+    expect(() => sanitizeSlug("@@@")).toThrow("empty slug")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolveKey tests (FR-004)
+// ---------------------------------------------------------------------------
+
+describe("resolveKey()", () => {
+  it("returns sanitized explicit key when provided", () => {
+    const exec: GitExec = () => {
+      throw new Error("should not be called")
+    }
+    expect(resolveKey(exec, "/tmp", "my/custom-key")).toBe("my-custom-key")
+  })
+
+  it("ignores empty string explicit key and auto-detects branch", () => {
+    const exec: GitExec = () => "main"
+    expect(resolveKey(exec, "/tmp", "")).toBe("main")
+  })
+
+  it("auto-detects branch from git when no explicit key", () => {
+    const exec: GitExec = (cmd: string) => {
+      if (cmd.includes("--abbrev-ref")) return "feature/my-branch"
+      throw new Error("unexpected command")
+    }
+    expect(resolveKey(exec, "/tmp")).toBe("feature-my-branch")
+  })
+
+  it("throws on detached HEAD without explicit key", () => {
+    const exec: GitExec = () => "HEAD"
+    expect(() => resolveKey(exec, "/tmp")).toThrow("Detached HEAD")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Checkpoint tool helpers
+// ---------------------------------------------------------------------------
+
+/** Mock git exec that always returns a fixed branch name. */
+const branchExec: GitExec = () => "opsx-test-branch"
+
+/** Invoke a tool factory result with typed args and parse JSON output. */
+async function invokeTool<T = unknown>(
+  toolInstance: unknown,
+  args: Record<string, unknown>,
+): Promise<ToolResult<T>> {
+  const result = await (
+    toolInstance as {
+      execute: (
+        args: Record<string, unknown>,
+        ctx: { sessionID: string },
+      ) => Promise<{ output: string }>
+    }
+  ).execute(args, { sessionID: "test-session" })
+  return JSON.parse(result.output) as ToolResult<T>
+}
+
+// ---------------------------------------------------------------------------
+// checkpoint tool tests (FR-001)
+// ---------------------------------------------------------------------------
+
+describe("checkpoint tool (FR-001)", () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "uf-checkpoint-"))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("creates new state on first call", async () => {
+    const result = await invokeTool<ProgressState>(
+      createCheckpointTool(branchExec, tmpDir),
+      { command: "uf.unleash", step: "step-0" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      const s = result.data as ProgressState
+      expect(s.command).toBe("uf.unleash")
+      expect(s.current_step).toBe("step-0")
+      expect(s.completed_steps).toEqual(["step-0"])
+      expect(s.data).toEqual({})
+      expect(s.created_at).toBeTruthy()
+      expect(s.updated_at).toBeTruthy()
+    }
+  })
+
+  it("appends steps on subsequent calls", async () => {
+    const cp = createCheckpointTool(branchExec, tmpDir)
+    await invokeTool(cp, { command: "uf.unleash", step: "step-0" })
+    const result = await invokeTool<ProgressState>(cp, {
+      command: "uf.unleash",
+      step: "step-1",
+    })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      const s = result.data as ProgressState
+      expect(s.current_step).toBe("step-1")
+      expect(s.completed_steps).toEqual(["step-0", "step-1"])
+    }
+  })
+
+  it("duplicate step is idempotent (FR-001)", async () => {
+    const cp = createCheckpointTool(branchExec, tmpDir)
+    await invokeTool(cp, { command: "uf.unleash", step: "step-0" })
+    const result = await invokeTool<ProgressState>(cp, {
+      command: "uf.unleash",
+      step: "step-0",
+    })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect((result.data as ProgressState).completed_steps).toEqual([
+        "step-0",
+      ])
+    }
+  })
+
+  it("shallow merges data via Object.assign (D3)", async () => {
+    const cp = createCheckpointTool(branchExec, tmpDir)
+    await invokeTool(cp, {
+      command: "uf.unleash",
+      step: "step-0",
+      data: JSON.stringify({ a: 1 }),
+    })
+    const result = await invokeTool<ProgressState>(cp, {
+      command: "uf.unleash",
+      step: "step-1",
+      data: JSON.stringify({ b: 2 }),
+    })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect((result.data as ProgressState).data).toEqual({ a: 1, b: 2 })
+    }
+  })
+
+  it("creates files with 0o600 permissions (FR-005)", async () => {
+    await invokeTool(createCheckpointTool(branchExec, tmpDir), {
+      command: "uf.unleash",
+      step: "step-0",
+    })
+    const fp = join(
+      tmpDir,
+      ".uf",
+      "progress",
+      "opsx-test-branch",
+      "uf.unleash.json",
+    )
+    const stats = statSync(fp)
+    expect(stats.mode & 0o777).toBe(0o600)
+  })
+
+  it("creates directories with 0o700 permissions (FR-005)", async () => {
+    await invokeTool(createCheckpointTool(branchExec, tmpDir), {
+      command: "uf.unleash",
+      step: "step-0",
+    })
+    const dir = join(tmpDir, ".uf", "progress", "opsx-test-branch")
+    const stats = statSync(dir)
+    expect(stats.mode & 0o777).toBe(0o700)
+  })
+
+  it("uses explicit key when provided", async () => {
+    const result = await invokeTool<ProgressState>(
+      createCheckpointTool(branchExec, tmpDir),
+      { command: "uf.unleash", step: "step-0", key: "custom-key" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect((result.data as ProgressState).key).toBe("custom-key")
+    }
+  })
+
+  it("returns failure on invalid JSON data", async () => {
+    const result = await invokeTool(
+      createCheckpointTool(branchExec, tmpDir),
+      { command: "uf.unleash", step: "step-0", data: "not-json" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("CHECKPOINT_ERROR")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// get_progress tool tests (FR-002)
+// ---------------------------------------------------------------------------
+
+describe("get_progress tool (FR-002)", () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "uf-getprogress-"))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("returns null when no state exists", async () => {
+    const result = await invokeTool(
+      createGetProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data).toBeNull()
+    }
+  })
+
+  it("returns full state after checkpoint", async () => {
+    await invokeTool(createCheckpointTool(branchExec, tmpDir), {
+      command: "uf.unleash",
+      step: "step-0",
+    })
+    const result = await invokeTool<ProgressState>(
+      createGetProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      const s = result.data as ProgressState
+      expect(s.command).toBe("uf.unleash")
+      expect(s.completed_steps).toEqual(["step-0"])
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// clear_progress tool tests (FR-003)
+// ---------------------------------------------------------------------------
+
+describe("clear_progress tool (FR-003)", () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "uf-clearprogress-"))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("deletes existing state file", async () => {
+    await invokeTool(createCheckpointTool(branchExec, tmpDir), {
+      command: "uf.unleash",
+      step: "step-0",
+    })
+    const clearResult = await invokeTool(
+      createClearProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(clearResult.status).toBe("ok")
+    // Verify file is gone by reading progress
+    const getResult = await invokeTool(
+      createGetProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(getResult.status).toBe("ok")
+    if (getResult.status === "ok") {
+      expect(getResult.data).toBeNull()
+    }
+  })
+
+  it("is idempotent when no state file exists", async () => {
+    const result = await invokeTool(
+      createClearProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("ok")
+  })
+
+  it("returns failure on error during clear", async () => {
+    // Use a failing exec to trigger error in resolveKey
+    const failExec: GitExec = () => {
+      throw new Error("git not found")
+    }
+    const result = await invokeTool(
+      createClearProgressTool(failExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("CLEAR_PROGRESS_ERROR")
+      expect(result.message).toContain("git not found")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// get_progress error path tests
+// ---------------------------------------------------------------------------
+
+describe("get_progress error paths", () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "uf-getprogress-err-"))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("returns failure when resolveKey throws", async () => {
+    const failExec: GitExec = () => {
+      throw new Error("git not found")
+    }
+    const result = await invokeTool(
+      createGetProgressTool(failExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GET_PROGRESS_ERROR")
+      expect(result.message).toContain("git not found")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Symlink defense tests (FR-005)
+// ---------------------------------------------------------------------------
+
+describe("symlink defense (FR-005)", () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "uf-symlink-"))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it("checkpoint refuses to write into symlinked directory", async () => {
+    // Create a real target directory and a symlink to it
+    const realDir = join(tmpDir, "real-progress")
+    const symlinkDir = join(tmpDir, ".uf", "progress", "opsx-test-branch")
+    mkdirSync(realDir, { recursive: true })
+    mkdirSync(join(tmpDir, ".uf", "progress"), { recursive: true })
+    symlinkSync(realDir, symlinkDir)
+
+    const result = await invokeTool(
+      createCheckpointTool(branchExec, tmpDir),
+      { command: "uf.unleash", step: "step-0" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.message).toContain("symlinked directory")
+    }
+  })
+
+  it("clear_progress refuses to delete symlinked state file", async () => {
+    const progressDir = join(tmpDir, ".uf", "progress", "opsx-test-branch")
+    mkdirSync(progressDir, { recursive: true, mode: 0o700 })
+    const realFile = join(tmpDir, "real-state.json")
+    writeFileSync(realFile, "{}")
+    symlinkSync(realFile, join(progressDir, "uf.unleash.json"))
+
+    const result = await invokeTool(
+      createClearProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.message).toContain("symlinked state file")
+    }
+  })
+
+  it("get_progress refuses to read symlinked state file", async () => {
+    // First create a real state file
+    const progressDir = join(tmpDir, ".uf", "progress", "opsx-test-branch")
+    mkdirSync(progressDir, { recursive: true, mode: 0o700 })
+    const realFile = join(tmpDir, "real-state.json")
+    writeFileSync(
+      realFile,
+      JSON.stringify({
+        command: "test",
+        branch: "opsx-test-branch",
+        key: "opsx-test-branch",
+        current_step: "step-0",
+        completed_steps: ["step-0"],
+        data: {},
+        created_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+    )
+    // Create symlink where the state file would be
+    symlinkSync(realFile, join(progressDir, "uf.unleash.json"))
+
+    const result = await invokeTool(
+      createGetProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.message).toContain("symlinked state file")
+    }
   })
 })

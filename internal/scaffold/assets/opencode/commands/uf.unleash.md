@@ -41,25 +41,21 @@ off on re-run.
 > - `<!-- spec-review: passed -->` in `tasks.md`
 > - `<!-- code-review: passed -->` in `tasks.md`
 >
-> Maintain the execution checklist below using the Edit
-> tool. Update it in-place as each step, phase, or
-> iteration completes. This is your live state record.
+> Use the `checkpoint` tool to record progress after
+> each step completes. Call `get_progress` on resume to
+> check which steps are done. This is your live state
+> record.
 
-**Execution Checklist** -- update in-place with Edit tool:
+**Execution Checklist** -- tracked via `checkpoint` tool:
 
-```
-- [x] Step 0: Startup Cleanup
-- [x] Step 1: Branch Safety Gate
-- [x] Step 2: Resumability Detection
-- [x] Step 3: Clarify (Step 1)
-- [x] Step 4: Plan (Step 2)
-- [x] Step 5: Tasks (Step 3)
-- [x] Step 6: Spec Review (Step 4) -- iteration: 1/3 PASSED (APPROVE WITH ADVISORIES)
-- [x] Step 7: Implement (Step 5) -- all 6 phases complete, make check PASS
-- [x] Step 8: Code Review (Step 6) -- iteration: 1/3 APPROVE WITH ADVISORIES
-- [x] Step 9: Retrospective (Step 7)
-- [x] Step 10: Demo (Step 8)
-```
+On startup, call `get_progress` with `command:
+"uf.unleash"` to retrieve the current state. If state
+exists, `completed_steps` shows which steps are done.
+After completing each step, call `checkpoint` with
+`command: "uf.unleash"` and `step: "step-N-name"` to
+record progress. Include relevant data (iteration
+counts, verdicts) in the `data` parameter as a JSON
+string.
 
 ### TodoWrite Progress Tracking
 
@@ -67,14 +63,15 @@ Use the **TodoWrite tool** for live session visibility.
 At pipeline start, initialize TodoWrite with all 11 steps
 (Steps 0-10) as `pending`. Before starting each step,
 mark it `in_progress`. After completing each step, mark
-it `completed`. This runs alongside the Edit tool
-execution checklist — both MUST be maintained.
+it `completed`. This runs alongside the `checkpoint`
+tool progress tracking — both MUST be maintained.
 
-On resume from compressed context, re-initialize the
-TodoWrite list from the execution checklist state: steps
-marked `[x]` become `completed`, the first unchecked step
-becomes `in_progress`, and remaining unchecked steps
-become `pending`.
+On resume from compressed context, call `get_progress`
+with `command: "uf.unleash"` and re-initialize the
+TodoWrite list from the returned state:
+`completed_steps` entries become `completed`, the
+`current_step` becomes `in_progress`, and remaining
+steps become `pending`.
 
 ### 0. Startup Cleanup
 
@@ -91,9 +88,9 @@ previous interrupted runs:
 If `forge_worktree_list` is not available (Replicator
 not installed), skip this step silently.
 
-> CHECKPOINT: Mark Step 0 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 1. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "startup-cleanup"`. Proceed
+> immediately to Step 1. Do NOT ask for confirmation.
 
 ### 1. Branch Safety Gate
 
@@ -146,9 +143,10 @@ git rev-parse --abbrev-ref HEAD
   > (`opsx/*`). Run `/speckit.specify` or
   > `/opsx-propose` to create one."
 
-> CHECKPOINT: Mark Step 1 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 2. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "branch-safety-gate"`.
+> Proceed immediately to Step 2. Do NOT ask for
+> confirmation.
 
 ### 2. Resumability Detection
 
@@ -210,9 +208,10 @@ If ALL steps are complete (all tasks done, tests pass):
 skip directly to step 7 (retrospective) since it is
 idempotent.
 
-> CHECKPOINT: Mark Step 2 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 3. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "resumability-detection"`.
+> Proceed immediately to Step 3. Do NOT ask for
+> confirmation.
 
 ### 3. Step 1 -- Clarify
 
@@ -289,9 +288,9 @@ needed" and proceed to step 2.
   Run `/uf.unleash` to continue from the plan step.
   ```
 
-> CHECKPOINT: Mark Step 3 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 4. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "clarify"`. Proceed
+> immediately to Step 4. Do NOT ask for confirmation.
 
 ### 4. Step 2 -- Plan
 
@@ -314,9 +313,9 @@ Generate the implementation plan by delegating to the
    > "Plan generation failed -- plan.md was not created.
    > Check the agent output for errors."
 
-> CHECKPOINT: Mark Step 4 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 5. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "plan"`. Proceed
+> immediately to Step 5. Do NOT ask for confirmation.
 
 ### 5. Step 3 -- Tasks
 
@@ -338,9 +337,9 @@ Generate the task list by delegating to the
    > "Task generation failed -- tasks.md was not created.
    > Check the agent output for errors."
 
-> CHECKPOINT: Mark Step 5 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 6. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "tasks"`. Proceed
+> immediately to Step 6. Do NOT ask for confirmation.
 
 ### 6. Step 4 -- Spec Review
 
@@ -376,8 +375,9 @@ analysis + quality validation) in a single pass.
   policy). After fixes, re-run the review. If all
   APPROVE after fixes, write the marker and proceed.
 
-  > CHECKPOINT: Update execution checklist -- spec
-  > review iteration N/3.
+  > CHECKPOINT: Call `checkpoint` with `command:
+  > "uf.unleash"`, `step: "spec-review"`, and
+  > `data: '{"iteration": N}'`.
 
 - If HIGH or CRITICAL findings remain after auto-fixing
   LOW/MEDIUM: **EXIT** with the findings. Use
@@ -410,9 +410,9 @@ analysis + quality validation) in a single pass.
   Run `/uf.unleash` to continue from spec review.
   ```
 
-> CHECKPOINT: Mark Step 6 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 7. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "spec-review"`. Proceed
+> immediately to Step 7. Do NOT ask for confirmation.
 
 ### 7. Step 5 -- Implement
 
@@ -466,8 +466,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
 
    d. Wait for all workers in the batch to complete.
 
-      > CHECKPOINT: Update execution checklist --
-      > batch N/M complete, workers done/total.
+      > CHECKPOINT: Call `checkpoint` with `command:
+      > "uf.unleash"`, `step: "implement"`, and
+      > `data: '{"phase": N, "batch": M}'`.
 
    e. **If any worker fails**: stop spawning new workers
       (do not start the next batch). Wait for any
@@ -547,8 +548,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    pre-flight skill in `hard-gate` mode to execute all
    detected CI and local tool commands.
 
-   > CHECKPOINT: Update execution checklist -- Phase
-   > N/M complete.
+   > CHECKPOINT: Call `checkpoint` with `command:
+   > "uf.unleash"`, `step: "implement"`, and
+   > `data: '{"phase": N, "status": "complete"}'`.
 
    - If all pass: proceed to the next phase.
    - If any fail: **EXIT** with the failure details:
@@ -568,9 +570,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
      Run `/uf.unleash` to continue from the next phase.
      ```
 
-> CHECKPOINT: Mark Step 7 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 8. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "implement"`. Proceed
+> immediately to Step 8. Do NOT ask for confirmation.
 
 ### 8. Step 6 -- Code Review
 
@@ -611,8 +613,9 @@ quality data.
   b. Re-run the review council in code review mode.
   c. If all APPROVE: proceed to step 7.
 
-  > CHECKPOINT: Update execution checklist -- code
-  > review iteration N/3.
+  > CHECKPOINT: Call `checkpoint` with `command:
+  > "uf.unleash"`, `step: "code-review"`, and
+  > `data: '{"iteration": N}'`.
 
 - If 3 iterations are exhausted with remaining findings:
   **EXIT** with the persistent issues:
@@ -640,9 +643,9 @@ quality data.
   Run `/uf.unleash` to continue from code review.
   ```
 
-> CHECKPOINT: Mark Step 8 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 9. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "code-review"`. Proceed
+> immediately to Step 9. Do NOT ask for confirmation.
 
 ### 9. Step 7 -- Retrospective
 
@@ -686,9 +689,9 @@ memory.
 > PR scope and MUST be committed on the feature branch.
 > See the Commit scope rule in `AGENTS.md`.
 
-> CHECKPOINT: Mark Step 9 complete in the execution
-> checklist before proceeding. Proceed immediately to
-> Step 10. Do NOT ask for confirmation.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "retrospective"`. Proceed
+> immediately to Step 10. Do NOT ask for confirmation.
 
 ### 10. Step 8 -- Demo
 
@@ -760,8 +763,10 @@ Format the output as:
 - [tier-specific refinement option selected above]
 ```
 
-> CHECKPOINT: Mark Step 10 complete in the execution
-> checklist. Pipeline complete.
+> CHECKPOINT: Call `checkpoint` with `command:
+> "uf.unleash"` and `step: "demo"`. Then call
+> `clear_progress` with `command: "uf.unleash"` to
+> clean up progress state. Pipeline complete.
 
 ## Guardrails
 

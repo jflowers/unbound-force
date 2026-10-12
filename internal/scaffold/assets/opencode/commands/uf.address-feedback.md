@@ -13,16 +13,15 @@ The command follows four sequential phases (Ingest → Assess → Triage → Exe
 <protect>
 
 > **SESSION-RESUME GUARD**: If this session has been resumed
-> from compressed context, or if you cannot locate the
-> execution checklist in the current conversation, you MUST:
+> from compressed context, you MUST:
 > 1. Re-read this full command template
-> 2. Check `.uf/feedback/pr-<PR_NUMBER>/state.json` for
+> 2. Call `get_progress` with `command: "uf.address-feedback"`
+>    to recover checkpoint-based progress state
+> 3. Check `.uf/feedback/pr-<PR_NUMBER>/state.json` for
 >    cached assessment state
-> 3. Locate the execution checklist in your prior output
->    and verify which phases are marked `[x]`
 > 4. Do NOT infer phase completion or triage decisions from
->    compressed context summaries — only `state.json` and the
->    execution checklist are authoritative
+>    compressed context summaries — only `get_progress` and
+>    `state.json` are authoritative
 > 5. Resume from the first incomplete phase
 
 
@@ -35,27 +34,28 @@ The command follows four sequential phases (Ingest → Assess → Triage → Exe
 ---
 
 
-## Execution Checklist
+## Progress Tracking
 
-At the start of execution, render this checklist in your
-output. Update it in-place using the **Edit tool** as each
-phase and sub-step completes. This checklist survives
-context compression and serves as the authoritative record
-of progress.
+At the start of execution, call `get_progress` with
+`command: "uf.address-feedback"` to check for existing
+progress from a prior session. If progress exists, resume
+from the first incomplete phase.
 
-```
-- [ ] Phase 1: Ingest -- _N_ items fetched
-- [ ] Phase 2: Assess -- _N_ items classified
-- [ ] Phase 3: Triage -- _N_/_M_ items decided: _n_A _n_M _n_R _n_K
-- [ ] Phase 4.1: Code changes -- _N_ files modified
-- [ ] Phase 4.2: Commits -- _N_ commits created
-- [ ] Phase 4.3: Review-council -- iteration _N_, PASS/FAIL
-- [ ] Phase 4.4: Push -- done
-- [ ] Phase 4.5: Reply comments -- _N_/_M_ posted
-```
+After each phase or sub-step completes, call `checkpoint`
+with `command: "uf.address-feedback"` and the step name
+and data specified at each CHECKPOINT marker below. This
+progress survives context compression and serves as the
+authoritative record of progress.
 
-Replace `_N_`, `_M_`, etc. with actual counts as you
-progress. Mark each line `[x]` when the phase completes.
+Progress steps in order:
+- `ingest` — Phase 1 complete
+- `assess` — Phase 2 complete
+- `triage` — Phase 3 complete
+- `code-changes` — Phase 4.1 complete
+- `commits` — Phase 4.2 complete
+- `review-council` — Phase 4.3 complete
+- `push` — Phase 4.4 complete
+- `reply-comments` — Phase 4.5 complete (then clear)
 
 ### TodoWrite Progress Tracking
 
@@ -65,14 +65,14 @@ and sub-steps (Phase 1, Phase 2, Phase 3, Phase 4.1,
 Phase 4.2, Phase 4.3, Phase 4.4, Phase 4.5) as `pending`.
 Before starting each phase/sub-step, mark it `in_progress`.
 After completing each phase/sub-step, mark it `completed`.
-This runs alongside the Edit tool execution checklist —
+This runs alongside `checkpoint` tool progress tracking —
 both MUST be maintained.
 
-On resume from compressed context, re-initialize the
-TodoWrite list from the execution checklist state: items
-marked `[x]` become `completed`, the first unchecked item
-becomes `in_progress`, and remaining unchecked items
-become `pending`.
+On resume from compressed context, call `get_progress`
+with `command: "uf.address-feedback"` and re-initialize the
+TodoWrite list from the returned progress state: completed
+steps become `completed`, the first incomplete step becomes
+`in_progress`, and remaining steps become `pending`.
 
 ---
 
@@ -206,8 +206,10 @@ On crash-recovery re-entry: items marked as fully executed (`comment-posted`) in
 
 If no items remain after filtering: report "No unresolved feedback to address" and **STOP**.
 
-> **CHECKPOINT**: Update the execution checklist above
-> before proceeding to Phase 2.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`, `step: "ingest"`,
+> `data: {"items_fetched": N}` before proceeding to
+> Phase 2.
 
 ---
 
@@ -521,8 +523,10 @@ Write assessment results to `.uf/feedback/pr-<PR_NUMBER>/state.json`:
 
 **Permissions**: files `600`, directories `700`.
 
-> **CHECKPOINT**: Update the execution checklist above
-> before proceeding to Phase 3.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`, `step: "assess"`,
+> `data: {"items_classified": N}` before proceeding to
+> Phase 3.
 
 ---
 
@@ -599,9 +603,10 @@ List each item with its decision. Use the
 proceed with execution", "Revise -- change decisions"]`
 before execution proceeds.
 
-> **CHECKPOINT**: Update the execution checklist above
-> before proceeding to Phase 4. Verify all items have
-> decisions recorded.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`, `step: "triage"`,
+> `data: {"items_decided": N}` before proceeding to
+> Phase 4. Verify all items have decisions recorded.
 
 ---
 
@@ -696,8 +701,9 @@ attribution").
 
 The `<scope>` is the package or directory of the changed files. The description summarizes the logical group of fixes.
 
-> **CHECKPOINT**: Update the execution checklist:
-> Phase 4.2 commit count.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`, `step: "commits"`,
+> `data: {"commit_count": N}`.
 
 ### 4.3 Review-Council Gate
 
@@ -707,12 +713,14 @@ After all code changes are committed locally, run `/uf.review-council` on the cu
 - **If fails**: enter fix loop (same behavior as `/uf.unleash`). Fix findings and re-run council.
 - **If fix loop exhausts iterations**: **STOP** and report persistent findings. Do NOT push until council passes.
 
-After each council run, update the execution checklist:
-`[ ] Phase 4.3: Review-council -- iteration N, PASS/FAIL`
-Mark `[x]` only when the council passes.
+After each council run, call `checkpoint` to record
+progress. Record the final passing iteration only.
 
-> **CHECKPOINT**: Update the execution checklist:
-> Phase 4.3 iteration and result.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`,
+> `step: "review-council"`,
+> `data: {"iteration": N, "result": "PASS|FAIL"}`.
+> Record only when the council passes.
 
 ### 4.4 Push Changes
 
@@ -737,8 +745,8 @@ git push origin <branch>
 **If push fails** (network error, branch protection rejection): preserve local commits and report which commits are stranded. Provide guidance:
 > "Push failed. Local commits preserved. Retry with `git push origin <branch>` after resolving the issue."
 
-> **CHECKPOINT**: Update the execution checklist:
-> Phase 4.4 push status.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`, `step: "push"`.
 
 ### 4.5 Post Reply Comments
 
@@ -748,15 +756,17 @@ post reply comments to the PR. Before posting, use the
 reply comments", "No -- skip posting"]`.
 
 
-**Checklist gate**: Before presenting comments for posting,
-verify the execution checklist shows:
-1. Phase 3 is marked `[x]` with all items decided
-2. Phase 4.1 through 4.4 are marked `[x]`
+**Progress gate**: Before presenting comments for posting,
+call `get_progress` with `command: "uf.address-feedback"`
+and verify:
+1. `triage` step is complete (all items decided)
+2. `commits`, `review-council`, and `push` steps are
+   complete
 
-If the checklist is missing, incomplete, or shows Phase 3
-as not complete, you MUST re-read this command template and
-rebuild state from `state.json` and the git log. Do NOT
-post comments without verified checklist state.
+If progress is missing or incomplete, you MUST re-read
+this command template and rebuild state from `state.json`
+and the git log. Do NOT post comments without verified
+progress state.
 
 
 For each item, compose the reply:
@@ -794,8 +804,13 @@ rm -f "$REPLY_FILE"
 
 Record progress in `.uf/feedback/pr-<PR_NUMBER>/state.json` for idempotent retry.
 
-> **CHECKPOINT**: Update the execution checklist:
-> Phase 4.5 comment posting count.
+> **CHECKPOINT**: Call `checkpoint` with
+> `command: "uf.address-feedback"`,
+> `step: "reply-comments"`,
+> `data: {"posted": N, "total": M}`.
+> Then call `clear_progress` with
+> `command: "uf.address-feedback"` to clean up progress
+> state.
 
 ### 4.6 Resolve Threads
 

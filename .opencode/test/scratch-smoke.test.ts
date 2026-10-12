@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import InvokeAgentPlugin from "../plugins/invoke-agent/index.js"
 import ReviewDispatchPlugin from "../plugins/review-dispatch/index.js"
+import UfWorkflowPlugin from "../plugins/uf-workflow/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
 
@@ -119,5 +120,21 @@ describe("provider-free scratch-repository smoke test", () => {
       expect(hooks.tool.invoke_agent.args).not.toHaveProperty("permission")
       expect(hooks.tool.invoke_agent.args).not.toHaveProperty("tools")
     })
+  })
+
+  it("activates uf-workflow plugin and registers all workflow tools", async () => {
+    const project = await scratchProject()
+    const hooks = await UfWorkflowPlugin.server({
+      client: { session: {} },
+      directory: project,
+      worktree: project,
+    } as unknown as PluginInput)
+
+    expect(Object.keys(hooks.tool).sort()).toEqual([
+      "checkpoint",
+      "clear_progress",
+      "get_progress",
+      "resolve_base_ref",
+    ])
   })
 })

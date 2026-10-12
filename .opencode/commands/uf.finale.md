@@ -39,8 +39,8 @@ stays open for human review. Works with both Speckit
    resumed from compressed context, or if you cannot
    verify that the human explicitly confirmed a gate
    in the current uncompressed conversation history, you
-   MUST re-read this entire template, recover state from
-   the execution checklist below, and re-confirm any
+   MUST re-read this entire template, call `get_progress`
+   with `command: "uf.finale"` to recover state, and re-confirm any
    pending gates via the **question tool** before
    proceeding. Do NOT rely on gate confirmations recorded
    in compressed context. Do NOT infer step completion
@@ -48,36 +48,29 @@ stays open for human review. Works with both Speckit
    — false re-confirmation is harmless; executing without
    consent is a violation.
 
-**Execution checklist**: The agent MUST maintain this
-checklist using the **Edit tool** after completing each
-step. This checklist survives context compression and
-serves as the source of truth for workflow state.
+**Progress tracking**: The agent MUST call `checkpoint`
+with `command: "uf.finale"` and the appropriate `step`
+name after completing each step. Use the `data` parameter
+to store state variables as JSON. This progress survives
+context compression and serves as the source of truth
+for workflow state.
 
-```
-BRANCH=<set when known>
-COMMIT=<set when known>
-PR_NUMBER=<set when known>
-PR_URL=<set when known>
-CONFLICT_OPTION=<set when known>
+On startup, call `get_progress` with
+`command: "uf.finale"` to check for existing progress.
+If progress exists, use the returned `completed_steps`
+and their `data` payloads to recover state (branch name,
+commit hash, PR number, etc.) and resume from the first
+incomplete step.
 
-[ ] Step 1 — Branch Safety Gate
-[ ] Step 2 — Check for Changes to Commit
-[ ] Step 3 — Generate and Confirm Commit Message
-[ ] Step 4 — Push to Remote
-[ ] Step 5 — Create or Find PR
-[ ] Step 6 — Watch CI Checks
-[ ] Step 7 — Return to Main
-[ ] Step 8 — Summary
-```
+After completing each step, call `checkpoint` with
+`command: "uf.finale"` and `step: "<step-name>"`. Use
+the `data` parameter to store any state variables that
+became known (e.g., `data: '{"branch":
+"opsx/my-feature"}'` after Step 1).
 
-After completing each step, use the Edit tool to:
-1. Mark the step `[x]` in this checklist
-2. Set any state variables that became known
-   (e.g., `BRANCH=opsx/my-feature` after Step 1)
-
-If resuming from compressed context, re-read this
-checklist to determine which steps are complete and
-what state is available.
+If resuming from compressed context, call `get_progress`
+with `command: "uf.finale"` and re-initialize from the
+returned state.
 
 ### TodoWrite Progress Tracking
 
@@ -85,14 +78,14 @@ Use the **TodoWrite tool** for live session visibility.
 At pipeline start, initialize TodoWrite with all 8 steps
 (Steps 1-8) as `pending`. Before starting each step,
 mark it `in_progress`. After completing each step, mark
-it `completed`. This runs alongside the Edit tool
-execution checklist — both MUST be maintained.
+it `completed`. This runs alongside `checkpoint` tool
+progress tracking — both MUST be maintained.
 
-On resume from compressed context, re-initialize the
-TodoWrite list from the execution checklist state: steps
-marked `[x]` become `completed`, the first unchecked step
-becomes `in_progress`, and remaining unchecked steps
-become `pending`.
+On resume from compressed context, call `get_progress`
+with `command: "uf.finale"` and re-initialize from
+returned state: `completed_steps` entries become
+`completed`, the first incomplete step becomes
+`in_progress`, and remaining steps become `pending`.
 
 ### 1. Branch Safety Gate
 
@@ -155,8 +148,9 @@ Run `git status --short` to inspect the working tree.
 
 - **Stage all changes**: `git add .`
 
-**Checkpoint**: Update the execution checklist (mark
-Step 2 `[x]`) before proceeding.
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.finale"` and `step: "check-changes"` before
+proceeding.
 
 ### 3. Generate and Confirm Commit Message
 
@@ -267,8 +261,9 @@ confirmation via the **question tool**.
 
 d. Commit with the approved message.
 
-**Checkpoint**: Update the execution checklist — set
-`COMMIT=<hash>` and mark Step 3 `[x]` before proceeding.
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.finale"`, `step: "commit"`, and `data: '{"commit":
+"<hash>"}'` before proceeding.
 
 ### 4. Push to Remote
 
@@ -318,8 +313,8 @@ explicit human confirmation via the **question tool**.
 
 >>> END MANDATORY GATE <<<
 
-**Checkpoint**: Update the execution checklist (mark
-Step 4 `[x]`) before proceeding.
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.finale"` and `step: "push"` before proceeding.
 
 ### 5. Create or Find PR
 
@@ -546,9 +541,10 @@ gh pr view --json number,url 2>/dev/null
 
   h. Report the PR URL.
 
-  **Checkpoint**: Update the execution checklist — set
-  `PR_NUMBER=<number>`, `PR_URL=<url>`, and mark
-  Step 5 `[x]` before proceeding.
+  **Checkpoint**: Call `checkpoint` with `command:
+  "uf.finale"`, `step: "create-pr"`, and `data:
+  '{"pr_number": <number>, "pr_url": "<url>"}'` before
+  proceeding.
 
 ### 6. Watch CI Checks
 
@@ -652,9 +648,9 @@ conflict to the user and present recovery options:
 
 Use the **question tool** to ask the user
 which option to take. After the user selects an option,
-update the execution checklist: set
-`CONFLICT_OPTION=<N>` (where N is the selected option
-number).
+call `checkpoint` with `command: "uf.finale"`, `step:
+"conflict-option"`, and `data: '{"conflict_option":
+<N>}'` (where N is the selected option number).
 
 >>> END MANDATORY GATE <<<
 
@@ -986,8 +982,8 @@ ls .github/workflows/*.yml .github/workflows/*.yaml \
 
   Proceed to step 7.
 
-**Checkpoint**: Update the execution checklist (mark
-Step 6 `[x]`) before proceeding.
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.finale"` and `step: "watch-ci"` before proceeding.
 
 **POST-CI MOMENTUM CHECKPOINT**: After marking Step 6
 complete, the agent MUST proceed immediately to Step 7
@@ -1015,8 +1011,9 @@ git rev-parse --abbrev-ref HEAD
 
 Should be `main`.
 
-**Checkpoint**: Update the execution checklist (mark
-Step 7 `[x]`) before proceeding.
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.finale"` and `step: "return-to-main"` before
+proceeding.
 
 ### 8. Summary
 
@@ -1047,8 +1044,10 @@ Replace the `**Checks:** passed` line with the warning
 above. This ensures the user is aware that CI
 verification is incomplete.
 
-**Checkpoint**: Update the execution checklist (mark
-Step 8 `[x]`). All steps complete.
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.finale"` and `step: "summary"`. All steps complete.
+Then call `clear_progress` with `command: "uf.finale"`
+to clean up progress state.
 
 ## Guardrails
 

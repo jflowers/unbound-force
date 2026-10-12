@@ -5,6 +5,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
 
 ## Unreleased
 
+### Added
+- uf-workflow-checkpoint: Extended uf-workflow plugin with three new tools
+  (`checkpoint`, `get_progress`, `clear_progress`) for unified workflow
+  progress tracking. Six command files updated to replace execution
+  checklist checkbox editing with structured JSON state files in
+  `.uf/progress/`. Includes symlink defense, path sanitization, and
+  restrictive file permissions (0o600/0o700). (Spec:
+  openspec/changes/uf-workflow-checkpoint/)
+
 ### Removed
 
 - remove-mutimind-mxf-orchestration: Removed Muti-Mind product owner

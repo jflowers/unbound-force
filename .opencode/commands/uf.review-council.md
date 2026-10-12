@@ -9,49 +9,51 @@ description: Run the reviewer governance council to audit codebase or spec compl
 > **Session-resume guard**: If this session was resumed
 > from compressed context, re-read this entire template
 > before continuing. Do NOT infer step completion from
-> compressed summaries. Check the EXECUTION CHECKLIST
-> below for actual completion state. If the checklist
-> shows unchecked items, resume from the first unchecked
-> item. When in doubt, re-read — false re-reads are
+> compressed summaries. Call `get_progress` with
+> `command: "uf.review-council"` to recover actual
+> completion state. Resume from the first incomplete
+> step. When in doubt, re-read — false re-reads are
 > harmless; skipping steps due to stale context causes
 > incomplete reviews or unauthorized actions.
 
 
 
-> **EXECUTION CHECKLIST** — Update each item using the
-> Edit tool as you complete it. Mark `[x]` when done.
->
-> - [ ] Phase 1a: Pre-flight checks
-> - [ ] Phase 1b: Gaze quality analysis
-> - [ ] Phase 1c: Review context discovery
-> - [ ] Step 2: Divisor agent delegation (full branch diff)
-> - [ ] Step 3: Finding consolidation
-> - [ ] Step 4: Fix loop (iteration: _/3)
-> - [ ] Step 5: Iteration limit check
-> - [ ] Step 6: Final report
-> - [ ] Step 7a: PR detection
-> - [ ] Step 7b: Review state fetching
-> - [ ] Step 7c: Pre-posting checks
-> - [ ] Step 7d: Finding aggregation
-> - [ ] Step 7e: Inline comment preparation
-> - [ ] Step 7f: Human confirmation (MANDATORY GATE)
-> - [ ] Step 7g: Post review
+> **PROGRESS TRACKING** — On startup, call `get_progress`
+> with `command: "uf.review-council"` to recover any
+> prior state. After completing each phase or step, call
+> `checkpoint` with `command: "uf.review-council"` and
+> the appropriate `step` name to persist progress. At
+> the final step (7g), also call `clear_progress` with
+> `command: "uf.review-council"` to clean up state.
+
+### Checkpoint Progress Tracking
+
+Use the **`checkpoint` tool** for persistent progress
+tracking. After completing each phase or step, call
+`checkpoint` with `command: "uf.review-council"` and
+the step name (e.g., `step: "phase-1a-preflight"`).
+This persists progress across session boundaries and
+context compression.
+
+On resume from compressed context, call `get_progress`
+with `command: "uf.review-council"` to recover the last
+completed step. Resume from the first incomplete step.
 
 ### TodoWrite Progress Tracking
 
 Use the **TodoWrite tool** for live session visibility.
-At pipeline start, initialize TodoWrite with all checklist
-items (Phase 1a, Phase 1b, Phase 1c, Steps 2-6,
-Steps 7a-7g) as `pending`. Before starting each item,
-mark it `in_progress`. After completing each item, mark
-it `completed`. This runs alongside the Edit tool
-execution checklist — both MUST be maintained.
+At command start, initialize TodoWrite with all phases
+and steps as `pending`. Before starting each phase,
+mark it `in_progress`. After completing each phase, mark
+it `completed`. This runs alongside the `checkpoint`
+tool progress tracking — both MUST be maintained.
 
-On resume from compressed context, re-initialize the
-TodoWrite list from the execution checklist state: items
-marked `[x]` become `completed`, the first unchecked item
-becomes `in_progress`, and remaining unchecked items
-become `pending`.
+On resume from compressed context, call `get_progress`
+with `command: "uf.review-council"` and re-initialize the
+TodoWrite list from the returned state:
+`completed_steps` entries become `completed`, the
+`current_step` becomes `in_progress`, and remaining
+steps become `pending`.
 
 ## User Input
 
@@ -409,7 +411,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
       them for inclusion in the final report (Step 6).
       Proceed to Phase 1b.
 
-   **Checkpoint**: Mark `Phase 1a` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "phase-1a-preflight"` before proceeding.
 
    #### Phase 1b -- Gaze Quality Analysis (conditional)
 
@@ -436,7 +438,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
 
       Proceed to step 2 without Gaze data.
 
-   **Checkpoint**: Mark `Phase 1b` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "phase-1b-gaze"` before proceeding.
 
    #### Phase 1c -- Discover Review Context (mandatory)
 
@@ -490,7 +492,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
       consistent with the `pre-flight` skill
       consumption pattern — no inline fallback.
 
-   **Checkpoint**: Mark `Phase 1c` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "phase-1c-context"` before proceeding.
 
 2. Execute the Shared Dispatch, Evidence, and Finalization Protocol in
    `code` mode. Use the complete contextual diff: the immutable
@@ -506,16 +508,14 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    Review Context and, when available, the Phase 1b Gaze Report. Require
    the structured output defined by the shared protocol.
 
-   **Checkpoint**: Mark `Step 2` complete in the EXECUTION CHECKLIST
-   using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "divisor-dispatch"` before proceeding.
 
 3. Use only successful structured runs for finding consolidation and
    verdict calculation. Apply the shared protocol's model-level
    deduplication first, then preserve the existing cross-persona
    compound-severity logic. Keep every failed run informational.
 
-   **Checkpoint**: Mark `Step 3` complete in the EXECUTION CHECKLIST
-   using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "finding-consolidation"` before proceeding.
 
 4. If the finalized native verdict is **REQUEST CHANGES**, address the
    findings by making the necessary code fixes. Re-resolve immutable
@@ -524,11 +524,11 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    skipped personas. Repeat until the native verdict is **APPROVE** or
    **APPROVE WITH ADVISORIES**, or three iterations are exceeded.
 
-   **Checkpoint**: Update `Step 4` iteration counter in the EXECUTION CHECKLIST (e.g., `iteration: 2/3`) using the Edit tool after each iteration.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"`, `step: "fix-loop"`, and `data: {"iteration": N}` after each iteration.
 
 5. If 3 iterations are exceeded, ask the user whether to continue or stop.
 
-   **Checkpoint**: Mark `Step 5` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "iteration-limit-check"` before proceeding.
 
 6. Provide the complete deterministic report required by the Shared
    Dispatch, Evidence, and Finalization Protocol, plus:
@@ -568,7 +568,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    - If stopped early, the current set of outstanding **REQUEST CHANGES**
    - If there were persistent circular **REQUEST CHANGES** (fixes for one reviewer cause failures in another), report those with additional detail so the user can make an informed decision
 
-   **Checkpoint**: Mark `Step 6` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "final-report"` before proceeding.
 
 7. **GitHub Review Posting (optional, Code Review Mode only)**
 
@@ -618,7 +618,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
       > "No open PR found for this branch — review
       > remains local only."
 
-   **Checkpoint**: Mark `Step 7a` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "pr-detection"` before proceeding.
 
    #### Step 7b -- Review State Fetching
 
@@ -655,7 +655,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    data is additive context — its absence reduces only
    deduplication accuracy.
 
-   **Checkpoint**: Mark `Step 7b` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "review-state-fetch"` before proceeding.
 
    #### Step 7c -- Pre-posting Checks
 
@@ -737,7 +737,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    > This APPROVE may not satisfy branch protection if
    > this account is not listed in CODEOWNERS."
 
-   **Checkpoint**: Mark `Step 7c` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "pre-posting-checks"` before proceeding.
 
    #### Step 7d -- Multi-Persona Finding Aggregation
 
@@ -795,7 +795,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    Include: "Full findings available in the terminal
    report."
 
-   **Checkpoint**: Mark `Step 7d` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "finding-aggregation"` before proceeding.
 
    #### Step 7e -- Inline Comment Preparation
 
@@ -836,7 +836,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    Body: <comment text>
    ```
 
-   **Checkpoint**: Mark `Step 7e` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "inline-comment-prep"` before proceeding.
 
 
    #### Step 7f -- Verdict Mapping and Human Confirmation
@@ -853,8 +853,8 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    on confirmation recorded in compressed context. When
    in doubt, re-confirm — false re-confirmation is
    harmless; posting without consent is a violation.
-   Check the EXECUTION CHECKLIST: Step 7f MUST be
-   unchecked before proceeding with confirmation.
+   Check progress via `get_progress`: Step 7f MUST be
+   incomplete before proceeding with confirmation.
 
    Map the council verdict to the GitHub API event type:
 
@@ -906,9 +906,9 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    human confirmation via the **question tool**.
    Always show the exact content (verdict type + all
    comments) that will be posted and wait for the user
-   to select a confirming option. Mark `Step 7f` as
-   `[x]` in the EXECUTION CHECKLIST only AFTER the
-   human confirms.
+   to select a confirming option. Call `checkpoint` with
+   `command: "uf.review-council"` and `step: "human-confirmation"`
+   only AFTER the human confirms.
 
    >>> END MANDATORY GATE <<<
 
@@ -981,7 +981,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
    Phase 1c re-run. If any `gh issue view` call fails,
    skip that issue silently.
 
-   **Checkpoint**: Mark `Step 7g` complete in the EXECUTION CHECKLIST using the Edit tool before proceeding.
+   **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "post-review"` before proceeding. Then call `clear_progress` with `command: "uf.review-council"` to clean up progress state.
 
 ---
 
