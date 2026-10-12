@@ -56,9 +56,9 @@ off on re-run.
 - [x] Step 5: Tasks (Step 3)
 - [x] Step 6: Spec Review (Step 4) -- iteration: 1/3 PASSED (APPROVE WITH ADVISORIES)
 - [x] Step 7: Implement (Step 5) -- all 6 phases complete, make check PASS
-- [ ] Step 8: Code Review (Step 6)
-- [ ] Step 9: Retrospective (Step 7)
-- [ ] Step 10: Demo (Step 8)
+- [x] Step 8: Code Review (Step 6) -- iteration: 1/3 APPROVE WITH ADVISORIES
+- [x] Step 9: Retrospective (Step 7)
+- [x] Step 10: Demo (Step 8)
 ```
 
 ### TodoWrite Progress Tracking
