@@ -11,12 +11,12 @@ import {
   PromptSchema,
   PromptFileSchema,
   TimeoutSchema,
+  VariantSchema,
   directModelIdentity,
   errorText,
   executeAgentSession,
   failedResult,
-  reportedModel,
-  responseFailure,
+  resolveHostModel,
   sanitizeInvocationError,
   validateTimeout,
   type InvocationProvenance,
@@ -50,7 +50,6 @@ const ModelSchema = z
     const separator = value.indexOf("/")
     return separator > 0 && separator < value.length - 1
   }, "model must contain non-empty provider and model-id values separated by the first slash")
-const VariantSchema = z.string().max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
 const InvokeAgentInputSchema = z
   .object({
     agent: AgentSchema,
@@ -86,13 +85,6 @@ const InvokeAgentInputSchema = z
     }
   })
 
-type CurrentMessageResponse = Awaited<ReturnType<PluginInput["client"]["session"]["message"]>>
-type CurrentMessageInfo = NonNullable<CurrentMessageResponse["data"]>["info"]
-type CurrentAssistant = Extract<CurrentMessageInfo, { role: "assistant" }>
-type CurrentAssistantWithVariant<T> = T & {
-  variant?: string
-}
-
 type ValidatedInput = z.output<typeof InvokeAgentInputSchema>
 
 /** Injectable I/O, client, parser, and timeout boundary used by invoke_agent. */
@@ -125,38 +117,6 @@ async function validateReviewAgent(input: ValidatedInput, dependencies: InvokeAg
   }
   if (reviewer.capability !== "review") {
     throw new Error(`agent ${input.agent} has content capability and cannot perform a review invocation`)
-  }
-}
-
-async function resolveHostModel(
-  context: ToolContext,
-  dependencies: InvokeAgentDependencies,
-  signal: AbortSignal,
-): Promise<{ readonly identity: ModelIdentity; readonly variant: string }> {
-  const response = await dependencies.client.session.message({
-    path: { id: context.sessionID, messageID: context.messageID },
-    query: { directory: context.directory },
-    signal,
-  })
-  if (response.data === undefined) {
-    throw new Error(responseFailure("current assistant message is unavailable", response))
-  }
-  if (response.data.info.role !== "assistant") {
-    throw new Error("current message is not an assistant message")
-  }
-
-  const assistant = response.data.info as CurrentAssistantWithVariant<CurrentAssistant>
-  const combined = reportedModel(assistant.providerID, assistant.modelID)
-  if (combined === null || combined.length > 256) {
-    throw new Error("current assistant model identity is unavailable")
-  }
-  const variant = VariantSchema.safeParse(assistant.variant)
-  if (!variant.success) {
-    throw new Error("current assistant active variant is unavailable or invalid")
-  }
-  return {
-    identity: { providerID: assistant.providerID, modelID: assistant.modelID, combined },
-    variant: variant.data,
   }
 }
 
@@ -221,7 +181,10 @@ export async function invokeAgent(
   if (input.model === undefined) {
     let host
     try {
-      host = await resolveHostModel(context, dependencies, context.abort)
+      host = await resolveHostModel(
+        { client: dependencies.client, sessionID: context.sessionID, messageID: context.messageID, directory: context.directory },
+        context.abort,
+      )
     } catch (error: unknown) {
       if (context.abort.aborted) {
         return failedResult(provenance, "cancelled", "invoke_agent run was cancelled", false, "cancelled")

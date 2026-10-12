@@ -575,3 +575,32 @@ describe("finalize review dispatch persistence", () => {
     expect(await readdir(join(directory, ".uf/artifacts/dispatch"))).toEqual([])
   })
 })
+
+describe("host-resolved advisor provenance", () => {
+  it("accepts a run with null requested_model and host-resolved parent", async () => {
+    const directory = await scratchDirectory()
+    const payload = emptySuccessfulPayload()
+    const run = payload.runs[0]!
+    // Set up host-resolved advisor provenance shape.
+    run.source = "advisor"
+    run.requested_model = null
+    run.provider = null
+    run.model_id = null
+    run.variant = null
+    run.resolved_parent_model = "google-vertex/claude-opus-4@default"
+    run.resolved_parent_variant = "active"
+    run.reported_model = "google-vertex/claude-opus-4@default"
+    run.model_mismatch = false
+    // Align plan entry with the advisor run.
+    const plan = payload.plan[0]!
+    plan.source = "advisor"
+    plan.model = null
+    plan.variant = null
+
+    const result = await finalize(payload, dependencies(directory))
+
+    expect(result.status).toBe("success")
+    expect(result.artifact_path).not.toBeNull()
+    expect(result.operation_verdict).toBe("APPROVE")
+  })
+})

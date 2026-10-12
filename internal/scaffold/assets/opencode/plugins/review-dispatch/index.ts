@@ -17,6 +17,7 @@ import {
   errorText,
   executeAgentSession,
   failedResult,
+  resolveHostModel,
   sanitizeInvocationError,
   validateTimeout,
   type ExecutorDependencies,
@@ -2088,6 +2089,15 @@ function validateRunModel(run: DispatchRun, plan: ReviewDispatchPayload["plan"][
       errors.push(`successful host run ${run.run_id} requires resolved parent model and variant`)
     }
     expectedModel = run.resolved_parent_model
+  } else if (run.source === "advisor" && run.requested_model === null) {
+    // Host-resolved advisor: profile had no model, so the parent session model was inherited.
+    if (run.provider !== null || run.model_id !== null || run.variant !== null) {
+      errors.push(`host-resolved advisor run ${run.run_id} must retain null requested model provenance`)
+    }
+    if (run.status === "success" && (run.resolved_parent_model === null || run.resolved_parent_variant === null)) {
+      errors.push(`successful host-resolved advisor run ${run.run_id} requires resolved parent model and variant`)
+    }
+    expectedModel = run.resolved_parent_model
   } else {
     if (run.requested_model === null || run.provider === null || run.model_id === null) {
       errors.push(`${run.source} run ${run.run_id} requires requested model provenance`)
@@ -2782,7 +2792,8 @@ export async function dispatchAgentRun(
   // Resolve model: tier-based via review matrix or direct bypass.
   let selectedModel: ModelIdentity
   let selectedVariant: string | undefined
-  let requestedModelLabel: string
+  let requestedModelLabel: string | null
+  let hostResolvedParent: { model: string; variant: string } | null = null
 
   if (input.model !== undefined) {
     // Direct model bypass — skip matrix lookup.
@@ -2794,25 +2805,56 @@ export async function dispatchAgentRun(
     const tier = input.tier ?? "standard"
     const resolved = profilePair(policies.matrix, tier, input.variant)
     if (resolved.model === null) {
-      return earlyExit(failedResult(
-        earlyProvenance(tier),
-        "tier_model_unavailable",
-        `profile "${tier}" has no model configured in the review matrix`,
-        false,
-      ))
+      if (input.source === "advisor") {
+        // Advisor runs with no profile model inherit the parent session model.
+        try {
+          const hostResult = await resolveHostModel(
+            { client: deps.client, sessionID: context.sessionID, messageID: context.messageID, directory: deps.directory },
+            context.abort,
+          )
+          selectedModel = hostResult.identity
+          selectedVariant = hostResult.variant
+          requestedModelLabel = null
+          hostResolvedParent = {
+            model: `${hostResult.identity.providerID}/${hostResult.identity.modelID}`,
+            variant: hostResult.variant,
+          }
+        } catch (error: unknown) {
+          if (context.abort.aborted) {
+            return earlyExit(failedResult(earlyProvenance(tier), "cancelled", "dispatch cancelled", false))
+          }
+          return earlyExit(failedResult(
+            earlyProvenance(tier),
+            "host_model_unavailable",
+            sanitizeInvocationError(errorText(error)),
+            true,
+          ))
+        }
+      } else {
+        return earlyExit(failedResult(
+          earlyProvenance(tier),
+          "tier_model_unavailable",
+          `profile "${tier}" has no model configured in the review matrix`,
+          false,
+        ))
+      }
+    } else {
+      selectedModel = directModelIdentity(resolved.model)
+      selectedVariant = resolved.variant ?? undefined
+      requestedModelLabel = resolved.model
     }
-
-    selectedModel = directModelIdentity(resolved.model)
-    selectedVariant = resolved.variant ?? undefined
-    requestedModelLabel = resolved.model
   }
 
   const provenance = makeProvenance(
     input.agent,
     requestedModelLabel,
-    selectedVariant ?? null,
+    hostResolvedParent !== null ? null : (selectedVariant ?? null),
     readOnly,
   )
+  if (hostResolvedParent !== null) {
+    provenance.resolved_parent_model = hostResolvedParent.model
+    provenance.resolved_parent_variant = hostResolvedParent.variant
+  }
 
   // Delegate session lifecycle to the shared executor.
   const startedAt = new Date().toISOString()
@@ -2849,11 +2891,11 @@ export async function dispatchAgentRun(
     started_at: startedAt,
     finished_at: finishedAt,
     requested_model: requestedModelLabel,
-    provider: selectedModel.providerID || null,
-    model_id: selectedModel.modelID || null,
-    variant: selectedVariant ?? null,
-    resolved_parent_model: result.provenance.resolved_parent_model,
-    resolved_parent_variant: result.provenance.resolved_parent_variant,
+    provider: hostResolvedParent !== null ? null : (selectedModel.providerID || null),
+    model_id: hostResolvedParent !== null ? null : (selectedModel.modelID || null),
+    variant: hostResolvedParent !== null ? null : (selectedVariant ?? null),
+    resolved_parent_model: hostResolvedParent !== null ? hostResolvedParent.model : result.provenance.resolved_parent_model,
+    resolved_parent_variant: hostResolvedParent !== null ? hostResolvedParent.variant : result.provenance.resolved_parent_variant,
     reported_model: result.provenance.reported_child_model,
     model_mismatch: result.provenance.model_mismatch,
     usage: result.usage,

@@ -16,6 +16,7 @@ export const PromptSchema = z
   .refine((value) => Buffer.byteLength(value, "utf8") <= MAX_INLINE_PROMPT_BYTES, "prompt exceeds 128 KiB UTF-8")
 export const PromptFileSchema = z.string().max(1024)
 export const TimeoutSchema = z.number().int().positive().max(1_800_000)
+export const VariantSchema = z.string().max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/)
 
 // ── Type derivations from the OpenCode plugin client ─────────
 
@@ -24,6 +25,13 @@ type PromptResponse = Awaited<ReturnType<PluginInput["client"]["session"]["promp
 type PromptPart = NonNullable<PromptResponse["data"]>["parts"][number]
 
 type PromptBodyWithVariant = NonNullable<PromptOptions["body"]> & {
+  variant?: string
+}
+
+type CurrentMessageResponse = Awaited<ReturnType<PluginInput["client"]["session"]["message"]>>
+type CurrentMessageInfo = NonNullable<CurrentMessageResponse["data"]>["info"]
+type CurrentAssistant = Extract<CurrentMessageInfo, { role: "assistant" }>
+type CurrentAssistantWithVariant<T> = T & {
   variant?: string
 }
 
@@ -84,6 +92,14 @@ export interface ExecutorDependencies {
   readonly directory: string
   readonly parentAbort: AbortSignal
   readonly timeoutMilliseconds: number
+}
+
+/** Context required for host model resolution via parent session introspection. */
+export interface HostResolutionContext {
+  readonly client: PluginInput["client"]
+  readonly sessionID: string
+  readonly messageID: string
+  readonly directory: string
 }
 
 // ── Internal helper types ────────────────────────────────────
@@ -202,6 +218,47 @@ export function responseText(parts: readonly PromptPart[]): string {
 export function validateTimeout(timeoutMilliseconds: number): void {
   if (!Number.isSafeInteger(timeoutMilliseconds) || timeoutMilliseconds <= 0 || timeoutMilliseconds > 1_800_000) {
     throw new Error("invoke_agent timeout must be a positive integer no greater than 1800000 milliseconds")
+  }
+}
+
+/**
+ * Introspects the parent session's current assistant message to resolve
+ * the active host model identity and variant.
+ *
+ * @param context Client and session context for the introspection call.
+ * @param signal Abort signal for cancellation.
+ * @returns Resolved model identity and variant from the host session.
+ * @throws When the parent message is unavailable, not an assistant message,
+ *   or the model identity/variant cannot be extracted.
+ */
+export async function resolveHostModel(
+  context: HostResolutionContext,
+  signal: AbortSignal,
+): Promise<{ readonly identity: ModelIdentity; readonly variant: string }> {
+  const response = await context.client.session.message({
+    path: { id: context.sessionID, messageID: context.messageID },
+    query: { directory: context.directory },
+    signal,
+  })
+  if (response.data === undefined) {
+    throw new Error(responseFailure("current assistant message is unavailable", response))
+  }
+  if (response.data.info.role !== "assistant") {
+    throw new Error("current message is not an assistant message")
+  }
+
+  const assistant = response.data.info as CurrentAssistantWithVariant<CurrentAssistant>
+  const combined = reportedModel(assistant.providerID, assistant.modelID)
+  if (combined === null || combined.length > 256) {
+    throw new Error("current assistant model identity is unavailable")
+  }
+  const variant = VariantSchema.safeParse(assistant.variant)
+  if (!variant.success) {
+    throw new Error("current assistant active variant is unavailable or invalid")
+  }
+  return {
+    identity: { providerID: assistant.providerID, modelID: assistant.modelID, combined },
+    variant: variant.data,
   }
 }
 

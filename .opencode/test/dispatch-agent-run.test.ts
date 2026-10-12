@@ -510,6 +510,129 @@ describe("dispatch_agent_run", () => {
     })
   })
 
+  describe("advisor host-model fallback", () => {
+    it("inherits parent session model when advisor profile has no model", async () => {
+      const emptyProfileMatrix = {
+        ...matrixFixture,
+        profiles: { ...matrixFixture.profiles, standard: {} },
+      }
+      const readText = vi.fn(async (path: string): Promise<string> => {
+        if (path === ".uf/review-matrix.yaml") return JSON.stringify(emptyProfileMatrix)
+        if (path === ".uf/reviewer-capabilities.yaml") return JSON.stringify(manifestFixture)
+        if (path === ".uf/review-matrix.override.yaml") {
+          const err = new Error("ENOENT") as NodeJS.ErrnoException
+          err.code = "ENOENT"
+          throw err
+        }
+        throw new Error(`unexpected read: ${path}`)
+      })
+      const deps = makeDeps({ readText })
+      const result = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "Review this change.", tier: "standard", source: "advisor" },
+        toolContext(),
+        deps,
+      )
+      trackForCleanup(result.correlation_id)
+
+      expect(result.status).toBe("success")
+      expect(result.provenance).toMatchObject({
+        agent: "divisor-guard",
+        requested_model: null,
+        resolved_parent_model: "p/m",
+        resolved_parent_variant: "active",
+        read_only: true,
+      })
+      expect(result.provenance.requested_variant).toBeNull()
+    })
+
+    it("returns host_model_unavailable when host resolution fails", async () => {
+      const emptyProfileMatrix = {
+        ...matrixFixture,
+        profiles: { ...matrixFixture.profiles, standard: {} },
+      }
+      const readText = vi.fn(async (path: string): Promise<string> => {
+        if (path === ".uf/review-matrix.yaml") return JSON.stringify(emptyProfileMatrix)
+        if (path === ".uf/reviewer-capabilities.yaml") return JSON.stringify(manifestFixture)
+        if (path === ".uf/review-matrix.override.yaml") {
+          const err = new Error("ENOENT") as NodeJS.ErrnoException
+          err.code = "ENOENT"
+          throw err
+        }
+        throw new Error(`unexpected read: ${path}`)
+      })
+      const failingClient = {
+        session: {
+          create: async (): Promise<unknown> => ({
+            data: { id: "child-session" },
+            error: undefined,
+          }),
+          message: async (): Promise<unknown> => ({
+            data: undefined,
+            error: { message: "session lookup failed" },
+          }),
+          prompt: async (): Promise<unknown> => ({ data: undefined, error: undefined }),
+          abort: async (): Promise<unknown> => ({ data: true, error: undefined }),
+        },
+      } as unknown as Client
+      const deps = makeDeps({ readText, client: failingClient })
+      const result = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "Review this change.", tier: "standard", source: "advisor" },
+        toolContext(),
+        deps,
+      )
+
+      expect(result.status).toBe("failed")
+      expect(result.error?.code).toBe("host_model_unavailable")
+      expect(result.error?.retryable).toBe(true)
+    })
+
+    it("returns cancelled when abort signal fires during host resolution", async () => {
+      const emptyProfileMatrix = {
+        ...matrixFixture,
+        profiles: { ...matrixFixture.profiles, standard: {} },
+      }
+      const readText = vi.fn(async (path: string): Promise<string> => {
+        if (path === ".uf/review-matrix.yaml") return JSON.stringify(emptyProfileMatrix)
+        if (path === ".uf/reviewer-capabilities.yaml") return JSON.stringify(manifestFixture)
+        if (path === ".uf/review-matrix.override.yaml") {
+          const err = new Error("ENOENT") as NodeJS.ErrnoException
+          err.code = "ENOENT"
+          throw err
+        }
+        throw new Error(`unexpected read: ${path}`)
+      })
+      const abortController = new AbortController()
+      const hangingClient = {
+        session: {
+          create: async (): Promise<unknown> => ({
+            data: { id: "child-session" },
+            error: undefined,
+          }),
+          message: async (): Promise<unknown> => {
+            abortController.abort()
+            return { data: undefined, error: { message: "aborted" } }
+          },
+          prompt: async (): Promise<unknown> => ({ data: undefined, error: undefined }),
+          abort: async (): Promise<unknown> => ({ data: true, error: undefined }),
+        },
+      } as unknown as Client
+      const deps = makeDeps({ readText, client: hangingClient })
+      const ctx = {
+        ...toolContext(),
+        abort: abortController.signal,
+      }
+      const result = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "Review this change.", tier: "standard", source: "advisor" },
+        ctx,
+        deps,
+      )
+
+      expect(result.status).toBe("failed")
+      expect(result.error?.code).toBe("cancelled")
+      expect(result.error?.retryable).toBe(false)
+    })
+  })
+
   describe("createDispatchAgentRunTool factory", () => {
     it("creates a tool with description and expected args", () => {
       const deps = makeDeps()
