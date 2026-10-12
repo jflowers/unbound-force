@@ -171,17 +171,17 @@ Skip directly to check 4.
 3. **Tasks done?** *(Speckit only)* Check if `tasks.md`
    exists in the feature directory.
 
-4. **Spec review done?** Read `FEATURE_DIR/tasks.md`
-   and check for the `<!-- spec-review: passed -->` HTML
-   comment marker.
+4. **Spec review done?** Call `get_progress` with
+   `command: "uf.unleash"` and check if `spec-review`
+   is in `completed_steps`.
 
 5. **Implementation done?** Read `FEATURE_DIR/tasks.md`
    and check if all task checkboxes are `[x]` (no
    `- [ ]` lines remain in the task phases).
 
-6. **Code review done?** Read `FEATURE_DIR/tasks.md`
-   and check for the `<!-- code-review: passed -->` HTML
-   comment marker.
+6. **Code review done?** Call `get_progress` with
+   `command: "uf.unleash"` and check if `code-review`
+   is in `completed_steps`.
 
 Display the detection results. For OpenSpec mode:
 

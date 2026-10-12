@@ -225,11 +225,20 @@ passed -->` HTML comments to `tasks.md`.
 ### Requirement: uf.address-feedback state management
 
 `uf.address-feedback` MUST use the `checkpoint` tool
-with `key: "pr-<N>"` instead of writing directly to
-`.uf/feedback/pr-<N>/state.json`.
+with `key: "pr-<N>"` for **progress tracking** (phase
+completion, resume detection) instead of writing progress
+state to `.uf/feedback/pr-<N>/state.json`.
 
-Previously: The command wrote ad-hoc JSON to
-`.uf/feedback/pr-<N>/state.json` for its own caching.
+The command MAY continue to use
+`.uf/feedback/pr-<N>/state.json` for **assessment data
+caching** (per-thread classification, evidence, content
+snapshots). Assessment caching serves a different purpose
+than progress tracking: it caches expensive API and
+classification results for idempotent retry, not workflow
+phase completion state.
+
+Previously: The command wrote both progress tracking and
+assessment caching to `.uf/feedback/pr-<N>/state.json`.
 
 #### Scenario: PR-scoped checkpoint
 - **GIVEN** `uf.address-feedback` is processing PR #123
