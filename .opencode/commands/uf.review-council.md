@@ -330,23 +330,84 @@ or child-supplied tags, categories, or hashes.
 
 ### 5. Finalize Every Iteration
 
-Call `finalize_review_dispatch` for every iteration. Supply the complete
-version 1 payload and provenance, including:
+Finalize every iteration through a single deterministic
+`consolidate_dispatch` call, including plan failure, no-success, and
+fail-closed early-stop paths. Never assemble, restate, or recompute
+the closed finalization payload: the dispatch session persisted during
+the run steps already holds the command, mode, input context, change
+profile, plan, coverage, and every run, and `consolidate_dispatch`
+reads it directly.
 
-- command `review-council`, mode, `full`, and exact input context;
-- planner change profile, plan version, and every plan entry;
-- every planned run in a terminal state with complete provenance;
-- actual pre-flight coverage (`NOT_RUN`, 0/0 for spec review);
-- deduplicated findings, advisories, run counts, and reason;
-- native `council` result and its identical generic verdict; and
-- branch, immutable reviewed head SHA, workflow id, and a valid UUID.
+If `dispatch_review_runs` never ran, no session exists; the call
+reports that, the failure is non-mechanical, and the fail-closed path
+below applies. Never fall back to manual payload assembly.
 
-Use the finalizer's returned data as authoritative. It persists the
-`review-dispatch` artifact and returns canonical `review-verdict` v2 data.
-If validation or persistence fails, report any calculated assessment as
-human-only, change the operation result to failing `INCONCLUSIVE`, block
-automated progression, and do not fabricate a finding or canonical
-artifact.
+Resolve provenance before calling the tool:
+
+```bash
+git branch --show-current
+git rev-parse HEAD
+```
+
+`branch` is the current branch name; `commit` is the current
+40-character lowercase commit SHA -- the immutable reviewed head. If
+`git branch --show-current` returns empty output (detached HEAD, common
+in CI checkouts such as GitHub Actions `actions/checkout` defaults), or
+if either command fails to resolve, **STOP** with an explicit error
+naming the resolution -- check out a named branch, or supply the branch
+explicitly. Never proceed with a fabricated, defaulted, or omitted
+branch.
+
+Then call `consolidate_dispatch` exactly once per finalization attempt,
+with provenance as its only argument:
+
+```json
+{
+  "provenance": {
+    "branch": "<current branch>",
+    "commit": "<current 40-character commit SHA>",
+    "workflow_id": "uf.review-council"
+  }
+}
+```
+
+With provenance the tool runs the finalizer internally and returns the
+finalization result directly. Never call `finalize_review_dispatch`
+yourself, and never hand-build or transform a finalization payload.
+
+The tool's response is authoritative. On `status: "success"`, read the
+review-dispatch artifact path (`artifact_path`), the canonical
+review-verdict v2 projection (`review_verdict`), and whether calculated
+data is authoritative (`calculated_assessment.authoritative`) directly
+from the response. Do not recompute, re-derive, or re-map any of them,
+and do not alter the tool-computed verdict, `verdict_reason`, run
+counts, findings, or advisories.
+
+**Bounded mechanical retry.** If the call fails, classify the failure
+from the structured response alone -- default-deny. The failure is
+mechanical only when the finalizer rejected the payload at its
+validation stage: the response reports a rejected payload with
+enumerated defects, no persisted artifact, and a null
+`calculated_assessment`. Everything else is non-mechanical:
+persistence failures (the response retains a non-authoritative
+`calculated_assessment` and reports that the artifact could not be
+persisted), content failures, tool or runtime errors (the call failing
+or returning no structured finalization result), and any failure whose
+class cannot be determined from the response. Never infer retry
+eligibility by pattern-matching natural-language error text.
+
+For a mechanical failure, retry the identical `consolidate_dispatch`
+call -- same provenance, no changes -- at most twice. The initial
+attempt plus at most two retries is the fixed bound; when the second
+retry is rejected, no further retry is attempted. This command has no
+assembled payload to correct, and assessment data (verdicts, findings,
+run states) MUST NOT be altered to make validation pass.
+
+When retries are exhausted or the failure is non-mechanical, fail
+closed: retain the tool's calculated assessment only as
+non-authoritative human context, change the operation result to failing
+`INCONCLUSIVE`, block automation, request human review, and do not
+fabricate an artifact, finding, or canonical decision.
 
 Every terminal report MUST show the deterministic plan; discovery,
 coverage, sibling, and provenance summaries; requested, resolved, and
