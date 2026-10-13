@@ -414,8 +414,12 @@ fan-out never creates extra persona votes.
 Deduplicate successful findings by normalized file plus root cause while
 retaining every contributing run ID and its complete model provenance. Preserve
 reasoning, dissent, and advisories without turning failed runs into votes.
-Map native `ACCEPT` to generic `APPROVE` and canonical `APPROVED`. Map native
-`AUTHOR-DECIDES` to generic `APPROVE WITH ADVISORIES` and canonical `ESCALATED`.
+Map native `ACCEPT` to generic `APPROVE` and canonical `APPROVED`, and
+native `AUTHOR-DECIDES` to generic `APPROVE WITH ADVISORIES` and
+canonical `ESCALATED`, for display and the Section 2.7 state cache
+only — the finalizer performs the authoritative projection into the
+canonical review-verdict version 2 decision; this command never maps
+verdicts into a finalization payload.
 
 #### 2.3.6 Fail Closed When No Tier 2 Run Succeeds
 
@@ -446,30 +450,74 @@ or child-supplied tags, categories, or hashes.
 
 #### 2.3.8 Finalize Every Tier 2 Dispatch
 
-Call `finalize_review_dispatch` once for every Tier 2 item, including plan or
-no-success failures, with:
+Finalize every Tier 2 item, including plan or no-success failures, with
+a single `consolidate_dispatch` call. Never assemble, restate, or
+recompute the closed finalization payload: the dispatch session
+persisted for the item during Section 2.3.4 already holds the command,
+mode, input context, change profile, plan, coverage, and every run, and
+`consolidate_dispatch` reads it directly.
 
-- command `address-feedback`, mode `feedback`, and `full: false`;
-- the exact frozen PR input context and planner-returned change profile;
-- plan version and every plan entry;
-- every included run in exactly one terminal state with requested, resolved,
-  reported, self-reported, source, agent, sequence, usage, error, UUID, and
-  timestamp provenance represented where the payload contract permits;
-- coverage `NOT_RUN` with zero checks because this assessment phase introduces
-  no separate pre-flight run;
-- deduplicated findings, advisories, exact run counts, and the consolidation
-  reason;
-- native `feedback` workflow result, its exact generic mapping, and a valid
-  correlation UUID; and
-- artifact provenance containing the PR branch, immutable head SHA, and a
-  stable workflow ID derived from PR number and feedback item identity.
+If Section 2.3.4 never dispatched for the item, no session exists; the
+call reports that, the failure is non-mechanical, and the fail-closed
+path below applies. Never fall back to manual payload assembly.
 
-Use the finalizer result as authoritative. It persists the additive
-`review-dispatch` artifact and returns canonical `review-verdict` version 2
-decision data. A validation or persistence failure changes the operation to
-failing `INCONCLUSIVE`, retains any calculated assessment as non-authoritative
-human-only context, blocks automated Tier 2 resolution, and never fabricates a
-finding or canonical artifact.
+Resolve provenance only from the frozen PR input context of Section 1.2
+— never from the local checkout or a mutable ref. `branch` is the PR's
+head branch (`head_ref`). `commit` is the PR's immutable head SHA
+(`head_sha`, 40-character lowercase). `workflow_id` is the fixed stable
+string `uf.address-feedback`, identical for every Tier 2 item and
+invocation. If the frozen PR context lacks either value or either value
+fails validation, **STOP** with an explicit error naming the missing
+field; never proceed with a fabricated, defaulted, or omitted value.
+
+Then call `consolidate_dispatch` exactly once per finalization attempt
+for the item, with provenance as its only argument:
+
+```json
+{
+  "provenance": {
+    "branch": "<PR head branch>",
+    "commit": "<PR head SHA>",
+    "workflow_id": "uf.address-feedback"
+  }
+}
+```
+
+With provenance the tool runs the finalizer internally and returns the
+finalization result directly. Never call `finalize_review_dispatch`
+yourself, and never hand-build or transform a finalization payload.
+
+The tool's response is authoritative. On `status: "success"`, read the
+review-dispatch artifact path (`artifact_path`), the canonical
+review-verdict v2 projection (`review_verdict`), and whether calculated
+data is authoritative (`calculated_assessment.authoritative`) directly
+from the response. Do not recompute, re-derive, or re-map any of them,
+and do not alter the tool-computed verdict, `verdict_reason`, run
+counts, findings, or advisories.
+
+**Bounded mechanical retry.** If the call fails, classify the failure
+from the structured response alone — default-deny. The failure is
+mechanical only when the finalizer rejected the payload at its
+validation stage: the response reports a rejected payload with
+enumerated defects, no persisted artifact, and a null
+`calculated_assessment`. Everything else is non-mechanical: persistence
+failures (the response retains a non-authoritative
+`calculated_assessment`), content failures, tool or runtime errors, and
+any failure whose class cannot be determined from the response. Never
+infer retry eligibility by pattern-matching natural-language error text.
+
+For a mechanical failure, retry the identical `consolidate_dispatch`
+call — same provenance, no changes — at most twice. The initial attempt
+plus at most two retries is the fixed bound; when the second retry is
+rejected, no further retry is attempted. This command has no assembled
+payload to correct, and assessment data (verdicts, findings, run
+states) MUST NOT be altered to make validation pass.
+
+When retries are exhausted or the failure is non-mechanical, fail
+closed: retain the calculated assessment only as non-authoritative
+human context, change the operation result to failing `INCONCLUSIVE`,
+block automated Tier 2 resolution, and never fabricate a finding or
+canonical artifact.
 
 For each Tier 2 item, output the complete deterministic plan, sibling and
 artifact provenance, requested/resolved/reported/self-reported model data,
