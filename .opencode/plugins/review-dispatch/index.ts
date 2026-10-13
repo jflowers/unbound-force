@@ -3065,7 +3065,9 @@ function computeVerdict(findings: readonly z.infer<typeof ConsolidatedFindingSch
  * Compute a per-run workflow verdict from the run's findings.
  * Successful runs MUST have a non-null workflow_verdict for semantic validation.
  */
-function runVerdict(findings: readonly { readonly severity: string }[]): string {
+function runVerdict(
+  findings: readonly { readonly severity: string }[],
+): (typeof GENERIC_VERDICT_VALUES)[number] {
   if (findings.some((f) => f.severity === "CRITICAL" || f.severity === "HIGH")) {
     return "REQUEST CHANGES"
   }
@@ -3095,6 +3097,12 @@ function workflowKind(command: string): "council" | "triage" | "feedback" | "tes
 
 /**
  * Map a generic verdict to a workflow-specific verdict value.
+ *
+ * The mapping is total over GENERIC_VERDICT_VALUES for every kind so run
+ * verdicts, workflow_result.value, and allowedRunVerdicts() always agree
+ * (FR-001). INCONCLUSIVE/UNAVAILABLE never reach this function —
+ * computeVerdict and runVerdict emit only generic values — so the
+ * default branches are defense-in-depth pass-throughs.
  */
 function workflowVerdictValue(
   kind: ReturnType<typeof workflowKind>,
@@ -3114,7 +3122,12 @@ function workflowVerdictValue(
     switch (verdict) {
       case "APPROVE":
         return "ACCEPT"
+      // Both advisory and blocking findings escalate to the author: the
+      // allowed feedback run verdicts are only ACCEPT/AUTHOR-DECIDES, so
+      // a blocking REQUEST CHANGES must project to AUTHOR-DECIDES rather
+      // than pass through unmapped (FR-001 totality).
       case "APPROVE WITH ADVISORIES":
+      case "REQUEST CHANGES":
         return "AUTHOR-DECIDES"
       default:
         return verdict
@@ -3229,8 +3242,8 @@ export function createConsolidateDispatchTool(
       // Compute verdict.
       const { verdict, reason: verdictReason } = computeVerdict(consolidatedFindings)
 
-      // Build advisories for advisory-level verdicts.
-      const advisories = verdict === "APPROVE WITH ADVISORIES" ? buildAdvisories(consolidatedFindings) : []
+      // Derive the workflow kind for kind-native verdict projection (FR-001).
+      const kind = workflowKind(sessionMetadata.command)
 
       // Build run entries matching DispatchRunSchema.
       const dispatchRuns = runs.map((run) => ({
@@ -3251,7 +3264,7 @@ export function createConsolidateDispatchTool(
         error: run.error,
         reported_model: run.reported_model,
         model_mismatch: run.model_mismatch,
-        workflow_verdict: run.status === "success" ? runVerdict(run.findings) : null,
+        workflow_verdict: run.status === "success" ? workflowVerdictValue(kind, runVerdict(run.findings)) : null,
         findings: run.findings,
       }))
 
@@ -3267,11 +3280,21 @@ export function createConsolidateDispatchTool(
       }
 
       // Build workflow result.
-      const kind = workflowKind(sessionMetadata.command)
       const workflowResult = {
         kind,
         value: workflowVerdictValue(kind, verdict),
       }
+
+      // The finalizer requires the top-level verdict to be the lossless
+      // back-projection of the native workflow result (RD-FR-008): the
+      // identity for council and test-review, and the native-to-generic
+      // projection for triage and feedback. A raw severity-derived REQUEST
+      // CHANGES would fail semantic validation for feedback, whose native
+      // space has no REQUEST CHANGES value (FR-001).
+      const projectedVerdict = projectNativeValue(workflowResult.value)
+
+      // Build advisories for advisory-level verdicts.
+      const advisories = projectedVerdict === "APPROVE WITH ADVISORIES" ? buildAdvisories(consolidatedFindings) : []
 
       // Assemble the full finalization payload.
       const payload = {
@@ -3286,7 +3309,7 @@ export function createConsolidateDispatchTool(
         coverage: sessionMetadata.coverage,
         findings: consolidatedFindings,
         advisories,
-        verdict,
+        verdict: projectedVerdict,
         verdict_reason: verdictReason,
         run_counts: runCounts,
         workflow_result: workflowResult,

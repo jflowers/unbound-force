@@ -26,6 +26,7 @@ func TestCommandContracts_ReviewCouncil(t *testing.T) {
 		{name: "argument rejection boundary", all: []string{"`specs` together with a pr number", "repeated modes, pr numbers, or `--full` flags", "conflicting `code` and `specs` modes", "zero, a sign, a decimal, unicode digits, or a value above 999999", "before any discovery or dispatch"}},
 		{name: "immutable pr references", all: []string{"baserefname", "baserefoid", "headrefname", "headrefoid", "^[0-9a-f]{40}$", "use only `base_sha...head_sha`", "never substitute the current checkout or later ref values"}},
 		{name: "local immutable references", all: []string{"call `resolve_base_ref`", "upstream/main", "origin/main", "resolve the head ref to an immutable sha", "use only the resolved `base_sha...head_sha` afterward"}},
+		{name: "detached-head fail-closed", all: []string{"`git branch --show-current` returns empty output (detached head", "**stop** with an explicit error naming the resolution", "never proceed with a fabricated, defaulted, or omitted branch"}},
 		{name: "validated plan authority", all: []string{"load the `dispatch-advisor` skill", "display the returned json plan exactly", "validated plan is the sole invocation list", "bind this plan to the exact immutable input context"}},
 		{name: "six review roles", all: []string{"`divisor-adversary`", "`divisor-architect`", "`divisor-curator`", "`divisor-guard`", "`divisor-sre`", "`divisor-testing`"}},
 		{name: "three content roles", all: []string{"`divisor-envoy`", "`divisor-herald`", "`divisor-scribe`", "content-only agents are discovered and reported but never dispatched"}},
@@ -34,7 +35,7 @@ func TestCommandContracts_ReviewCouncil(t *testing.T) {
 		{name: "council verdict precedence", all: []string{"any blocking successful run yields `request changes`", "otherwise any advisory yields `approve with advisories`", "otherwise yield `approve`", "failed runs never vote"}},
 		{name: "advisory and human fix gate", all: []string{"mandatory gate: human confirmation required", "never apply auto-fixes to spec files without explicit human confirmation", "low/medium auto-fix", "high/critical report only"}},
 		{name: "no-success cause precedence", all: []string{"availability-only provider, model, or runtime causes yield `unavailable`", "policy, plan, budget, limit, persistence, calculation, or mixed cause yields `inconclusive`", "both no-success results block automated progression"}},
-		{name: "finalizer and dual artifacts", all: []string{"call `finalize_review_dispatch` for every iteration", "persists the `review-dispatch` artifact", "returns canonical `review-verdict` v2 data", "validation or persistence fails", "human-only"}},
+		{name: "finalizer and dual artifacts", all: []string{"finalize every iteration through a single deterministic `consolidate_dispatch` call", "never call `finalize_review_dispatch` yourself", "the canonical review-verdict v2 projection (`review_verdict`)", "classify the failure from the structured response alone", "non-authoritative human context"}},
 		{name: "iterative rerun semantics", all: []string{"re-resolve immutable input context", "recompute and validate the complete plan", "rerun all included plan runs, not only prior blockers", "three iterations are exceeded"}},
 	}
 
@@ -44,6 +45,9 @@ func TestCommandContracts_ReviewCouncil(t *testing.T) {
 func TestCommandContracts_TriageIssue(t *testing.T) {
 	clauses := []commandClause{
 		{name: "deterministic issue input", all: []string{"preserve the issue `title` exactly", "preserve `body` as either its exact string or `null`", "preserve all comment bodies exactly", "exact `{title, body, comments}` object"}},
+		{name: "portable comment ingestion", all: []string{"--jq '.[] | {id, created_at, body}'", "positive numeric `id`"}},
+		{name: "deterministic duplicate-search fallback", all: []string{"run no third search and improvise no other keyword sets; two searches total is the fixed bound", `record "none found"`}},
+		{name: "detached-head fail-closed", all: []string{"`git branch --show-current` returns empty output (detached head", "**stop** with an explicit error naming the resolution", "never proceed with a fabricated, defaulted, or omitted branch"}},
 		{name: "planner owns normalization", all: []string{"planner owns nfc and newline normalization", "comment ordering", "versioned length-prefixed framing", "content hashing", "deterministic keyword categories", "exact `text_bytes`", "content tier"}},
 		{name: "no synthetic diff", all: []string{"never synthesize a code diff from issue content", "never request, synthesize, or infer a code diff", "no `changed_files` field"}},
 		{name: "fixed base vector", all: []string{"coverage regression", "text_bytes: 19", "60a7be4394be0186439a588e93c57dc9095c1b96f42f27464dbfeb2ce5cfdbf5"}},
@@ -55,7 +59,7 @@ func TestCommandContracts_TriageIssue(t *testing.T) {
 		{name: "failed runs are non-voting", all: []string{"failed and non-success terminal runs do not vote", "failure is not dissent", "must not create assessments, findings, or advisories"}},
 		{name: "no-success handling", all: []string{"at least one successful persona assessment is required", "return **unavailable** only when every blocking cause is provider, model, or runtime availability", "return **inconclusive** for any policy, plan, budget, limit, persistence, calculation, or mixed cause", "skip label, comment, and child-issue mutations"}},
 		{name: "issue triage artifact", all: []string{"canonical issue-triage version 1 artifact", ".uf/artifacts/issue-triage/issue-<issue_number>.json", "exactly one consolidated assessment per successful persona"}},
-		{name: "dispatch artifact", all: []string{"call `finalize_review_dispatch` for every invocation", "command: \"triage-issue\"", "review-dispatch artifact path", "canonical review-verdict v2 projection"}},
+		{name: "dispatch artifact", all: []string{"call `consolidate_dispatch` exactly once per finalization attempt", "\"workflow_id\": \"uf.triage-issue\"", "review-dispatch artifact path", "canonical review-verdict v2 projection"}},
 	}
 
 	assertCommandCopies(t, "uf.triage-issue.md", true, clauses)
@@ -71,7 +75,7 @@ func TestCommandContracts_AddressFeedback(t *testing.T) {
 		{name: "strictest recommendation", all: []string{"any successful run says `accept`, that persona says `accept`", "any `accept` yields native `accept`", "`accept` is stricter than `author-decides`"}},
 		{name: "failures non-voting", all: []string{"failures are terminal, informational, and non-voting", "create no findings, advisories, or stronger recommendation"}},
 		{name: "planned no-success", all: []string{"availability-only causes produce native, generic, and canonical `unavailable`", "policy, plan, budget, limit, persistence, calculation, or mixed cause", "native, generic, and canonical `inconclusive`", "retain the item for explicit human handling", "must not be converted to `author-decides`"}},
-		{name: "tier two finalization", all: []string{"call `finalize_review_dispatch` once for every tier 2 item", "command `address-feedback`", "persists the additive `review-dispatch` artifact", "canonical `review-verdict` version 2"}},
+		{name: "tier two finalization", all: []string{"finalize every tier 2 item, including plan or no-success failures, with a single `consolidate_dispatch` call", "\"workflow_id\": \"uf.address-feedback\"", "never call `finalize_review_dispatch` yourself", "the canonical review-verdict v2 projection (`review_verdict`)"}},
 		{name: "feedback triage artifact", all: []string{".uf/artifacts/feedback-triage/pr-<pr_number>-round-<m>.json", "existing feedback-triage artifact", "emitted in addition to each tier 2 `review-dispatch` artifact"}},
 	}
 
@@ -280,6 +284,74 @@ func TestCommandContracts_RejectStaleDivisorDispatchLanguage(t *testing.T) {
 	normalized := normalizeCommandText(reviewCouncil.text)
 	if !strings.Contains(normalized, "`gaze-reporter` agent via the task tool") {
 		t.Error("review-council canonical command must retain legitimate Gaze Task-tool delegation")
+	}
+}
+
+func TestCommandContracts_RejectStaleManualFinalizationLanguage(t *testing.T) {
+	// The three rewritten commands must not reintroduce the pre-change
+	// manual closed-payload assembly instructions alongside the one-call
+	// consolidate_dispatch path. Presence-only clauses cannot detect the
+	// contradiction, so the removed instruction phrases are asserted
+	// absent. speckit.testreview.md legitimately retains direct
+	// finalize_review_dispatch usage and is excluded.
+	stalePhrases := []string{
+		"Call `finalize_review_dispatch` for every iteration",
+		"Call `finalize_review_dispatch` for every invocation",
+		"Call `finalize_review_dispatch` once for every Tier 2 item",
+		"version 1 payload and provenance",
+	}
+
+	commands := []struct {
+		name       string
+		scaffolded bool
+	}{
+		{name: "uf.review-council.md", scaffolded: true},
+		{name: "uf.triage-issue.md", scaffolded: true},
+		{name: "uf.address-feedback.md", scaffolded: true},
+	}
+
+	for _, command := range commands {
+		command := command
+		t.Run(command.name, func(t *testing.T) {
+			for _, copy := range loadCommandCopies(t, command.name, command.scaffolded) {
+				copy := copy
+				normalized := normalizeCommandText(copy.text)
+				for _, phrase := range stalePhrases {
+					if strings.Contains(normalized, normalizeCommandText(phrase)) {
+						t.Errorf("%s: stale manual finalization language found: %q", copy.name, phrase)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCommandContracts_RejectIncompatibleGhSlurpFlag(t *testing.T) {
+	// FR-006: `gh api --slurp` is not supported by the installed gh CLI
+	// (production incident ses_eca4843f9ffeKwVLQhSFCRh2Rl). The rewritten
+	// commands must use the portable `--jq` projection form instead, and
+	// a command edit or scaffold refresh must not silently reintroduce
+	// the broken flag with no failing check.
+	commands := []struct {
+		name       string
+		scaffolded bool
+	}{
+		{name: "uf.review-council.md", scaffolded: true},
+		{name: "uf.triage-issue.md", scaffolded: true},
+		{name: "uf.address-feedback.md", scaffolded: true},
+	}
+
+	for _, command := range commands {
+		command := command
+		t.Run(command.name, func(t *testing.T) {
+			for _, copy := range loadCommandCopies(t, command.name, command.scaffolded) {
+				copy := copy
+				normalized := normalizeCommandText(copy.text)
+				if strings.Contains(normalized, "--slurp") {
+					t.Errorf("%s: incompatible gh flag %q found; the portable --jq projection form is required", copy.name, "--slurp")
+				}
+			}
+		})
 	}
 }
 

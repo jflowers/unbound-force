@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, afterEach } from "vitest"
 
-import { ReviewDispatchPlugin, createConsolidateDispatchTool, createFinalizationDependencies, _getSessionCorrelationMap } from "../plugins/review-dispatch/index.js"
+import { ReviewDispatchPlugin, createConsolidateDispatchTool, createFinalizationDependencies, _getSessionCorrelationMap, finalizeReviewDispatch } from "../plugins/review-dispatch/index.js"
 import { withBun, scratchProject } from "./helpers.js"
 
 /** Build a valid PersistedRunData fixture for writing to disk. */
@@ -122,6 +122,53 @@ function defaultSessionMetadata(overrides?: Record<string, unknown>) {
     plan: validPlan(),
     coverage: validCoverage(),
     ...overrides,
+  }
+}
+
+/**
+ * Plan entry matching a runFixture run (identity = agent + source +
+ * sequence) so the finalizer's plan-identity and model checks pass.
+ */
+function explicitRunPlan(agent: string) {
+  return [
+    {
+      agent,
+      decision: "include" as const,
+      reason_code: "explicit",
+      reason: "Explicitly included",
+      source: "explicit" as const,
+      sequence: 1,
+      read_only: true,
+      tier: "standard",
+      model: "provider/standard",
+      variant: null,
+      validation_errors: [],
+    },
+  ]
+}
+
+/** Issue-shaped session metadata overrides for triage-issue dispatch sessions. */
+function triageIssueMetadata() {
+  return {
+    command: "triage-issue" as const,
+    mode: "triage" as const,
+    input_context: {
+      kind: "issue" as const,
+      issue_number: 42,
+      issue_url: "https://github.com/unbound-force/unbound-force/issues/42",
+      content_sha256: "a".repeat(64),
+    },
+    change_profile: {
+      kind: "issue" as const,
+      text_bytes: 500,
+      comment_count: 3,
+      content_sha256: "a".repeat(64),
+      matched_rules: [] as string[],
+      security_sensitive: false,
+      user_facing: true,
+      categories: ["standard" as const],
+      tier: "standard" as const,
+    },
   }
 }
 
@@ -388,7 +435,7 @@ describe("consolidate_dispatch", () => {
     expect(payload.workflow_result.value).toBe("ACCEPT")
   })
 
-  it("maps address-feedback REQUEST CHANGES to REQUEST CHANGES", async () => {
+  it("maps address-feedback REQUEST CHANGES to AUTHOR-DECIDES", async () => {
     const correlationId = await setupDispatchSession(
       [
         runFixture({
@@ -406,8 +453,14 @@ describe("consolidate_dispatch", () => {
 
     const payload = JSON.parse(result.output)
     expect(payload.workflow_result.kind).toBe("feedback")
-    // REQUEST CHANGES falls to default in feedback → returns verdict as-is.
-    expect(payload.workflow_result.value).toBe("REQUEST CHANGES")
+    // REQUEST CHANGES escalates to the author under the feedback
+    // projection: allowed feedback run verdicts are only
+    // ACCEPT/AUTHOR-DECIDES (FR-001 totality).
+    expect(payload.workflow_result.value).toBe("AUTHOR-DECIDES")
+    expect(payload.runs[0].workflow_verdict).toBe("AUTHOR-DECIDES")
+    // The top-level verdict is the lossless back-projection of the
+    // native value (RD-FR-008), not the raw severity-derived verdict.
+    expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
   })
 
   it("returns error when no dispatch session directory exists", async () => {
@@ -514,6 +567,199 @@ describe("consolidate_dispatch", () => {
     expect(finalizationResult.proposals[0].information).toBe("Test lesson from provenance path")
   })
 
+  it("internally finalizes a triage-issue dispatch with native NEEDS-CLARIFICATION run verdicts", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-triage-finalize-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // One successful run with LOW findings: runVerdict is APPROVE WITH
+    // ADVISORIES, which the triage projection maps to NEEDS-CLARIFICATION.
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "LOW", category: "clarity", description: "Summary is ambiguous", root_cause: "No reproduction steps", file: null, line: null },
+          ],
+        }),
+      ],
+      { ...triageIssueMetadata(), plan: explicitRunPlan("divisor-guard") },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/dispatch-finalize-determinism",
+          commit: "c".repeat(40),
+          workflow_id: "uf.triage-issue",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // FR-001: native run verdicts satisfy allowedRunVerdicts(), so the
+    // finalizer no longer rejects the payload with "verdict outside triage".
+    // The rejection text itself is pinned on the failure path by
+    // finalize-error-boundaries.test.ts.
+    expect(finalizationResult.errors).toHaveLength(0)
+    // Top-level verdict stays generic; runs and workflow_result are triage-native.
+    expect(finalizationResult.operation_verdict).toBe("APPROVE WITH ADVISORIES")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.runs).toHaveLength(1)
+    expect(persistedPayload.runs[0].workflow_verdict).toBe("NEEDS-CLARIFICATION")
+    expect(persistedPayload.workflow_result).toEqual({ kind: "triage", value: "NEEDS-CLARIFICATION" })
+    // The native verdict flows through the persona projection unchanged.
+    expect(finalizationResult.review_verdict.persona_verdicts[0].summary).toBe("Native verdict: NEEDS-CLARIFICATION")
+  })
+
+  it("internally finalizes a triage-issue dispatch with HIGH findings as INVALID", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-triage-blocking-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // HIGH findings make runVerdict REQUEST CHANGES; the triage projection
+    // maps it to INVALID, whose back-projection is the generic REQUEST
+    // CHANGES verdict. This is the load-bearing branch of FR-001 totality
+    // for triage: without the mapping, run verdicts are rejected with
+    // "verdict outside triage" (the production incident class).
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "HIGH", category: "security", description: "Blocker", root_cause: "Missing auth", file: null, line: null },
+          ],
+        }),
+      ],
+      { ...triageIssueMetadata(), plan: explicitRunPlan("divisor-guard") },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/dispatch-finalize-determinism",
+          commit: "c".repeat(40),
+          workflow_id: "uf.triage-issue",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.errors).toHaveLength(0)
+    // INVALID back-projects to the generic REQUEST CHANGES verdict.
+    expect(finalizationResult.operation_verdict).toBe("REQUEST CHANGES")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.runs).toHaveLength(1)
+    expect(persistedPayload.runs[0].workflow_verdict).toBe("INVALID")
+    expect(persistedPayload.workflow_result).toEqual({ kind: "triage", value: "INVALID" })
+    expect(persistedPayload.verdict).toBe("REQUEST CHANGES")
+    expect(persistedPayload.findings).toHaveLength(1)
+    expect(persistedPayload.findings[0].severity).toBe("HIGH")
+  })
+
+  it("internally finalizes an address-feedback dispatch with native AUTHOR-DECIDES run verdicts", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-feedback-finalize-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // Same LOW-findings shape: APPROVE WITH ADVISORIES maps to
+    // AUTHOR-DECIDES under the feedback projection.
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "LOW", category: "style", description: "Suggestion only", root_cause: "Reviewer preference", file: "a.ts", line: 1 },
+          ],
+        }),
+      ],
+      { command: "address-feedback" as const, mode: "feedback" as const, plan: explicitRunPlan("divisor-guard") },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/dispatch-finalize-determinism",
+          // Provenance commit MUST match input_context.head_sha for non-issue kinds.
+          commit: "b".repeat(40),
+          workflow_id: "uf.address-feedback",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.errors).toHaveLength(0)
+    expect(finalizationResult.operation_verdict).toBe("APPROVE WITH ADVISORIES")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.runs).toHaveLength(1)
+    expect(persistedPayload.runs[0].workflow_verdict).toBe("AUTHOR-DECIDES")
+    expect(persistedPayload.workflow_result).toEqual({ kind: "feedback", value: "AUTHOR-DECIDES" })
+  })
+
+  it("internally finalizes an address-feedback dispatch with HIGH findings as AUTHOR-DECIDES", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-feedback-blocking-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // HIGH findings make runVerdict REQUEST CHANGES; the feedback
+    // projection must escalate to AUTHOR-DECIDES so run verdicts,
+    // workflow_result, and allowedRunVerdicts() agree and internal
+    // finalization succeeds for the blocking class (FR-001 totality).
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "HIGH", category: "security", description: "Blocker", root_cause: "Missing auth", file: "a.ts", line: 1 },
+          ],
+        }),
+      ],
+      { command: "address-feedback" as const, mode: "feedback" as const, plan: explicitRunPlan("divisor-guard") },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/dispatch-finalize-determinism",
+          // Provenance commit MUST match input_context.head_sha for non-issue kinds.
+          commit: "b".repeat(40),
+          workflow_id: "uf.address-feedback",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.errors).toHaveLength(0)
+    // The top-level generic verdict is the lossless back-projection of the
+    // native AUTHOR-DECIDES value (RD-FR-008); the HIGH finding remains
+    // recorded in the payload findings for the human gate.
+    expect(finalizationResult.operation_verdict).toBe("APPROVE WITH ADVISORIES")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.runs).toHaveLength(1)
+    expect(persistedPayload.runs[0].workflow_verdict).toBe("AUTHOR-DECIDES")
+    expect(persistedPayload.workflow_result).toEqual({ kind: "feedback", value: "AUTHOR-DECIDES" })
+    expect(persistedPayload.verdict).toBe("APPROVE WITH ADVISORIES")
+    expect(persistedPayload.findings).toHaveLength(1)
+    expect(persistedPayload.findings[0].severity).toBe("HIGH")
+  })
+
   it("returns finalization payload JSON when provenance is omitted", async () => {
     const correlationId = await setupDispatchSession([
       runFixture({ agent: "divisor-guard" }),
@@ -530,5 +776,58 @@ describe("consolidate_dispatch", () => {
     // Raw payload has no "status" or "artifact_path" fields.
     expect(payload).not.toHaveProperty("status")
     expect(payload).not.toHaveProperty("artifact_path")
+  })
+
+  it("returns a triage payload without provenance that finalizes unmodified", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-triage-payload-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // No proposals: the returned payload stays schema-exact so it can be
+    // submitted to finalize_review_dispatch without agent-side transformation.
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          findings: [
+            { severity: "LOW", category: "clarity", description: "Summary is ambiguous", root_cause: "No reproduction steps", file: null, line: null },
+          ],
+        }),
+      ],
+      { ...triageIssueMetadata(), plan: explicitRunPlan("divisor-guard") },
+    )
+
+    // No provenance: the tool returns the raw finalization payload.
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const returnedPayload = JSON.parse(result.output)
+    // Raw payload shape: no finalization-result fields, native run verdicts.
+    expect(returnedPayload.correlation_id).toBe(correlationId)
+    expect(returnedPayload).not.toHaveProperty("status")
+    expect(returnedPayload).not.toHaveProperty("artifact_path")
+    expect(returnedPayload.runs).toHaveLength(1)
+    expect(returnedPayload.runs[0].workflow_verdict).toBe("NEEDS-CLARIFICATION")
+    expect(returnedPayload.workflow_result).toEqual({ kind: "triage", value: "NEEDS-CLARIFICATION" })
+
+    // Submit the returned payload unmodified: structural (strict schema)
+    // and semantic validation must both pass with native run verdicts.
+    const finalizationResult = await finalizeReviewDispatch(
+      {
+        payload: returnedPayload,
+        provenance: {
+          branch: "opsx/dispatch-finalize-determinism",
+          commit: "c".repeat(40),
+          workflow_id: "uf.triage-issue",
+        },
+      },
+      createFinalizationDependencies(projectRoot),
+    )
+
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.errors).toHaveLength(0)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // The persisted runs are exactly the returned runs — no transformation.
+    expect(finalizationResult.review_dispatch?.payload.runs).toEqual(returnedPayload.runs)
   })
 })

@@ -42,6 +42,25 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- dispatch-finalize-determinism: Review dispatch finalization is
+  now deterministic and single-call. `consolidate_dispatch`
+  internally finalizes when given provenance `{branch, commit,
+  workflow_id}` and returns the authoritative review-verdict v2
+  projection; run-level `workflow_verdict` values are projected
+  kind-native (triage: VALID/INVALID/NEEDS-CLARIFICATION;
+  feedback: ACCEPT/AUTHOR-DECIDES) instead of generic council
+  verdicts. `/uf.triage-issue` §4.6, `/uf.review-council` §5,
+  and `/uf.address-feedback` §2.3.8 now make exactly one
+  `consolidate_dispatch` call per finalization attempt —
+  manual payload assembly and direct `finalize_review_dispatch`
+  calls are prohibited. Failures classify deterministically
+  (default-deny; only validation-stage rejections retry, at
+  most twice) and fail closed to INCONCLUSIVE. Also fixes the
+  `gh api --slurp` + `--jq` incompatibility in `/uf.triage-issue`
+  comment fetching and adds a deterministic duplicate-search
+  fallback. (Spec:
+  openspec/changes/dispatch-finalize-determinism/, Docs: #717,
+  Fixes: #712)
 - move-schemas-to-uf: Scaffold schema assets relocated from
   `schemas/` to `uf/schemas/`. The `schemas/` prefix no longer
   has a dedicated mapping in `mapAssetPath`; schemas/ paths now

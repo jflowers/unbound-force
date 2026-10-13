@@ -69,9 +69,9 @@ Fetch **all available comments**, following every API page, and retain only the
 fields needed by the planner and triage contract:
 
 ```bash
-gh api --paginate --slurp \
+gh api --paginate \
   "repos/{owner}/{repo}/issues/<ISSUE_NUMBER>/comments?per_page=100" \
-  --jq 'flatten | map({id, created_at, body})'
+  --jq '.[] | {id, created_at, body}'
 ```
 
 Validate that every comment has a positive numeric `id`, a creation timestamp,
@@ -126,7 +126,23 @@ Extract keywords from the issue title and first paragraph of the body for duplic
 gh issue list --search "<sanitized-keywords>" --state open --json number,title,url --limit 10
 ```
 
-4. **Filter results**: Exclude the current issue from the results. Record any remaining candidates as `duplicate_candidates` for agent evaluation.
+   If this primary search returns zero results (an empty result set,
+   not a command failure), retry the search exactly once with only the
+   top 2-3 most distinctive keywords from the issue title, sanitized
+   with the same rules as step 2:
+
+```bash
+gh issue list --search "<sanitized-title-keywords>" \
+  --state open --json number,title,url --limit 10
+```
+
+   Run no third search and improvise no other keyword sets; two searches
+   total is the fixed bound.
+
+4. **Filter results**: Exclude the current issue from the results.
+   Record any remaining candidates as `duplicate_candidates` for agent
+   evaluation, noting which search produced them (primary or fallback).
+   When both searches return no results, record "none found".
 
 ---
 
@@ -711,29 +727,68 @@ Fields may be `null` when not applicable (e.g., `duplicate_of` when the issue is
 
 **On partial failure**: The `actions_taken` section MUST reflect the actual state — which actions completed and which failed. Set `label_creation_failed` to `true` if label creation failed due to permissions. Set `comment_posted` to `false` if the user aborted or the API call failed.
 
-### 4.6 Finalize Review Dispatch and Canonical Projection
+### 4.6 Finalize Review Dispatch (Single Deterministic Call)
 
-Call `finalize_review_dispatch` for every invocation after a valid issue content
-profile exists, including plan failure, no-success, user abort, and partial
-GitHub mutation failure. Supply the closed payload exactly as accepted by the
-tool:
+Finalize every invocation after a valid issue content profile exists,
+including plan failure, no-success, user abort, and partial GitHub
+mutation failure. Never assemble, restate, or recompute the closed
+finalization payload: the dispatch session persisted during Section 2.3
+already holds the command, mode, input context, change profile, plan,
+coverage, and every run, and `consolidate_dispatch` reads it directly.
 
-- `command: "triage-issue"`, `mode: "triage"`, and `full: false`;
-- issue input context with the validated number, canonical credential-free
-  GitHub URL, and planner-returned content SHA256;
-- the exact planner issue change profile, plan version, and all plan entries;
-- every included plan run in one terminal state with UUID, timestamps, source,
-  sequence, requested model/variant, resolved parent model/variant, reported
-  child model, mismatch state, nullable usage, sanitized error, native run
-  verdict, and contract-valid findings;
-- coverage `NOT_RUN` with `0` total and `0` passed;
-- consolidated findings and advisories with all contributing successful run ids;
-- native triage result, its exact generic mapping, verdict reason, exact terminal
-  run counts, and one valid correlation UUID; and
-- provenance containing current branch, current 40-character lowercase commit,
-  and a stable workflow id for this issue invocation.
+If Section 2.3 never dispatched, no session exists; the call reports
+that, the failure is non-mechanical, and the fail-closed path below
+applies. Never fall back to manual payload assembly.
 
-The native/generic mappings are lossless:
+Resolve provenance before calling the tool:
+
+```bash
+git branch --show-current
+git rev-parse HEAD
+```
+
+`branch` is the current branch name; `commit` is the current
+40-character lowercase commit SHA. If `git branch --show-current`
+returns empty output (detached HEAD, common in CI checkouts such as
+GitHub Actions `actions/checkout` defaults), or if either command fails
+to resolve, **STOP** with an explicit error naming the resolution --
+check out a named branch, or supply the branch explicitly. Never proceed
+with a fabricated, defaulted, or omitted branch.
+
+Then call `consolidate_dispatch` exactly once per finalization attempt,
+with provenance as its only argument:
+
+```json
+{
+  "provenance": {
+    "branch": "<current branch>",
+    "commit": "<current 40-character commit SHA>",
+    "workflow_id": "uf.triage-issue"
+  }
+}
+```
+
+With provenance the tool runs the finalizer internally and returns the
+finalization result directly. Never call `finalize_review_dispatch`
+yourself, and never hand-build or transform a finalization payload.
+
+The tool's response is authoritative. On `status: "success"`, read the
+review-dispatch artifact path (`artifact_path`), the canonical
+review-verdict v2 projection (`review_verdict`), and whether calculated
+data is authoritative (`calculated_assessment.authoritative`) directly
+from the response. Do not recompute, re-derive, or re-map any of them,
+and do not alter the tool-computed verdict, `verdict_reason`, run
+counts, findings, or advisories.
+
+Action completion is not part of finalization. The finalizer's closed
+payload has no action field; do not add one, and do not summarize action
+completion in `verdict_reason`. Report actual label, comment, and split
+outcomes only in the legacy issue-triage artifact (Section 4.5) and the
+Section 4.7 terminal report.
+
+The native/generic mappings are lossless. This table is display and
+reference only -- the finalizer performs the projection; this command
+never maps verdicts itself:
 
 | Native triage result | Generic verdict | Canonical review-verdict v2 decision |
 |---|---|---|
@@ -743,16 +798,31 @@ The native/generic mappings are lossless:
 | `INCONCLUSIVE` | `INCONCLUSIVE` | `INCONCLUSIVE` |
 | `UNAVAILABLE` | `UNAVAILABLE` | `UNAVAILABLE` |
 
-The finalizer's closed payload has no action field. Do not add one. Preserve the
-actual label, comment, and split outcomes in the issue-triage artifact and
-terminal report, and summarize action completion in `verdict_reason` without
-changing the native result. Use the finalizer response as authoritative for the
-review-dispatch artifact path and canonical review-verdict v2 projection.
+**Bounded mechanical retry.** If the call fails, classify the failure
+from the structured response alone -- default-deny. The failure is
+mechanical only when the finalizer rejected the payload at its
+validation stage: the response reports a rejected payload with
+enumerated defects, no persisted artifact, and a null
+`calculated_assessment`. Everything else is non-mechanical:
+persistence failures (the response retains a non-authoritative
+`calculated_assessment` and reports that the artifact could not be
+persisted), content failures, tool or runtime errors (the call failing
+or returning no structured finalization result), and any failure whose
+class cannot be determined from the response. Never infer retry
+eligibility by pattern-matching natural-language error text.
 
-If finalizer validation or persistence fails, retain its calculated assessment
-only as non-authoritative human context, change the operation result to failing
-`INCONCLUSIVE`, block automation, request human review, and do not fabricate an
-artifact, finding, or canonical decision.
+For a mechanical failure, retry the identical `consolidate_dispatch`
+call -- same provenance, no changes -- at most twice. The initial
+attempt plus at most two retries is the fixed bound; when the second
+retry is rejected, no further retry is attempted. This command has no
+assembled payload to correct, and assessment data (verdicts, findings,
+run states) MUST NOT be altered to make validation pass.
+
+When retries are exhausted or the failure is non-mechanical, fail
+closed: retain the tool's calculated assessment only as
+non-authoritative human context, change the operation result to failing
+`INCONCLUSIVE`, block automation, request human review, and do not
+fabricate an artifact, finding, or canonical decision.
 
 ### 4.7 Final Output
 

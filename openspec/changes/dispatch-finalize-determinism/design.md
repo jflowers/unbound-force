@@ -74,10 +74,19 @@ covers council mode, where the mismatch is invisible.
 2. **Commands finalize via `consolidate_dispatch` + provenance.**
    The three command sections (uf.triage-issue.md §4.6,
    uf.review-council.md §5, uf.address-feedback.md §2.3.8) are
-   rewritten to: run `git branch --show-current` and
-   `git rev-parse HEAD`, call `consolidate_dispatch` once with
-   `{branch, commit, workflow_id: "uf.<command>"}`, and treat the
-   returned finalization result as authoritative. In detached
+   rewritten to: call `consolidate_dispatch` once with
+   `{branch, commit, workflow_id: "uf.<command>"}` and treat the
+   returned finalization result as authoritative. uf.triage-issue
+   and uf.review-council resolve the branch and commit from the
+   local checkout via `git branch --show-current` and
+   `git rev-parse HEAD`. uf.address-feedback instead resolves
+   provenance only from its frozen PR input context (Section 1.2
+   `head_ref`/`head_sha`), never from the local checkout or a
+   mutable ref, because the finalizer validates the provenance
+   commit against the frozen `input_context.head_sha`; a missing
+   frozen field is that command's equivalent fail-closed STOP
+   (the FR-008 detached-HEAD rule governs the two
+   checkout-resolving commands). In detached
    HEAD state (common in CI), `git branch --show-current`
    returns empty output; the command MUST fail closed with an
    explicit error rather than fabricate or omit the branch,
