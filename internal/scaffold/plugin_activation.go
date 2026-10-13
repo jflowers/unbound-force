@@ -208,6 +208,7 @@ func stageReviewPluginSources(opts *Options, stageRoot string) error {
 		invokeAgentPluginAsset,
 		reviewDispatchPluginAsset,
 		ufWorkflowPluginAsset,
+		ufFinalePluginAsset,
 		"opencode/lib/review-dispatch-lesson-proposal.ts",
 		"opencode/lib/review-dispatch-sibling-evidence.ts",
 		"opencode/lib/reviewer-manifest.ts",
@@ -252,16 +253,22 @@ func runReviewPluginProbe(
 func reviewPluginProbeSource(stageRoot string, toolDefinitions bool) string {
 	invokePath := filepath.ToSlash(filepath.Join(stageRoot, "plugins", "invoke-agent", "index.ts"))
 	reviewPath := filepath.ToSlash(filepath.Join(stageRoot, "plugins", "review-dispatch", "index.ts"))
+	workflowPath := filepath.ToSlash(filepath.Join(stageRoot, "plugins", "uf-workflow", "index.ts"))
+	finalePath := filepath.ToSlash(filepath.Join(stageRoot, "plugins", "uf-finale", "index.ts"))
 	probe := fmt.Sprintf(`import invokeAgentPlugin from %q
 import reviewDispatchPlugin from %q
+import ufWorkflowPlugin from %q
+import ufFinalePlugin from %q
 
-	`, pluginFileURL(invokePath), pluginFileURL(reviewPath))
+	`, pluginFileURL(invokePath), pluginFileURL(reviewPath), pluginFileURL(workflowPath), pluginFileURL(finalePath))
 	if !toolDefinitions {
 		return probe + "export default async () => ({})\n"
 	}
 	return probe + `export default async (input) => {
   const invokeHooks = await invokeAgentPlugin(input)
   const reviewHooks = await reviewDispatchPlugin(input)
+  const workflowHooks = await ufWorkflowPlugin(input)
+  const finaleHooks = await ufFinalePlugin(input)
   if (typeof invokeHooks.tool?.invoke_agent !== "object") {
     throw new Error("invoke-agent did not define invoke_agent")
   }
@@ -269,6 +276,12 @@ import reviewDispatchPlugin from %q
     if (typeof reviewHooks.tool?.[name] !== "object") {
       throw new Error("review-dispatch did not define " + name)
     }
+  }
+  if (typeof workflowHooks.tool?.resolve_base_ref !== "object") {
+    throw new Error("uf-workflow did not define resolve_base_ref")
+  }
+  if (typeof finaleHooks.tool?.uf_finale_startup !== "object") {
+    throw new Error("uf-finale did not define uf_finale_startup")
   }
   return {}
 }`
@@ -295,6 +308,7 @@ func atomicallyActivateReviewPlugins(opts *Options, stageRoot string) ([]string,
 		{asset: invokeAgentPluginAsset, name: "invoke-agent"},
 		{asset: reviewDispatchPluginAsset, name: "review-dispatch"},
 		{asset: ufWorkflowPluginAsset, name: "uf-workflow"},
+		{asset: ufFinalePluginAsset, name: "uf-finale"},
 	}
 	activated := make([]string, 0, len(assetsToActivate))
 	for _, plugin := range assetsToActivate {

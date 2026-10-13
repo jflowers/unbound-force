@@ -1,19 +1,18 @@
-import { execSync } from "node:child_process"
 import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { tool, type PluginModule } from "@opencode-ai/plugin"
-import { failure, success } from "../../lib/uf-workflow-types.js"
+import {
+  defaultGitExec,
+  failure,
+  normalizeModelName,
+  sanitizeSlug,
+  success,
+  type GitExec,
+} from "../../lib/uf-workflow-types.js"
 
-// Re-export envelope helpers for consumer convenience.
-export { failure, success } from "../../lib/uf-workflow-types.js"
-export type { ToolFailure, ToolResult, ToolSuccess } from "../../lib/uf-workflow-types.js"
-
-// ---------------------------------------------------------------------------
-// Shared types
-// ---------------------------------------------------------------------------
-
-/** Git execution function signature for testability. */
-export type GitExec = (cmd: string, cwd: string) => string
+// Re-export envelope helpers and shared utilities for consumer convenience.
+export { defaultGitExec, failure, normalizeModelName, sanitizeSlug, success } from "../../lib/uf-workflow-types.js"
+export type { GitExec, ToolFailure, ToolResult, ToolSuccess } from "../../lib/uf-workflow-types.js"
 
 // ---------------------------------------------------------------------------
 // resolve_base_ref tool
@@ -36,10 +35,6 @@ const BASE_REF_CANDIDATES: readonly BaseRefSource[] = [
   "main",
 ] as const
 
-/** Default git executor using execSync. */
-const defaultGitExec: GitExec = (cmd: string, cwd: string): string =>
-  execSync(cmd, { cwd, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim()
-
 /**
  * Factory that creates the resolve_base_ref tool with injectable
  * git executor and working directory for testability.
@@ -53,7 +48,7 @@ export function createResolveBaseRefTool(exec: GitExec, cwd: string) {
     execute: async () => {
       for (const candidate of BASE_REF_CANDIDATES) {
         try {
-          const sha = exec(`git rev-parse --verify ${candidate}`, cwd)
+          const sha = exec(["rev-parse", "--verify", candidate], cwd)
           if (sha) {
             const data: ResolveBaseRefData = {
               ref: candidate,
@@ -101,30 +96,6 @@ export interface ProgressState {
 /** Progress state directory relative to project root. */
 const PROGRESS_DIR = ".uf/progress"
 
-/** Maximum slug length after sanitization (FR-004). */
-const MAX_SLUG_LENGTH = 100
-
-/**
- * Sanitize a string to a filesystem-safe slug (FR-004).
- * Replaces `/` with `-`, strips characters outside [a-zA-Z0-9._-],
- * and truncates to 100 characters. Applied to branch names,
- * explicit keys, and command names.
- */
-export function sanitizeSlug(input: string): string {
-  const result = input
-    .replace(/\//g, "-")
-    .replace(/[^a-zA-Z0-9._-]/g, "")
-    .replace(/\.{2,}/g, ".")
-    .slice(0, MAX_SLUG_LENGTH)
-  if (result === "") {
-    const safe = input.slice(0, 100).replace(/[\x00-\x1f]/g, "?")
-    throw new Error(
-      `Invalid input: "${safe}" produces empty slug after sanitization`,
-    )
-  }
-  return result
-}
-
 /**
  * Resolve the state key from an explicit key or auto-detected git
  * branch (FR-004). Detached HEAD without explicit key returns an error.
@@ -137,7 +108,7 @@ export function resolveKey(
   if (explicitKey !== undefined && explicitKey !== "") {
     return sanitizeSlug(explicitKey)
   }
-  const branch = exec("git rev-parse --abbrev-ref HEAD", cwd)
+  const branch = exec(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
   if (branch === "HEAD") {
     throw new Error(
       "Detached HEAD state — provide an explicit `key` parameter",
@@ -418,6 +389,412 @@ export function createClearProgressTool(exec: GitExec, cwd: string) {
 }
 
 // ---------------------------------------------------------------------------
+// normalize_model_name tool
+// ---------------------------------------------------------------------------
+
+/**
+ * Factory that creates the normalize_model_name tool.
+ * Pure computation — no git or filesystem access needed.
+ *
+ * Algorithm (6 steps):
+ * 1. Strip everything before and including the last `/`
+ * 2. Strip everything after and including the first `@`
+ * 3. Strip trailing date suffix matching `-YYYYMMDD` (regex: `-\d{8}$`)
+ * 4. Repeatedly strip trailing version segments matching `-N` (single digit)
+ * 5. Validate the result contains only `[a-zA-Z0-9._-]`
+ * 6. Return `unknown-model` if the result is empty or invalid
+ */
+export function createNormalizeModelNameTool() {
+  return tool({
+    description:
+      "Normalize a raw model identifier to a canonical short name. " +
+      "Strips provider prefixes, @-suffixes, date suffixes, and trailing " +
+      "version digits. Returns {normalized} on success.",
+    parameters: {
+      rawModelId: {
+        type: "string",
+        description:
+          "Raw model identifier to normalize " +
+          "(e.g. google-vertex-anthropic/claude-sonnet-4-20250514@default)",
+      },
+    },
+    execute: async (args: { rawModelId: string }) => {
+      const raw = args.rawModelId ?? ""
+      const normalized = normalizeModelName(raw)
+
+      if (normalized === "unknown-model" && raw.trim() !== "") {
+        return {
+          output: JSON.stringify(
+            success({
+              normalized,
+              warning: `Could not normalize model identifier: ${raw}`,
+            }),
+          ),
+        }
+      }
+
+      if (normalized === "unknown-model") {
+        return {
+          output: JSON.stringify(
+            success({
+              normalized,
+              warning: "Empty rawModelId provided",
+            }),
+          ),
+        }
+      }
+
+      return { output: JSON.stringify(success({ normalized })) }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Git operation tools
+// ---------------------------------------------------------------------------
+
+/** Factory for the git_fetch tool. */
+export function createGitFetchTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Fetch refs from a remote repository. " +
+      "Accepts a remote name and optional branch to fetch.",
+    parameters: {
+      remote: {
+        type: "string",
+        description: "Remote name to fetch from (e.g. origin, upstream)",
+      },
+      branch: {
+        type: "string",
+        description: "Optional branch name to fetch",
+      },
+    },
+    execute: async (args: { remote: string; branch?: string }) => {
+      try {
+        const gitArgs = args.branch
+          ? ["fetch", args.remote, args.branch]
+          : ["fetch", args.remote]
+        const output = exec(gitArgs, cwd)
+        console.log(output)
+        return { output: JSON.stringify(success({ success: true })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, { retryable: true, code: "GIT_FETCH_ERROR" }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_push tool. */
+export function createGitPushTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Push commits to the remote repository. " +
+      "Optionally set upstream tracking for a branch.",
+    parameters: {
+      setUpstream: {
+        type: "boolean",
+        description: "Set upstream tracking (--set-upstream origin <branch>)",
+      },
+      branch: {
+        type: "string",
+        description: "Branch name (required when setUpstream is true)",
+      },
+    },
+    execute: async (args: { setUpstream?: boolean; branch?: string }) => {
+      try {
+        const gitArgs =
+          args.setUpstream && args.branch
+            ? ["push", "--set-upstream", "origin", args.branch]
+            : ["push"]
+        const output = exec(gitArgs, cwd)
+        console.log(output)
+        return { output: JSON.stringify(success({ success: true })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, { retryable: true, code: "GIT_PUSH_ERROR" }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_push_force_with_lease tool. */
+export function createGitPushForceWithLeaseTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Force-push with lease safety. Pushes to the remote using " +
+      "--force-with-lease to prevent overwriting others' work.",
+    execute: async () => {
+      try {
+        const output = exec(["push", "--force-with-lease"], cwd)
+        console.log(output)
+        return { output: JSON.stringify(success({ success: true })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, {
+              retryable: false,
+              code: "GIT_PUSH_FORCE_ERROR",
+            }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_merge tool. */
+export function createGitMergeTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Merge a ref into the current branch. Returns conflict information " +
+      "if the merge produces conflicts instead of failing.",
+    parameters: {
+      ref: {
+        type: "string",
+        description: "Git ref to merge (branch name, tag, or commit SHA)",
+      },
+    },
+    execute: async (args: { ref: string }) => {
+      try {
+        const output = exec(["merge", args.ref], cwd)
+        console.log(output)
+        return {
+          output: JSON.stringify(
+            success({ success: true, conflicted: false }),
+          ),
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        // Detect merge conflicts by checking error message.
+        if (/conflict/i.test(msg)) {
+          try {
+            const filesOutput = exec(
+              ["diff", "--name-only", "--diff-filter=U"],
+              cwd,
+            )
+            const conflictingFiles = filesOutput
+              .split("\n")
+              .filter((f) => f.length > 0)
+            return {
+              output: JSON.stringify(
+                success({
+                  success: false,
+                  conflicted: true,
+                  conflictingFiles,
+                }),
+              ),
+            }
+          } catch {
+            // Could not list conflict files — return empty array.
+            return {
+              output: JSON.stringify(
+                success({
+                  success: false,
+                  conflicted: true,
+                  conflictingFiles: [],
+                }),
+              ),
+            }
+          }
+        }
+        return {
+          output: JSON.stringify(
+            failure(msg, { retryable: false, code: "GIT_MERGE_ERROR" }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_merge_abort tool. */
+export function createGitMergeAbortTool(exec: GitExec, cwd: string) {
+  return tool({
+    description: "Abort an in-progress merge and restore the pre-merge state.",
+    execute: async () => {
+      try {
+        const output = exec(["merge", "--abort"], cwd)
+        console.log(output)
+        return { output: JSON.stringify(success({ success: true })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, {
+              retryable: false,
+              code: "GIT_MERGE_ABORT_ERROR",
+            }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_rebase tool. */
+export function createGitRebaseTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Rebase the current branch onto a ref. Returns conflict information " +
+      "if the rebase produces conflicts instead of failing.",
+    parameters: {
+      ref: {
+        type: "string",
+        description:
+          "Git ref to rebase onto (branch name, tag, or commit SHA)",
+      },
+    },
+    execute: async (args: { ref: string }) => {
+      try {
+        const output = exec(["rebase", args.ref], cwd)
+        console.log(output)
+        return {
+          output: JSON.stringify(
+            success({ success: true, conflicted: false }),
+          ),
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        // Detect rebase conflicts by checking error message.
+        if (/conflict/i.test(msg)) {
+          try {
+            const filesOutput = exec(
+              ["diff", "--name-only", "--diff-filter=U"],
+              cwd,
+            )
+            const conflictingFiles = filesOutput
+              .split("\n")
+              .filter((f) => f.length > 0)
+            return {
+              output: JSON.stringify(
+                success({
+                  success: false,
+                  conflicted: true,
+                  conflictingFiles,
+                }),
+              ),
+            }
+          } catch {
+            // Could not list conflict files — return empty array.
+            return {
+              output: JSON.stringify(
+                success({
+                  success: false,
+                  conflicted: true,
+                  conflictingFiles: [],
+                }),
+              ),
+            }
+          }
+        }
+        return {
+          output: JSON.stringify(
+            failure(msg, { retryable: false, code: "GIT_REBASE_ERROR" }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_rebase_abort tool. */
+export function createGitRebaseAbortTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Abort an in-progress rebase and restore the pre-rebase state.",
+    execute: async () => {
+      try {
+        const output = exec(["rebase", "--abort"], cwd)
+        console.log(output)
+        return { output: JSON.stringify(success({ success: true })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, {
+              retryable: false,
+              code: "GIT_REBASE_ABORT_ERROR",
+            }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_conflict_files tool. */
+export function createGitConflictFilesTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "List files with unresolved merge conflicts in the working tree.",
+    execute: async () => {
+      try {
+        const output = exec(["diff", "--name-only", "--diff-filter=U"], cwd)
+        const files = output.split("\n").filter((f) => f.length > 0)
+        console.log(output)
+        return { output: JSON.stringify(success({ files })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, {
+              retryable: false,
+              code: "GIT_CONFLICT_FILES_ERROR",
+            }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+/** Factory for the git_commit_no_edit tool. */
+export function createGitCommitNoEditTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Commit staged changes using the default merge/rebase commit message " +
+      "(--no-edit). Returns the short SHA of the new commit.",
+    execute: async () => {
+      try {
+        const commitOutput = exec(["commit", "--no-edit"], cwd)
+        console.log(commitOutput)
+        const sha = exec(["rev-parse", "--short", "HEAD"], cwd)
+        return { output: JSON.stringify(success({ success: true, sha })) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.log(msg)
+        return {
+          output: JSON.stringify(
+            failure(msg, {
+              retryable: false,
+              code: "GIT_COMMIT_NO_EDIT_ERROR",
+            }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Plugin entry point
 // ---------------------------------------------------------------------------
 
@@ -432,6 +809,16 @@ const UfWorkflowPlugin = {
         checkpoint: createCheckpointTool(defaultGitExec, cwd),
         get_progress: createGetProgressTool(defaultGitExec, cwd),
         clear_progress: createClearProgressTool(defaultGitExec, cwd),
+        normalize_model_name: createNormalizeModelNameTool(),
+        git_fetch: createGitFetchTool(defaultGitExec, cwd),
+        git_push: createGitPushTool(defaultGitExec, cwd),
+        git_push_force_with_lease: createGitPushForceWithLeaseTool(defaultGitExec, cwd),
+        git_merge: createGitMergeTool(defaultGitExec, cwd),
+        git_merge_abort: createGitMergeAbortTool(defaultGitExec, cwd),
+        git_rebase: createGitRebaseTool(defaultGitExec, cwd),
+        git_rebase_abort: createGitRebaseAbortTool(defaultGitExec, cwd),
+        git_conflict_files: createGitConflictFilesTool(defaultGitExec, cwd),
+        git_commit_no_edit: createGitCommitNoEditTool(defaultGitExec, cwd),
       },
     }
   },

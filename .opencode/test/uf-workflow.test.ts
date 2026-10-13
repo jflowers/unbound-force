@@ -23,7 +23,17 @@ import UfWorkflowPlugin from "../plugins/uf-workflow/index.js"
 import {
   createCheckpointTool,
   createClearProgressTool,
+  createGitCommitNoEditTool,
+  createGitConflictFilesTool,
+  createGitFetchTool,
+  createGitMergeAbortTool,
+  createGitMergeTool,
+  createGitPushForceWithLeaseTool,
+  createGitPushTool,
+  createGitRebaseAbortTool,
+  createGitRebaseTool,
   createGetProgressTool,
+  createNormalizeModelNameTool,
   createResolveBaseRefTool,
   type GitExec,
   type ProgressState,
@@ -119,6 +129,16 @@ describe("UfWorkflowPlugin", () => {
       "checkpoint",
       "clear_progress",
       "get_progress",
+      "git_commit_no_edit",
+      "git_conflict_files",
+      "git_fetch",
+      "git_merge",
+      "git_merge_abort",
+      "git_push",
+      "git_push_force_with_lease",
+      "git_rebase",
+      "git_rebase_abort",
+      "normalize_model_name",
       "resolve_base_ref",
     ])
   })
@@ -140,7 +160,8 @@ async function invokeResolveBaseRef(exec: GitExec): Promise<ToolResult<ResolveBa
 
 describe("resolve_base_ref", () => {
   it("returns upstream/main when it resolves", async () => {
-    const mockExec: GitExec = (cmd: string) => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
       if (cmd.includes("upstream/main")) return "abc123def456"
       throw new Error("not found")
     }
@@ -157,7 +178,8 @@ describe("resolve_base_ref", () => {
   })
 
   it("falls back to origin/main when upstream/main fails", async () => {
-    const mockExec: GitExec = (cmd: string) => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
       if (cmd.includes("upstream/main")) throw new Error("not found")
       if (cmd.includes("origin/main")) return "def789abc012"
       throw new Error("not found")
@@ -175,10 +197,11 @@ describe("resolve_base_ref", () => {
   })
 
   it("falls back to main when remote-tracking refs fail", async () => {
-    const mockExec: GitExec = (cmd: string) => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
       if (cmd.includes("upstream/main")) throw new Error("not found")
       if (cmd.includes("origin/main")) throw new Error("not found")
-      if (cmd.endsWith("main")) return "789012abc345"
+      if (cmd.includes("main")) return "789012abc345"
       throw new Error("not found")
     }
 
@@ -211,7 +234,8 @@ describe("resolve_base_ref", () => {
   })
 
   it("skips candidates that return empty string", async () => {
-    const mockExec: GitExec = (cmd: string) => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
       if (cmd.includes("upstream/main")) return ""
       if (cmd.includes("origin/main")) return "nonempty123"
       throw new Error("not found")
@@ -226,8 +250,9 @@ describe("resolve_base_ref", () => {
 
   it("passes cwd to the executor", async () => {
     const capturedCwds: string[] = []
-    const mockExec: GitExec = (cmd: string, cwd: string) => {
+    const mockExec: GitExec = (args: string[], cwd: string) => {
       capturedCwds.push(cwd)
+      const cmd = args.join(" ")
       if (cmd.includes("upstream/main")) return "sha123"
       throw new Error("not found")
     }
@@ -266,6 +291,10 @@ describe("sanitizeSlug()", () => {
   it("throws on empty result after sanitization", () => {
     expect(() => sanitizeSlug("@@@")).toThrow("empty slug")
   })
+
+  it("collapses dot runs", () => {
+    expect(sanitizeSlug("a..b...c")).toBe("a.b.c")
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -286,7 +315,8 @@ describe("resolveKey()", () => {
   })
 
   it("auto-detects branch from git when no explicit key", () => {
-    const exec: GitExec = (cmd: string) => {
+    const exec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
       if (cmd.includes("--abbrev-ref")) return "feature/my-branch"
       throw new Error("unexpected command")
     }
@@ -665,6 +695,514 @@ describe("symlink defense (FR-005)", () => {
     expect(result.status).toBe("error")
     if (result.status === "error") {
       expect(result.message).toContain("symlinked state file")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// normalize_model_name tool tests
+// ---------------------------------------------------------------------------
+
+describe("normalize_model_name", () => {
+  it("strips provider prefix and @-suffix and date suffix", async () => {
+    const result = await invokeTool<{ normalized: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "google-vertex-anthropic/claude-sonnet-4-20250514@default" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("claude-sonnet-4")
+    }
+  })
+
+  it("passes through already-normalized names", async () => {
+    const result = await invokeTool<{ normalized: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "claude-sonnet-4" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("claude-sonnet-4")
+    }
+  })
+
+  it("returns unknown-model with warning for empty input", async () => {
+    const result = await invokeTool<{ normalized: string; warning: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("unknown-model")
+      expect(result.data?.warning).toBeDefined()
+    }
+  })
+
+  it("strips trailing single-digit version segments repeatedly", async () => {
+    // `-1` is stripped because preceded by digit `4` (chained sub-version).
+    // `-4` is preserved because preceded by `e` (part of model name).
+    const result = await invokeTool<{ normalized: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "provider/model-name-4-1@v2" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("model-name-4")
+    }
+  })
+
+  it("strips chained sub-version digits like -4-6", async () => {
+    // claude-opus-4-6: `-6` stripped (preceded by `4`),
+    // `-4` preserved (preceded by `s`)
+    const result = await invokeTool<{ normalized: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "anthropic/claude-opus-4-6-20260101@default" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("claude-opus-4")
+    }
+  })
+
+  it("handles name with only @-suffix and no provider", async () => {
+    const result = await invokeTool<{ normalized: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "gpt-4o@latest" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("gpt-4o")
+    }
+  })
+
+  it("returns unknown-model for whitespace-only input", async () => {
+    const result = await invokeTool<{ normalized: string; warning: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "   " },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("unknown-model")
+    }
+  })
+
+  it("returns unknown-model for input that normalizes to invalid chars", async () => {
+    const result = await invokeTool<{ normalized: string; warning: string }>(
+      createNormalizeModelNameTool(),
+      { rawModelId: "provider/!!!@suffix" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.normalized).toBe("unknown-model")
+      expect(result.data?.warning).toContain("Could not normalize")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Git operation tool tests
+// ---------------------------------------------------------------------------
+
+describe("git_fetch", () => {
+  it("executes git fetch with remote and branch", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitFetchTool(mockExec, "/fake"),
+      { remote: "origin", branch: "main" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.success).toBe(true)
+    }
+    expect(commands[0]).toBe("fetch origin main")
+  })
+
+  it("executes git fetch with remote only when branch omitted", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitFetchTool(mockExec, "/fake"),
+      { remote: "upstream" },
+    )
+    expect(result.status).toBe("ok")
+    expect(commands[0]).toBe("fetch upstream")
+  })
+
+  it("returns failure on fetch error", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("fatal: could not read from remote")
+    }
+    const result = await invokeTool(
+      createGitFetchTool(mockExec, "/fake"),
+      { remote: "origin" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_FETCH_ERROR")
+      expect(result.retryable).toBe(true)
+    }
+  })
+})
+
+describe("git_push", () => {
+  it("executes plain git push when no options", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitPushTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    expect(commands[0]).toBe("push")
+  })
+
+  it("sets upstream when setUpstream and branch provided", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitPushTool(mockExec, "/fake"),
+      { setUpstream: true, branch: "feat/my-branch" },
+    )
+    expect(result.status).toBe("ok")
+    expect(commands[0]).toBe("push --set-upstream origin feat/my-branch")
+  })
+
+  it("returns failure on push error", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("rejected")
+    }
+    const result = await invokeTool(
+      createGitPushTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_PUSH_ERROR")
+    }
+  })
+})
+
+describe("git_push_force_with_lease", () => {
+  it("executes git push --force-with-lease", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitPushForceWithLeaseTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    expect(commands[0]).toBe("push --force-with-lease")
+  })
+
+  it("returns failure on force-push error", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("stale info")
+    }
+    const result = await invokeTool(
+      createGitPushForceWithLeaseTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_PUSH_FORCE_ERROR")
+    }
+  })
+})
+
+describe("git_merge", () => {
+  it("returns success with conflicted false on clean merge", async () => {
+    const mockExec: GitExec = () => "Already up to date."
+    const result = await invokeTool<{
+      success: boolean
+      conflicted: boolean
+    }>(createGitMergeTool(mockExec, "/fake"), { ref: "main" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.success).toBe(true)
+      expect(result.data?.conflicted).toBe(false)
+    }
+  })
+
+  it("detects conflicts and lists conflicting files", async () => {
+    let callCount = 0
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      callCount++
+      if (cmd.startsWith("merge")) {
+        throw new Error("CONFLICT (content): Merge conflict in file.txt")
+      }
+      if (cmd.includes("--diff-filter=U")) {
+        return "file.txt\nsrc/other.ts"
+      }
+      return ""
+    }
+    const result = await invokeTool<{
+      success: boolean
+      conflicted: boolean
+      conflictingFiles: string[]
+    }>(createGitMergeTool(mockExec, "/fake"), { ref: "feature" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.success).toBe(false)
+      expect(result.data?.conflicted).toBe(true)
+      expect(result.data?.conflictingFiles).toStrictEqual([
+        "file.txt",
+        "src/other.ts",
+      ])
+    }
+  })
+
+  it("returns empty conflictingFiles when diff command also fails", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.startsWith("merge")) {
+        throw new Error("CONFLICT in some file")
+      }
+      // Listing conflicts also fails
+      throw new Error("not a git repository")
+    }
+    const result = await invokeTool<{
+      success: boolean
+      conflicted: boolean
+      conflictingFiles: string[]
+    }>(createGitMergeTool(mockExec, "/fake"), { ref: "feature" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.conflicted).toBe(true)
+      expect(result.data?.conflictingFiles).toStrictEqual([])
+    }
+  })
+
+  it("returns failure for non-conflict errors", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("fatal: not a git repository")
+    }
+    const result = await invokeTool(
+      createGitMergeTool(mockExec, "/fake"),
+      { ref: "main" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_MERGE_ERROR")
+    }
+  })
+})
+
+describe("git_merge_abort", () => {
+  it("executes git merge --abort", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitMergeAbortTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    expect(commands[0]).toBe("merge --abort")
+  })
+
+  it("returns failure when no merge in progress", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("fatal: There is no merge to abort")
+    }
+    const result = await invokeTool(
+      createGitMergeAbortTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_MERGE_ABORT_ERROR")
+    }
+  })
+})
+
+describe("git_rebase", () => {
+  it("returns success with conflicted false on clean rebase", async () => {
+    const mockExec: GitExec = () => "Successfully rebased"
+    const result = await invokeTool<{
+      success: boolean
+      conflicted: boolean
+    }>(createGitRebaseTool(mockExec, "/fake"), { ref: "main" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.success).toBe(true)
+      expect(result.data?.conflicted).toBe(false)
+    }
+  })
+
+  it("detects conflicts and lists conflicting files", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.startsWith("rebase")) {
+        throw new Error("CONFLICT (content): Merge conflict in src/app.ts")
+      }
+      if (cmd.includes("--diff-filter=U")) {
+        return "src/app.ts"
+      }
+      return ""
+    }
+    const result = await invokeTool<{
+      success: boolean
+      conflicted: boolean
+      conflictingFiles: string[]
+    }>(createGitRebaseTool(mockExec, "/fake"), { ref: "main" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.success).toBe(false)
+      expect(result.data?.conflicted).toBe(true)
+      expect(result.data?.conflictingFiles).toStrictEqual(["src/app.ts"])
+    }
+  })
+
+  it("returns empty conflictingFiles when diff command also fails", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("conflict detected")
+    }
+    const result = await invokeTool<{
+      success: boolean
+      conflicted: boolean
+      conflictingFiles: string[]
+    }>(createGitRebaseTool(mockExec, "/fake"), { ref: "main" })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.conflicted).toBe(true)
+      expect(result.data?.conflictingFiles).toStrictEqual([])
+    }
+  })
+
+  it("returns failure for non-conflict errors", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("fatal: not a git repository")
+    }
+    const result = await invokeTool(
+      createGitRebaseTool(mockExec, "/fake"),
+      { ref: "main" },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_REBASE_ERROR")
+    }
+  })
+})
+
+describe("git_rebase_abort", () => {
+  it("executes git rebase --abort", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      commands.push(args.join(" "))
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean }>(
+      createGitRebaseAbortTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    expect(commands[0]).toBe("rebase --abort")
+  })
+
+  it("returns failure when no rebase in progress", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("fatal: No rebase in progress")
+    }
+    const result = await invokeTool(
+      createGitRebaseAbortTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_REBASE_ABORT_ERROR")
+    }
+  })
+})
+
+describe("git_conflict_files", () => {
+  it("lists conflicting files", async () => {
+    const mockExec: GitExec = () => "file1.ts\nfile2.ts\n"
+    const result = await invokeTool<{ files: string[] }>(
+      createGitConflictFilesTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.files).toStrictEqual(["file1.ts", "file2.ts"])
+    }
+  })
+
+  it("returns empty array when no conflicts", async () => {
+    const mockExec: GitExec = () => ""
+    const result = await invokeTool<{ files: string[] }>(
+      createGitConflictFilesTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.files).toStrictEqual([])
+    }
+  })
+
+  it("returns failure on error", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("not a git repo")
+    }
+    const result = await invokeTool(
+      createGitConflictFilesTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_CONFLICT_FILES_ERROR")
+    }
+  })
+})
+
+describe("git_commit_no_edit", () => {
+  it("commits and returns short SHA", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "commit --no-edit") return "merge commit created"
+      if (cmd.includes("rev-parse --short")) return "abc1234"
+      return ""
+    }
+    const result = await invokeTool<{ success: boolean; sha: string }>(
+      createGitCommitNoEditTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.success).toBe(true)
+      expect(result.data?.sha).toBe("abc1234")
+    }
+  })
+
+  it("returns failure when nothing to commit", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("nothing to commit")
+    }
+    const result = await invokeTool(
+      createGitCommitNoEditTool(mockExec, "/fake"),
+      {},
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("GIT_COMMIT_NO_EDIT_ERROR")
     }
   })
 })

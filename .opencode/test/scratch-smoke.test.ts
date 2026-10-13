@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import InvokeAgentPlugin from "../plugins/invoke-agent/index.js"
 import ReviewDispatchPlugin from "../plugins/review-dispatch/index.js"
+import UfFinalePlugin from "../plugins/uf-finale/index.js"
 import UfWorkflowPlugin from "../plugins/uf-workflow/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
@@ -134,7 +135,37 @@ describe("provider-free scratch-repository smoke test", () => {
       "checkpoint",
       "clear_progress",
       "get_progress",
+      "git_commit_no_edit",
+      "git_conflict_files",
+      "git_fetch",
+      "git_merge",
+      "git_merge_abort",
+      "git_push",
+      "git_push_force_with_lease",
+      "git_rebase",
+      "git_rebase_abort",
+      "normalize_model_name",
       "resolve_base_ref",
+    ])
+  })
+
+  it("activates uf-finale plugin and registers all 8 finale tools", async () => {
+    const project = await scratchProject()
+    const hooks = await UfFinalePlugin.server({
+      client: { session: {} },
+      directory: project,
+      worktree: project,
+    } as unknown as PluginInput)
+
+    expect(Object.keys(hooks.tool).sort()).toEqual([
+      "uf_finale_ci_poll",
+      "uf_finale_commit_context",
+      "uf_finale_create_pr",
+      "uf_finale_pr_context",
+      "uf_finale_push_state",
+      "uf_finale_return_to_main",
+      "uf_finale_stage",
+      "uf_finale_startup",
     ])
   })
 })

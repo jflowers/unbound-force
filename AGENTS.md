@@ -76,7 +76,7 @@ unbound-force/
 ├── .opencode/
 │   ├── agents/                       # Hero persona agents (16 active)
 │   ├── commands/                     # Slash commands (32 files)
-│   ├── plugins/                      # Review plugins registered in opencode.json (invoke-agent, review-dispatch, uf-workflow)
+│   ├── plugins/                      # Plugins registered in opencode.json (invoke-agent, review-dispatch, uf-workflow, uf-finale)
 │   ├── lib/                          # Shared TypeScript plugin library
 │   ├── test/                         # TypeScript plugin unit/integration/smoke tests
 │   ├── skill/                        # Swarm skills packages

@@ -6,6 +6,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- finale-token-reduction: Reduced `/uf.finale` command template from
+  ~1,089 to ~300 lines (~70% token reduction). Extracted deterministic
+  procedures into plugin tools: 10 shared git tools and
+  `normalize_model_name` in uf-workflow plugin, 8 composite tools in
+  new uf-finale plugin. Implements unleash-summary artifact consumption
+  (#707). Uniform plugin probe validation across all 4 plugins.
+  (Spec: openspec/changes/finale-token-reduction/, Closes: #659)
 - uf-workflow-checkpoint: Extended uf-workflow plugin with three new tools
   (`checkpoint`, `get_progress`, `clear_progress`) for unified workflow
   progress tracking. Six command files updated to replace execution

@@ -35,6 +35,7 @@ const (
 	invokeAgentPluginAsset    = "opencode/plugins/invoke-agent/index.ts"
 	reviewDispatchPluginAsset = "opencode/plugins/review-dispatch/index.ts"
 	ufWorkflowPluginAsset     = "opencode/plugins/uf-workflow/index.ts"
+	ufFinalePluginAsset       = "opencode/plugins/uf-finale/index.ts"
 
 	// resultStatusPartial marks a scaffold run that completed file and
 	// sub-tool work but recorded non-fatal sub-tool failures (for example,
@@ -48,7 +49,7 @@ const (
 // activation workflow may materialize these assets only after dependency
 // installation and both provider-free probes succeed.
 func isActivationGatedAsset(relPath string) bool {
-	return relPath == invokeAgentPluginAsset || relPath == reviewDispatchPluginAsset || relPath == ufWorkflowPluginAsset
+	return relPath == invokeAgentPluginAsset || relPath == reviewDispatchPluginAsset || relPath == ufWorkflowPluginAsset || relPath == ufFinalePluginAsset
 }
 
 // Options configures a scaffold run.
@@ -924,6 +925,7 @@ func configurePluginEntries(ocMap map[string]json.RawMessage, hasPlugins bool) b
 			"./" + mapAssetPath(invokeAgentPluginAsset),
 			"./" + mapAssetPath(reviewDispatchPluginAsset),
 			"./" + mapAssetPath(ufWorkflowPluginAsset),
+			"./" + mapAssetPath(ufFinalePluginAsset),
 		} {
 			if seen[entry] {
 				continue
@@ -1011,7 +1013,8 @@ func configureOpencodeJSON(opts *Options) []subToolResult {
 	// registration below).
 	hasPlugins := regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(invokeAgentPluginAsset))) &&
 		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(reviewDispatchPluginAsset))) &&
-		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(ufWorkflowPluginAsset)))
+		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(ufWorkflowPluginAsset))) &&
+		regularFileExists(filepath.Join(opts.TargetDir, mapAssetPath(ufFinalePluginAsset)))
 
 	// Nothing to configure — skip.
 	if !hasDewey && !hasReplicator && !hasPlugins {

@@ -216,7 +216,7 @@ func TestRun_InstallsProbesAndAtomicallyActivatesReviewPlugins(t *testing.T) {
 		t.Errorf("activation operation order =\n%v\nwant prefix\n%v", events, wantActivationEvents)
 	}
 
-	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset} {
+	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset, ufFinalePluginAsset} {
 		targetPath := filepath.Join(targetDir, mapAssetPath(assetPath))
 		got, err := os.ReadFile(targetPath)
 		if err != nil {
@@ -247,6 +247,7 @@ func TestRun_InstallsProbesAndAtomicallyActivatesReviewPlugins(t *testing.T) {
 		"./" + mapAssetPath(invokeAgentPluginAsset),
 		"./" + mapAssetPath(reviewDispatchPluginAsset),
 		"./" + mapAssetPath(ufWorkflowPluginAsset),
+		"./" + mapAssetPath(ufFinalePluginAsset),
 	}
 	if len(gotPlugins) != len(wantPlugins) {
 		t.Fatalf("plugin array = %v, want %v", gotPlugins, wantPlugins)
@@ -400,7 +401,7 @@ func TestRun_IdempotentRetryAfterPluginFailure(t *testing.T) {
 	if second.FailedSubTools != 0 {
 		t.Errorf("second Run() FailedSubTools = %d, want 0", second.FailedSubTools)
 	}
-	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset} {
+	for _, assetPath := range []string{invokeAgentPluginAsset, reviewDispatchPluginAsset, ufWorkflowPluginAsset, ufFinalePluginAsset} {
 		targetPath := filepath.Join(targetDir, mapAssetPath(assetPath))
 		if _, statErr := os.Stat(targetPath); statErr != nil {
 			t.Errorf("retry did not activate plugin source %s: %v", assetPath, statErr)
@@ -444,6 +445,13 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		if err := os.WriteFile(filepath.Join(stagedUfWorkflowDir, "index.ts"), []byte("// uf-workflow content"), 0o644); err != nil {
 			t.Fatalf("write staged uf-workflow index.ts: %v", err)
+		}
+		stagedUfFinaleDir := filepath.Join(stagedBase, "plugins", "uf-finale")
+		if err := os.MkdirAll(stagedUfFinaleDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged uf-finale plugin dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stagedUfFinaleDir, "index.ts"), []byte("// uf-finale content"), 0o644); err != nil {
+			t.Fatalf("write staged uf-finale index.ts: %v", err)
 		}
 		
 		// Debug: Check if the source directories exist
@@ -489,6 +497,13 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(installedUfWorkflowDir, "index.ts"), []byte("// old uf-workflow content"), 0o644); err != nil {
 			t.Fatalf("write installed uf-workflow index.ts: %v", err)
 		}
+		installedUfFinaleDir := filepath.Join(pluginsDir, "uf-finale")
+		if err := os.MkdirAll(installedUfFinaleDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed uf-finale plugin dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(installedUfFinaleDir, "index.ts"), []byte("// old uf-finale content"), 0o644); err != nil {
+			t.Fatalf("write installed uf-finale index.ts: %v", err)
+		}
 		
 		// Create options with Force=true
 		opts := &Options{
@@ -515,8 +530,8 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		
 		// Verify that plugins were activated
-		if len(activated) != 3 {
-			t.Errorf("expected 3 activated plugins, got %d", len(activated))
+		if len(activated) != 4 {
+			t.Errorf("expected 4 activated plugins, got %d", len(activated))
 		}
 		
 		// Verify that staged directories were removed
@@ -550,6 +565,13 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if string(ufWorkflowContent) != "// uf-workflow content" {
 			t.Error("installed uf-workflow content was not updated")
 		}
+		ufFinaleContent, err := os.ReadFile(filepath.Join(installedUfFinaleDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed uf-finale content: %v", err)
+		}
+		if string(ufFinaleContent) != "// uf-finale content" {
+			t.Error("installed uf-finale content was not updated")
+		}
 	})
 	
 	// Test case 2: Content diff refresh
@@ -579,11 +601,19 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(stagedUfWorkflowDir, "index.ts"), []byte("// new uf-workflow content"), 0o644); err != nil {
 			t.Fatalf("write staged uf-workflow index.ts: %v", err)
 		}
+		stagedUfFinaleDir := filepath.Join(stagedBase, "plugins", "uf-finale")
+		if err := os.MkdirAll(stagedUfFinaleDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged uf-finale plugin dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stagedUfFinaleDir, "index.ts"), []byte("// new uf-finale content"), 0o644); err != nil {
+			t.Fatalf("write staged uf-finale index.ts: %v", err)
+		}
 		
 		// Create installed plugin directories and files with different content
 		installedInvokeAgentDir := filepath.Join(pluginsDir, "invoke-agent")
 		installedReviewDispatchDir := filepath.Join(pluginsDir, "review-dispatch")
 		installedUfWorkflowDir := filepath.Join(pluginsDir, "uf-workflow")
+		installedUfFinaleDir := filepath.Join(pluginsDir, "uf-finale")
 		
 		if err := os.MkdirAll(installedInvokeAgentDir, 0o755); err != nil {
 			t.Fatalf("mkdir installed invoke-agent plugin dir: %v", err)
@@ -594,6 +624,9 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if err := os.MkdirAll(installedUfWorkflowDir, 0o755); err != nil {
 			t.Fatalf("mkdir installed uf-workflow plugin dir: %v", err)
 		}
+		if err := os.MkdirAll(installedUfFinaleDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed uf-finale plugin dir: %v", err)
+		}
 		
 		if err := os.WriteFile(filepath.Join(installedInvokeAgentDir, "index.ts"), []byte("// old invoke-agent content"), 0o644); err != nil {
 			t.Fatalf("write installed invoke-agent index.ts: %v", err)
@@ -603,6 +636,9 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		if err := os.WriteFile(filepath.Join(installedUfWorkflowDir, "index.ts"), []byte("// old uf-workflow content"), 0o644); err != nil {
 			t.Fatalf("write installed uf-workflow index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(installedUfFinaleDir, "index.ts"), []byte("// old uf-finale content"), 0o644); err != nil {
+			t.Fatalf("write installed uf-finale index.ts: %v", err)
 		}
 		
 		// Create options with Force=false
@@ -625,8 +661,8 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		
 		// Verify that plugins were activated
-		if len(activated) != 3 {
-			t.Errorf("expected 3 activated plugins, got %d", len(activated))
+		if len(activated) != 4 {
+			t.Errorf("expected 4 activated plugins, got %d", len(activated))
 		}
 		
 		// Verify that staged directories were removed
@@ -660,6 +696,13 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if string(ufWorkflowContent) != "// new uf-workflow content" {
 			t.Error("installed uf-workflow content was not updated")
 		}
+		ufFinaleContent, err := os.ReadFile(filepath.Join(installedUfFinaleDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed uf-finale content: %v", err)
+		}
+		if string(ufFinaleContent) != "// new uf-finale content" {
+			t.Error("installed uf-finale content was not updated")
+		}
 	})
 	
 	// Test case 3: Identical skip
@@ -689,11 +732,19 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(stagedUfWorkflowDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
 			t.Fatalf("write staged uf-workflow index.ts: %v", err)
 		}
+		stagedUfFinaleDir := filepath.Join(stagedBase, "plugins", "uf-finale")
+		if err := os.MkdirAll(stagedUfFinaleDir, 0o755); err != nil {
+			t.Fatalf("mkdir staged uf-finale plugin dir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stagedUfFinaleDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
+			t.Fatalf("write staged uf-finale index.ts: %v", err)
+		}
 		
 		// Create installed plugin directories and files with identical content
 		installedInvokeAgentDir := filepath.Join(pluginsDir, "invoke-agent")
 		installedReviewDispatchDir := filepath.Join(pluginsDir, "review-dispatch")
 		installedUfWorkflowDir := filepath.Join(pluginsDir, "uf-workflow")
+		installedUfFinaleDir := filepath.Join(pluginsDir, "uf-finale")
 		
 		if err := os.MkdirAll(installedInvokeAgentDir, 0o755); err != nil {
 			t.Fatalf("mkdir installed invoke-agent plugin dir: %v", err)
@@ -704,6 +755,9 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		if err := os.MkdirAll(installedUfWorkflowDir, 0o755); err != nil {
 			t.Fatalf("mkdir installed uf-workflow plugin dir: %v", err)
 		}
+		if err := os.MkdirAll(installedUfFinaleDir, 0o755); err != nil {
+			t.Fatalf("mkdir installed uf-finale plugin dir: %v", err)
+		}
 		
 		if err := os.WriteFile(filepath.Join(installedInvokeAgentDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
 			t.Fatalf("write installed invoke-agent index.ts: %v", err)
@@ -713,6 +767,9 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		if err := os.WriteFile(filepath.Join(installedUfWorkflowDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
 			t.Fatalf("write installed uf-workflow index.ts: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(installedUfFinaleDir, "index.ts"), []byte("// identical content"), 0o644); err != nil {
+			t.Fatalf("write installed uf-finale index.ts: %v", err)
 		}
 		
 		// Create options with Force=false
@@ -734,8 +791,8 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		
 		// Verify that plugins were activated
-		if len(activated) != 3 {
-			t.Errorf("expected 3 activated plugins, got %d", len(activated))
+		if len(activated) != 4 {
+			t.Errorf("expected 4 activated plugins, got %d", len(activated))
 		}
 		
 		// Verify that staged directories were removed
@@ -768,6 +825,13 @@ func TestAtomicallyActivateReviewPlugins_Branches(t *testing.T) {
 		}
 		if string(ufWorkflowContent) != "// identical content" {
 			t.Error("installed uf-workflow content should not have changed")
+		}
+		ufFinaleContent, err := os.ReadFile(filepath.Join(installedUfFinaleDir, "index.ts"))
+		if err != nil {
+			t.Fatalf("read installed uf-finale content: %v", err)
+		}
+		if string(ufFinaleContent) != "// identical content" {
+			t.Error("installed uf-finale content should not have changed")
 		}
 	})
 }
