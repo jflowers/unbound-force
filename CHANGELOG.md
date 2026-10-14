@@ -6,6 +6,24 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- determinism-codification: Repo-local codification of the
+  Deterministic Execution principle across the governance stack.
+  Constitution amended 1.3.1 → 1.4.0, adding Principle VI
+  "Deterministic Execution" to `.specify/memory/constitution.md`.
+  New governance convention pack `.opencode/uf/packs/determinism.md`
+  with rules DE-001 [MUST], DE-002 [SHOULD], DE-003 [MUST],
+  DE-004 [SHOULD], auto-discovered by review dispatch with no
+  plugin changes. New skill `.opencode/skills/determinism-first/SKILL.md`
+  with classify-before-writing guidance for coding agents. AGENTS.md
+  gains a "Determinism gate" Behavioral Rule (CRITICAL severity)
+  plus an exhaustive Convention Packs listing. Test-file
+  registration: `knownNonEmbeddedFiles` entries in
+  `internal/scaffold/scaffold_test.go` and a governance-pack
+  skip-list entry in `internal/schemas/packvalidator_test.go`.
+  Pack and skill are deliberately repo-local (no `uf init`
+  propagation). Motivated by the token-reduction epic (#659) and
+  the uf.unleash audit (#716).
+  (Spec: openspec/changes/determinism-codification/)
 - finale-token-reduction: Reduced `/uf.finale` command template from
   ~1,089 to ~300 lines (~70% token reduction). Extracted deterministic
   procedures into plugin tools: 10 shared git tools and
