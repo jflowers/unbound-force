@@ -185,6 +185,15 @@ func TestValidateConventionPack_AllPacksValid(t *testing.T) {
 		if name == "ci.md" {
 			continue
 		}
+		// Skip determinism pack — it's a governance pack with
+		// domain-specific sections (DE-NNN rules) per the
+		// content/ci format precedent, not a coding convention
+		// pack, and is therefore intentionally not
+		// schema-conformant with the coding-pack validator
+		// (design decision 8, determinism-codification)
+		if name == "determinism.md" {
+			continue
+		}
 
 		t.Run(name, func(t *testing.T) {
 			packPath := filepath.Join(packsDir, name)
