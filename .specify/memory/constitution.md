@@ -21,9 +21,11 @@
       added after Principle V, covering executable tools with
       tests, tool-rendered prescribed output, preserved
       decision-point examples, and measurable efficiency deltas.
+    - Hero Constitution Alignment — stale count reference
+      reconciled ("five org principles" -> "six org
+      principles").
 
   Unchanged sections:
-    - Hero Constitution Alignment procedure
     - Development Workflow
     - Governance amendment and versioning procedures
 
@@ -233,7 +235,7 @@ org constitution — they MUST NOT contradict any org principle.
 - Hero constitutions MUST include a `parent_constitution` reference
   indicating which version of the Unbound Force org constitution
   they align with.
-- Hero constitutions MAY add principles beyond the five org
+- Hero constitutions MAY add principles beyond the six org
   principles, provided the additional principles do not contradict
   any org-level MUST rule.
 - When the org constitution is amended, all hero constitutions MUST
