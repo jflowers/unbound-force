@@ -49,27 +49,29 @@ ordering constraints.
   `TestValidateConventionPack_AllPacksValid` with a rationale
   comment (governance pack, not a coding convention pack),
   following the `severity.md`/`content.md`/`ci.md` precedent.
-- [ ] 1.8 [P] Update `README.md` Constitution section: replace
+- [x] 1.8 [P] Update `README.md` Constitution section: replace
   "four core principles" with six, add entries for Principle V
   (Security by Default) and Principle VI (Deterministic
   Execution) mirroring the constitution's summaries, and fix
   the governance bridge bullet's "four org principles"
   reference to six. Addresses the docs-gate spec-review
   finding (README principle enumeration drift).
-- [ ] 1.9 [P] Reconcile the stale principle-count reference in
+- [x] 1.9 [P] Reconcile the stale principle-count reference in
   `.specify/memory/constitution.md` Hero Constitution
   Alignment ("beyond the five org principles" -> "beyond the
   six org principles") and move the section from Unchanged to
   Changed in the SYNC IMPACT REPORT comment.
-- [ ] 1.10 [P] File the `unbound-force/website` documentation
+- [x] 1.10 [P] File the `unbound-force/website` documentation
   issue for the constitution page update (Principle VI) per
   the org constitution's Cross-Repo Documentation rule; it
   MUST exist before the implementing PR merges (Principle V
-  precedent: website issues #142, #254).
-- [ ] 1.11 [P] File the documentation issue in this repo per
+  precedent: website issues #142, #254). Filed as
+  unbound-force/website#305.
+- [x] 1.11 [P] File the documentation issue in this repo per
   the AGENTS.md documentation gate: the determinism convention
   pack and skill alter repo-wide agent and review-council
-  behavior, which is user-facing per org precedent.
+  behavior, which is user-facing per org precedent. Filed as
+  #720.
 
 ## 2. Verification
 
