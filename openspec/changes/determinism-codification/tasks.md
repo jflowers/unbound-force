@@ -55,21 +55,21 @@ ordering constraints.
 Sequential; every gate must pass before the change is marked
 complete.
 
-- [ ] 2.1 Run `make lint` and `make test` (CI parity: lint covers
+- [x] 2.1 Run `make lint` and `make test` (CI parity: lint covers
   the new markdown governance files and the scaffold_test.go edit;
   drift tests pick up the new pack and skill via the exclusion
   map; the pack-validation gate skips the governance pack via the
   task 1.7 skip-list entry; embedded-asset checks unchanged).
-- [ ] 2.2 Run `make plugin-test` (review-dispatch prompt assembly
+- [x] 2.2 Run `make plugin-test` (review-dispatch prompt assembly
   auto-discovers the new pack; update golden fixtures if pack-set
   assertions fail).
-- [ ] 2.3 Verify the determinism-first skill's YAML frontmatter
+- [x] 2.3 Verify the determinism-first skill's YAML frontmatter
   parses and the skill is discoverable with its description in an
   opencode session (spec scenario: Skill discoverable in sessions).
-- [ ] 2.4 Verify constitution alignment against Principles I-V
+- [x] 2.4 Verify constitution alignment against Principles I-V
   (Autonomous Collaboration, Composability First, Observable
   Quality, Testability, Security by Default) per the proposal's
   alignment section; confirm the amendment added a principle
   without altering or removing I-V.
-- [ ] 2.5 Run `openspec validate determinism-codification --type
+- [x] 2.5 Run `openspec validate determinism-codification --type
   change --strict` and confirm the change validates cleanly.
