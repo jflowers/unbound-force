@@ -6,6 +6,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- review-voice-pack: Added `review-voice` + `review-voice-custom`
+  convention pack pair for per-project review-output prose style
+  (sentence style, framing, tone). Always-deployed via scaffold
+  registration (7→9); applied to GitHub-posted prose in
+  `/uf.review-pr`, `/uf.review-council`, `/uf.triage-issue`,
+  `/uf.address-feedback`. Style-only precedence: MUST NOT alter
+  severities, verdicts, finding counts, footers, or structural format.
+  Custom packs are exempt from embedded-asset drift comparison (FR-023).
+  (Spec: openspec/changes/review-voice-pack/, Fixes: #657)
 - determinism-codification: Repo-local codification of the
   Deterministic Execution principle across the governance stack.
   Constitution amended 1.3.1 → 1.4.0, adding Principle VI

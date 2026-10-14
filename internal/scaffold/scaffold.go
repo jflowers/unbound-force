@@ -753,13 +753,15 @@ func isConventionPack(relPath string) bool {
 // alwaysDeployedPacks lists convention packs that are deployed
 // regardless of the detected project language.
 var alwaysDeployedPacks = map[string]bool{
-	"default":        true,
-	"default-custom": true,
-	"severity":       true,
-	"content":        true,
-	"content-custom": true,
-	"ci":             true,
-	"ci-custom":      true,
+	"default":             true,
+	"default-custom":      true,
+	"severity":            true,
+	"content":             true,
+	"content-custom":      true,
+	"ci":                  true,
+	"ci-custom":           true,
+	"review-voice":        true,
+	"review-voice-custom": true,
 }
 
 // shouldDeployPack returns true if the convention pack file
@@ -1697,6 +1699,8 @@ func collectDeployedPacks(lang, root string) []string {
 		"content-custom.md",
 		"ci.md",
 		"ci-custom.md",
+		"review-voice.md",
+		"review-voice-custom.md",
 	}
 	if lang != "" && lang != "default" {
 		candidates = append(candidates, lang+".md", lang+"-custom.md")

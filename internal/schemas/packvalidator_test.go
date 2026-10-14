@@ -194,6 +194,12 @@ func TestValidateConventionPack_AllPacksValid(t *testing.T) {
 		if name == "determinism.md" {
 			continue
 		}
+		// Skip review-voice pack — it's a non-coding voice pack
+		// with different required sections (RV-NNN rules) than
+		// coding packs (Coding Style, etc.)
+		if name == "review-voice.md" {
+			continue
+		}
 
 		t.Run(name, func(t *testing.T) {
 			packPath := filepath.Join(packsDir, name)

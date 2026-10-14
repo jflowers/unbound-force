@@ -141,8 +141,7 @@ imported externally.
 - **Assertions**: `t.Errorf` / `t.Fatalf` directly
 - **Naming**: `TestXxx_Description`
 - **Isolation**: `t.TempDir()` for filesystem tests
-- **Drift detection**: Tests MUST verify embedded assets match
-  canonical sources
+- **Drift detection**: Tests MUST verify embedded tool-owned assets match canonical sources; custom packs (`*-custom.md`) are exempt as user-owned initial deployment templates
 
 ## Technology Stack
 
@@ -350,6 +349,8 @@ before writing or reviewing code.
 - `.opencode/uf/packs/ci.md`
 - `.opencode/uf/packs/ci-custom.md`
 - `.opencode/uf/packs/determinism.md`
+- `.opencode/uf/packs/review-voice.md`
+- `.opencode/uf/packs/review-voice-custom.md`
 - `.opencode/uf/packs/go.md`
 - `.opencode/uf/packs/go-custom.md`
 - `.opencode/uf/packs/python.md`

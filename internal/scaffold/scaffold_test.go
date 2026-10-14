@@ -123,6 +123,14 @@ func TestEmbeddedAssets_MatchSource(t *testing.T) {
 		if relPath == "uf/sibling-repos.yaml" {
 			continue
 		}
+		// Custom packs (*-custom.md) are user-owned: uf init seeds the
+		// embedded copy on first run and never overwrites the canonical
+		// file thereafter. The embedded copies are initial deployment
+		// templates — the canonical repo copies MAY legitimately diverge.
+		if strings.HasPrefix(relPath, "opencode/uf/packs/") &&
+			strings.HasSuffix(relPath, "-custom.md") {
+			continue
+		}
 
 		// Map asset path to canonical source path
 		srcRel := mapAssetToSource(relPath)
@@ -727,7 +735,7 @@ var expectedAssetPaths = []string{
 	"opencode/agents/divisor-scribe.md",
 	"opencode/agents/divisor-herald.md",
 	"opencode/agents/divisor-envoy.md",
-	// Convention packs — shared by all heroes (13)
+	// Convention packs — shared by all heroes (15)
 	"opencode/uf/packs/ci-custom.md",
 	"opencode/uf/packs/ci.md",
 	"opencode/uf/packs/content-custom.md",
@@ -738,6 +746,8 @@ var expectedAssetPaths = []string{
 	"opencode/uf/packs/go.md",
 	"opencode/uf/packs/python-custom.md",
 	"opencode/uf/packs/python.md",
+	"opencode/uf/packs/review-voice-custom.md",
+	"opencode/uf/packs/review-voice.md",
 	"opencode/uf/packs/severity.md",
 	"opencode/uf/packs/typescript-custom.md",
 	"opencode/uf/packs/typescript.md",
@@ -2491,13 +2501,15 @@ func TestRun_DivisorSubset_DefaultFallback(t *testing.T) {
 		t.Fatalf("Run() error: %v", err)
 	}
 
-	// Verify only always-deploy packs deployed (default, severity, content, ci)
+	// Verify only always-deploy packs deployed (default, severity, content,
+	// ci, review-voice)
 	for _, f := range result.Created {
 		if strings.Contains(f, "uf/packs") {
 			base := filepath.Base(f)
 			if !strings.HasPrefix(base, "default") && base != "severity.md" &&
-				!strings.HasPrefix(base, "content") && !strings.HasPrefix(base, "ci") {
-				t.Errorf("expected only default/severity/content/ci packs, got %s", f)
+				!strings.HasPrefix(base, "content") && !strings.HasPrefix(base, "ci") &&
+				!strings.HasPrefix(base, "review-voice") {
+				t.Errorf("expected only default/severity/content/ci/review-voice packs, got %s", f)
 			}
 		}
 	}
@@ -6192,15 +6204,17 @@ func TestCollectDeployedPacks_Go(t *testing.T) {
 	packs := collectDeployedPacks("go", "")
 
 	expected := map[string]bool{
-		"default.md":        true,
-		"default-custom.md": true,
-		"severity.md":       true,
-		"content.md":        true,
-		"content-custom.md": true,
-		"ci.md":             true,
-		"ci-custom.md":      true,
-		"go.md":             true,
-		"go-custom.md":      true,
+		"default.md":             true,
+		"default-custom.md":      true,
+		"severity.md":            true,
+		"content.md":             true,
+		"content-custom.md":      true,
+		"ci.md":                  true,
+		"ci-custom.md":           true,
+		"review-voice.md":        true,
+		"review-voice-custom.md": true,
+		"go.md":                  true,
+		"go-custom.md":           true,
 	}
 
 	if len(packs) != len(expected) {
@@ -6216,14 +6230,15 @@ func TestCollectDeployedPacks_Go(t *testing.T) {
 func TestCollectDeployedPacks_TypeScript(t *testing.T) {
 	packs := collectDeployedPacks("typescript", "")
 
-	found := false
+	required := []string{"typescript.md", "review-voice.md", "review-voice-custom.md"}
+	packSet := make(map[string]bool, len(packs))
 	for _, p := range packs {
-		if p == "typescript.md" {
-			found = true
-		}
+		packSet[p] = true
 	}
-	if !found {
-		t.Error("expected typescript.md in packs")
+	for _, r := range required {
+		if !packSet[r] {
+			t.Errorf("expected %q in packs", r)
+		}
 	}
 }
 
@@ -6234,13 +6249,14 @@ func TestCollectDeployedPacks_Default(t *testing.T) {
 		if p == "default.md" || p == "default-custom.md" ||
 			p == "severity.md" || p == "content.md" ||
 			p == "content-custom.md" || p == "ci.md" ||
-			p == "ci-custom.md" {
+			p == "ci-custom.md" || p == "review-voice.md" ||
+			p == "review-voice-custom.md" {
 			continue
 		}
 		t.Errorf("unexpected pack %q for default lang", p)
 	}
-	if len(packs) != 7 {
-		t.Errorf("expected 7 packs for default lang, got %d", len(packs))
+	if len(packs) != 9 {
+		t.Errorf("expected 9 packs for default lang, got %d", len(packs))
 	}
 }
 
@@ -6341,7 +6357,7 @@ func TestCollectDeployedPacks_WithRoot_AllEmpty(t *testing.T) {
 	}
 
 	sentinel := "<!-- Add project-specific rules below this line -->"
-	stubs := []string{"default-custom.md", "content-custom.md", "ci-custom.md", "go-custom.md"}
+	stubs := []string{"default-custom.md", "content-custom.md", "ci-custom.md", "go-custom.md", "review-voice-custom.md"}
 	for _, name := range stubs {
 		if err := os.WriteFile(filepath.Join(packsDir, name), []byte(sentinel), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
@@ -6356,7 +6372,7 @@ func TestCollectDeployedPacks_WithRoot_AllEmpty(t *testing.T) {
 		}
 	}
 	// Non-custom packs must still be present.
-	required := []string{"default.md", "severity.md", "content.md", "ci.md", "go.md"}
+	required := []string{"default.md", "severity.md", "content.md", "ci.md", "go.md", "review-voice.md"}
 	packSet := make(map[string]bool, len(packs))
 	for _, p := range packs {
 		packSet[p] = true
@@ -6376,8 +6392,9 @@ func TestCollectDeployedPacks_WithRoot_OnePopulated(t *testing.T) {
 	}
 
 	sentinel := "<!-- Add project-specific rules below this line -->"
-	// default-custom, content-custom, and ci-custom are empty stubs.
-	for _, name := range []string{"default-custom.md", "content-custom.md", "ci-custom.md"} {
+	// default-custom, content-custom, ci-custom, and review-voice-custom
+	// are empty stubs.
+	for _, name := range []string{"default-custom.md", "content-custom.md", "ci-custom.md", "review-voice-custom.md"} {
 		if err := os.WriteFile(filepath.Join(packsDir, name), []byte(sentinel), 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
@@ -6406,6 +6423,9 @@ func TestCollectDeployedPacks_WithRoot_OnePopulated(t *testing.T) {
 	if packSet["ci-custom.md"] {
 		t.Error("ci-custom.md should be excluded (empty)")
 	}
+	if packSet["review-voice-custom.md"] {
+		t.Error("review-voice-custom.md should be excluded (empty)")
+	}
 }
 
 func TestCollectDeployedPacks_WithRoot_EmptyRootFallback(t *testing.T) {
@@ -6417,7 +6437,7 @@ func TestCollectDeployedPacks_WithRoot_EmptyRootFallback(t *testing.T) {
 	for _, p := range packs {
 		packSet[p] = true
 	}
-	for _, name := range []string{"default-custom.md", "content-custom.md", "ci-custom.md", "go-custom.md"} {
+	for _, name := range []string{"default-custom.md", "content-custom.md", "ci-custom.md", "go-custom.md", "review-voice-custom.md"} {
 		if !packSet[name] {
 			t.Errorf("expected %q in packs when root is empty, got: %v", name, packs)
 		}

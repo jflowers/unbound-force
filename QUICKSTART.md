@@ -152,14 +152,15 @@ uf init --divisor
 
 ### What Gets Scaffolded
 
-`uf init` creates 34+ files in your project:
+`uf init` creates 65+ files in your project, including:
 
-- **8 commands** (`.opencode/commands/`) -- review
+- **11 commands** (`.opencode/commands/`) -- review
   council, finale, unleash, and more
-- **12 agents** (`.opencode/agents/`) -- developer,
-  reviewer council (9 personas), coaching
-- **9 convention packs** (`.opencode/uf/packs/`) --
-  coding standards for Go, TypeScript, content
+- **11 agents** (`.opencode/agents/`) -- developer,
+  reviewer council (9 personas), constitution checker
+- **15 convention packs** (`.opencode/uf/packs/`) --
+  coding standards for Go, Python, TypeScript, CI,
+  content, and review voice
 - **5 OpenSpec templates** (`openspec/schemas/`) --
   proposal, design, spec, and task templates
 

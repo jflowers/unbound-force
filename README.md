@@ -63,7 +63,7 @@ The framework provides:
 - **OpenSpec** (tactical): Lightweight workflow for bug fixes and small changes (`/opsx-propose` through `/opsx-archive`)
 - **Constitution governance bridge**: Every proposal includes alignment assessment against the six org principles
 
-`uf init` scaffolds 50 files into your repository: templates, scripts, commands, agents, Divisor review personas, convention packs, and the custom `unbound-force` OpenSpec schema. Use `uf init --divisor` to deploy only the PR review agents and convention packs. Use `--lang` to override language auto-detection for convention pack selection. User-owned files are skipped on re-run; tool-owned files are auto-updated when content changes.
+`uf init` scaffolds 65+ files into your repository: templates, scripts, commands, agents, Divisor review personas, convention packs, and the custom `unbound-force` OpenSpec schema. Use `uf init --divisor` to deploy only the PR review agents and convention packs. Use `--lang` to override language auto-detection for convention pack selection. User-owned files are skipped on re-run; tool-owned files are auto-updated when content changes.
 
 The Divisor review council now fans out across multiple models (`/uf.review-council`, `/uf.triage-issue`, `/uf.address-feedback`), configured via `.uf/review-matrix.yaml` and `.uf/reviewer-capabilities.yaml`. `make plugin-test` runs the TypeScript plugin suite and `make coverage-gate` enforces scope-based Go coverage; both are part of `make check`.
 

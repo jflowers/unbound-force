@@ -208,6 +208,12 @@ agents enforce. After `uf init`, find them at:
   content-custom.md   # your content extensions
   typescript.md       # TypeScript conventions (tool-owned)
   typescript-custom.md # your TypeScript extensions
+  ci.md               # CI workflow conventions (tool-owned)
+  ci-custom.md        # your CI extensions
+  python.md           # Python conventions (tool-owned)
+  python-custom.md    # your Python extensions
+  review-voice.md     # review comment voice (tool-owned)
+  review-voice-custom.md # your review-voice extensions
 ```
 
 Edit the `*-custom.md` files to add project-specific

@@ -526,6 +526,28 @@ gh issue edit <ISSUE_NUMBER> --add-label "<label>"
 
 ### 4.3 Comment Composition and Posting
 
+**Load review voice packs**: Before composing the triage comment,
+read `.opencode/uf/packs/review-voice.md` and
+`.opencode/uf/packs/review-voice-custom.md`. If either file is
+missing, proceed without it — no error or warning needed.
+
+**Apply review voice**: The triage comment prose composed in this
+step MUST follow the loaded voice rules (RV-NNN defaults, CR-NNN
+custom overrides where present). Voice is style-only per the
+Style-Only Precedence clause in `review-voice.md` (RV-004,
+RV-005): voice rules MUST NOT alter severities, verdicts, finding
+counts, required footers, tone-tier content requirements,
+reply-template required elements, top-15 inline comment selection,
+suggestion-block format, or body size limits. The tone-tier
+content requirements in this section (VALID=factual analysis;
+INVALID/OPINION=warm, non-dismissive; NEEDS-CLARIFICATION=specific
+questions) remain binding and take precedence over voice styling;
+voice MUST NOT replace or weaken them. Where a voice rule
+conflicts with a structural or content requirement, the
+structural or content requirement prevails. The Phase 4.1
+terminal summary keeps its fixed format; voice governs the
+GitHub-posted triage comment prose only.
+
 Compose a triage comment based on the consolidated classification. The comment tone follows three tiers:
 
 | Verdict | Tone |

@@ -220,6 +220,12 @@ for swarm and review operations.
   typescript-custom.md (user-owned, your TS extensions)
   content.md          (tool-owned, writing standards)
   content-custom.md   (user-owned, your content rules)
+  ci.md               (tool-owned, CI conventions)
+  ci-custom.md        (user-owned, your CI rules)
+  python.md           (tool-owned, Python conventions)
+  python-custom.md    (user-owned, your Python extensions)
+  review-voice.md     (tool-owned, review voice)
+  review-voice-custom.md (user-owned, your review voice rules)
 ```
 
 Tool-owned packs contain canonical rules. User-owned
@@ -685,12 +691,18 @@ changes.
 - `typescript.md` -- TypeScript-specific conventions
 - `content.md` -- Writing and documentation standards
 - `severity.md` -- Finding severity definitions
+- `ci.md` -- CI conventions for GitHub Actions
+- `python.md` -- Python-specific conventions
+- `review-voice.md` -- Review output voice standards
 
 **User-owned** (never overwritten):
 - `default-custom.md` -- Your project-specific rules
 - `go-custom.md` -- Your Go extensions
 - `typescript-custom.md` -- Your TypeScript extensions
 - `content-custom.md` -- Your content extensions
+- `ci-custom.md` -- Your CI extensions
+- `python-custom.md` -- Your Python extensions
+- `review-voice-custom.md` -- Your review-voice extensions
 
 ### Who Consumes Them
 

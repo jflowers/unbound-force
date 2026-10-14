@@ -33,22 +33,22 @@ func TestRunInit_FreshDir(t *testing.T) {
 	// The exact count is environment-dependent: review plugin activation
 	// appends up to 3 plugin sources to the created set only when
 	// Node/npm/OpenCode are present and the install plus probes succeed.
-	// With 68 total embedded assets, minus 1 non-deployed (devcontainer)
-	// and 4 activation-gated plugins, the base count is 63. Each
-	// successful activation probe adds one file, yielding [63-67].
+	// With 70 total embedded assets, minus 1 non-deployed (devcontainer)
+	// and 4 activation-gated plugins, the base count is 65. Each
+	// successful activation probe adds one file, yielding [65-69].
 	// The scaffold-level asset inventory and drift tests pin the exact
 	// asset list, so this CLI check asserts either valid count.
 	// (devcontainer excluded — OS-specific, generated per-user by
 	// uf sandbox init.)
 	var fileCountOK bool
-	for _, count := range []string{"63", "64", "65", "66", "67"} {
+	for _, count := range []string{"65", "66", "67", "68", "69"} {
 		if strings.Contains(output, count+" files processed") {
 			fileCountOK = true
 			break
 		}
 	}
 	if !fileCountOK {
-		t.Errorf("expected N files processed [63-67] in output, got:\n%s", output)
+		t.Errorf("expected N files processed [65-69] in output, got:\n%s", output)
 	}
 
 	// Verify a user-owned file was created

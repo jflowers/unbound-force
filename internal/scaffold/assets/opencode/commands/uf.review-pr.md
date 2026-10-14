@@ -709,6 +709,24 @@ If found, display:
 
 #### 8b. Inline Comment Preparation
 
+**Load review voice packs**: Before composing inline comments or
+the Step 8d review body, read `.opencode/uf/packs/review-voice.md`
+and `.opencode/uf/packs/review-voice-custom.md`. If either file is
+missing, proceed without it — no error or warning needed.
+
+**Apply review voice**: The inline comment text composed in this
+step and the review body prose composed in Step 8d MUST follow the
+loaded voice rules (RV-NNN defaults, CR-NNN custom overrides where
+present). Voice is style-only per the Style-Only Precedence clause
+in `review-voice.md` (RV-004, RV-005): voice rules MUST NOT alter
+severities, verdicts, finding counts, required footers, tone-tier
+content requirements, reply-template required elements, top-15
+inline comment selection, suggestion-block format, or body size
+limits. Where a voice rule conflicts with a structural or content
+requirement, the structural or content requirement prevails.
+Terminal reports (Step 6) keep their fixed format; voice governs
+GitHub-posted prose only.
+
 For findings mapped to specific files and line ranges in the diff,
 prepare inline comments:
 

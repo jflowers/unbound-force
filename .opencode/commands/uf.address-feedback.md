@@ -798,6 +798,24 @@ git push origin <branch>
 
 ### 4.5 Post Reply Comments
 
+**Apply review voice**: The reply comment prose composed in this
+step MUST follow the review-voice rules already loaded by the
+Phase 2.1 convention-pack glob (RV-NNN defaults, CR-NNN custom
+overrides where present); no additional load step is required.
+Voice is style-only per the Style-Only Precedence clause in
+`review-voice.md` (RV-004, RV-005): voice rules MUST NOT alter
+severities, verdicts, finding counts, required footers, tone-tier
+content requirements, reply-template required elements, top-15
+inline comment selection, suggestion-block format, or body size
+limits. The required reply elements in the table below remain
+binding (ACCEPT/MODIFY replies reference the addressing
+commit SHA; REJECT replies provide evidence-based reasoning
+referencing convention pack rules or the constitution) and take
+precedence over voice styling; voice MUST NOT replace or weaken
+them. Where a voice rule conflicts with a structural or content
+requirement, the structural or content requirement prevails.
+Voice governs the GitHub-posted reply prose only.
+
 After push succeeds (or if there are no code changes),
 post reply comments to the PR. Before posting, use the
 **question tool** with options `["Yes -- post
