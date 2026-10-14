@@ -68,7 +68,7 @@ finalize" and stop.
 Print secret candidates. Use **question tool**:
 `["Yes -- stage all files and continue",
 "No -- stop here"]`.
-- **Yes**: Call `uf_finale_stage` → `{fileCount}`.
+- **Yes**: Call `uf_finale_stage` → `{fileCount, files}`.
 - **No**: **STOP**.
 
 >>> END GATE <<<

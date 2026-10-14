@@ -19,6 +19,18 @@ probe-validated, unlike `invoke-agent` and `review-dispatch`.
 All four plugins (including the new `uf-finale`) will receive
 uniform treatment through the scaffold machinery.
 
+> **Supersession note** (added by `fix-tui-git-output-leak`,
+> openspec/changes/fix-tui-git-output-leak/): the TUI-output
+> behavior documented in this change — full git output printed
+> to TUI via `console.log()`, and `uf_finale_stage` logging the
+> staged file list to TUI — is superseded by the
+> `plugin-terminal-hygiene` capability. Plugin tool handlers
+> MUST NOT write to the process terminal; all output flows
+> through JSON result envelopes, and `uf_finale_stage` returns
+> the staged file list as `files: string[]`. Archive-time spec
+> sync MUST NOT carry the superseded TUI-output requirements
+> forward.
+
 ## What Changes
 
 1. **Extend `uf-workflow` plugin** with shared tools:
@@ -29,7 +41,8 @@ uniform treatment through the scaffold machinery.
      `git_push_force_with_lease`, `git_merge`,
      `git_merge_abort`, `git_rebase`, `git_rebase_abort`,
      `git_conflict_files`, `git_commit_no_edit`) — minimal
-     JSON to LLM context, full output to TUI
+     JSON to LLM context, full output to TUI (superseded by
+     fix-tui-git-output-leak: envelope-only output)
 
 2. **New `uf-finale` plugin** with 8 composite tools:
    - `uf_finale_startup` — branch safety + working tree +
@@ -133,7 +146,9 @@ All tool outputs are machine-parseable JSON with structured
 error codes. The `uf_finale_ci_poll` tool returns structured
 check results with pass/fail status. Full git command output
 goes to TUI for human observability while LLM receives only
-the structured decision-relevant data.
+the structured decision-relevant data. (Superseded by
+`fix-tui-git-output-leak`: tool handlers no longer write to
+the terminal; observability flows through envelope fields.)
 
 ### IV. Testability
 

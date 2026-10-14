@@ -95,6 +95,19 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/move-schemas-to-uf/, Fixes: #649)
 
 ### Fixed
+- fix-tui-git-output-leak: Removed all 50 console.log/console.error
+  calls per tree (100 total across `.opencode/plugins/` and the
+  embedded `internal/scaffold/assets/opencode/` mirrors) from
+  uf-workflow and uf-finale plugin tool handlers. Tool output now
+  flows exclusively through JSON result envelopes, fixing TUI
+  alternate-screen corruption caused by plugin handlers writing
+  to the shared terminal. `uf_finale_stage` success envelope
+  enriched with `files: string[]` (staged file list, previously
+  TUI-only); ci_poll 30-second progress messages removed. Adds
+  spy-based zero-terminal-writes regression tests for every
+  handler plus files-field unit tests. (Spec:
+  openspec/changes/fix-tui-git-output-leak/, Docs: #710,
+  unbound-force/website#306)
 - fix-stale-base-ref: New `resolve_base_ref` tool in uf-workflow
   plugin with three-level fallback (`upstream/main` → `origin/main`
   → `main`) replaces hardcoded `main` ref in review-council local

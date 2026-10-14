@@ -129,15 +129,9 @@ export function createUfFinaleStartupTool(exec: GitExec, cwd: string) {
           unpushedCommits,
         }
 
-        console.log(
-          `Branch: ${branch} (${branchType}), changes: ${hasChanges}, ` +
-            `secrets: ${secretCandidates.length}, unpushed: ${unpushedCommits.length}`,
-        )
-
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "STARTUP_ERROR" }),
@@ -165,14 +159,13 @@ export function createUfFinaleStageTool(exec: GitExec, cwd: string) {
         const files = stagedOutput
           .split("\n")
           .filter((f) => f.length > 0)
-        console.log(`Staged ${files.length} file(s):`)
-        for (const f of files) {
-          console.log(`  ${f}`)
+        return {
+          output: JSON.stringify(
+            success({ fileCount: files.length, files }),
+          ),
         }
-        return { output: JSON.stringify(success({ fileCount: files.length })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "STAGE_ERROR" }),
@@ -219,10 +212,6 @@ export function createUfFinaleCommitContextTool(exec: GitExec, cwd: string) {
       }
 
       const normalizedModel = normalizeModelName(args.rawModelId)
-
-      console.log("Diff stat:\n" + diffStat)
-      console.log("Recent log:\n" + recentLog)
-      console.log(`Normalized model: ${normalizedModel}`)
 
       return {
         output: JSON.stringify(
@@ -274,15 +263,10 @@ export function createUfFinalePushStateTool(exec: GitExec, cwd: string) {
         }
 
         const data = { upstreamExists, diverged, aheadBy, behindBy }
-        console.log(
-          `Upstream: ${upstreamExists}, ahead: ${aheadBy}, ` +
-            `behind: ${behindBy}, diverged: ${diverged}`,
-        )
 
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "PUSH_STATE_ERROR" }),
@@ -453,17 +437,9 @@ export function createUfFinalePrContextTool(exec: GitExec, cwd: string) {
           unleashSummary,
         }
 
-        console.log(`Existing PR: ${existingPr ? `#${existingPr.number}` : "none"}`)
-        console.log(`Fork: ${isFork}${forkParent ? ` (${forkParent.owner}/${forkParent.repo})` : ""}`)
-        console.log(`Template sections: ${templateSections.length}`)
-        console.log(`Commits: ${commitLog.length}`)
-        console.log(`Originating issue: ${originatingIssue ?? "none"}`)
-        console.log(`Unleash summary: ${unleashSummary ? "found" : "none"}`)
-
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "PR_CONTEXT_ERROR" }),
@@ -573,8 +549,6 @@ export function createUfFinaleCreatePrTool(exec: GitExec, cwd: string) {
           stdio: ["pipe", "pipe", "pipe"],
         }).trim()
 
-        console.log(output)
-
         // Step 4: Parse output for PR number and URL.
         // gh pr create outputs the PR URL on success.
         const urlMatch = output.match(
@@ -588,7 +562,6 @@ export function createUfFinaleCreatePrTool(exec: GitExec, cwd: string) {
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "PR_CREATE_ERROR" }),
@@ -661,7 +634,6 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
             mergeStateStatus: string
           }
           if (prView.mergeable === "CONFLICTING") {
-            console.log(`PR #${pr}: CONFLICTING`)
             return {
               output: JSON.stringify(
                 success({
@@ -699,9 +671,6 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
               )
 
               if (workflowsConfigured) {
-                console.log(
-                  `PR #${pr}: No checks found but workflow files exist`,
-                )
                 return {
                   output: JSON.stringify(
                     success({
@@ -717,9 +686,7 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
                 }
               }
 
-              console.log(
-                `PR #${pr}: No checks and no workflow files`,
-              )
+              // No checks and no workflow files.
               return {
                 output: JSON.stringify(
                   success({
@@ -749,9 +716,6 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
               )
 
               if (failed.length === 0) {
-                console.log(
-                  `PR #${pr}: All ${checks.length} checks passed`,
-                )
                 return {
                   output: JSON.stringify(
                     success({
@@ -769,12 +733,6 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
                 conclusion: c.conclusion,
                 url: c.detailsUrl,
               }))
-              console.log(
-                `PR #${pr}: ${failed.length}/${checks.length} checks failed`,
-              )
-              for (const f of failedChecks) {
-                console.log(`  FAIL: ${f.name} (${f.conclusion})`)
-              }
               return {
                 output: JSON.stringify(
                   success({
@@ -787,18 +745,11 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
               }
             }
 
-            // Still pending — log progress and wait.
-            const elapsed = Math.round((Date.now() - startTime) / 1000)
-            console.log(
-              `PR #${pr}: ${pending.length}/${checks.length} ` +
-                `checks pending (${elapsed}s elapsed)`,
-            )
-
+            // Still pending — wait before the next poll.
             await new Promise((r) => setTimeout(r, pollInterval))
           } catch (pollErr: unknown) {
             const msg =
               pollErr instanceof Error ? pollErr.message : String(pollErr)
-            console.error(`gh CLI error during poll: ${msg}`)
             return {
               output: JSON.stringify(
                 failure(`gh CLI error: ${msg}`, {
@@ -811,12 +762,6 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
         }
 
         // Timeout reached.
-        const elapsedMin = Math.round(
-          (Date.now() - startTime) / 1000 / 60,
-        )
-        console.log(
-          `PR #${pr}: CI poll timed out after ${elapsedMin} minutes`,
-        )
         return {
           output: JSON.stringify(
             failure(
@@ -827,7 +772,6 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "CI_POLL_ERROR" }),
@@ -850,14 +794,11 @@ export function createUfFinaleReturnToMainTool(exec: GitExec, cwd: string) {
       "latest changes.",
     execute: async () => {
       try {
-        const checkoutOutput = exec(["checkout", "main"], cwd)
-        console.log(checkoutOutput)
-        const pullOutput = exec(["pull"], cwd)
-        console.log(pullOutput)
+        exec(["checkout", "main"], cwd)
+        exec(["pull"], cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: false, code: "RETURN_TO_MAIN_ERROR" }),

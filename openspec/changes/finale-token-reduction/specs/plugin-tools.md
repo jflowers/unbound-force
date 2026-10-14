@@ -46,8 +46,10 @@ string}` when the input cannot be normalized.
 
 The `uf-workflow` plugin MUST provide the following git
 operation tools. Each tool MUST return minimal structured
-JSON to the LLM and MAY print full git output to TUI via
-`console.log()`.
+JSON to the LLM. (Superseded by `fix-tui-git-output-leak`,
+openspec/changes/fix-tui-git-output-leak/: tool handlers
+MUST NOT print full git output to TUI via `console.log()`;
+all output flows through the JSON result envelope.)
 
 All git tools MUST accept a `GitExec` function for
 testability.
@@ -204,10 +206,14 @@ rewritten `/uf.finale` command MUST present the full
 file list via the `question` tool and obtain explicit
 user approval BEFORE calling `uf_finale_stage`. The
 command template MUST NOT call this tool without prior
-human confirmation. The tool itself SHOULD log the file
-list to TUI before staging.
+human confirmation. (Superseded by `fix-tui-git-output-leak`,
+openspec/changes/fix-tui-git-output-leak/: the tool MUST NOT
+log the file list to TUI; the staged file list is returned
+in the JSON result envelope as `files: string[]`.)
 
-The tool MUST return `{fileCount: N}`.
+The tool MUST return `{fileCount: N, files: [...]}` (the
+`files` array was added by `fix-tui-git-output-leak`,
+openspec/changes/fix-tui-git-output-leak/).
 
 #### Scenario: Stage working tree after confirmation
 
@@ -215,7 +221,7 @@ The tool MUST return `{fileCount: N}`.
   the user has confirmed staging via the question tool
 - **WHEN** `uf_finale_stage` is called
 - **THEN** the tool executes `git add .` and returns
-  `{fileCount: 5}`
+  `{fileCount: 5, files: [...]}`
 
 ---
 

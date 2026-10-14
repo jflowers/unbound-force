@@ -10,7 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import type { PluginInput } from "@opencode-ai/plugin"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
   failure,
@@ -1204,5 +1204,136 @@ describe("git_commit_no_edit", () => {
     if (result.status === "error") {
       expect(result.code).toBe("GIT_COMMIT_NO_EDIT_ERROR")
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Terminal-write regression tests (Requirement 1, TC-006)
+// ---------------------------------------------------------------------------
+
+describe("terminal-write regression (Requirement 1)", () => {
+  const throwingExec: GitExec = () => {
+    throw new Error("simulated subprocess failure")
+  }
+
+  /**
+   * Run the given invocations with console methods and stdio streams
+   * spied and assert that no terminal writes occurred.
+   */
+  async function expectNoTerminalWrites(
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(() => {}),
+      vi.spyOn(console, "error").mockImplementation(() => {}),
+      vi.spyOn(console, "info").mockImplementation(() => {}),
+      vi.spyOn(console, "warn").mockImplementation(() => {}),
+      vi.spyOn(console, "debug").mockImplementation(() => {}),
+      vi.spyOn(console, "trace").mockImplementation(() => {}),
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true),
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true),
+    ]
+    try {
+      await run()
+      for (const spy of spies) {
+        expect(spy).not.toHaveBeenCalled()
+      }
+    } finally {
+      for (const spy of spies) {
+        spy.mockRestore()
+      }
+    }
+  }
+
+  it("git_fetch writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitFetchTool(successExec, "/fake"), {
+        remote: "origin",
+        branch: "main",
+      })
+      await invokeTool(createGitFetchTool(throwingExec, "/fake"), {
+        remote: "origin",
+      })
+    })
+  })
+
+  it("git_push writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitPushTool(successExec, "/fake"), {})
+      await invokeTool(createGitPushTool(throwingExec, "/fake"), {})
+    })
+  })
+
+  it("git_push_force_with_lease writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitPushForceWithLeaseTool(successExec, "/fake"), {})
+      await invokeTool(
+        createGitPushForceWithLeaseTool(throwingExec, "/fake"),
+        {},
+      )
+    })
+  })
+
+  it("git_merge writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => "Already up to date."
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitMergeTool(successExec, "/fake"), {
+        ref: "main",
+      })
+      await invokeTool(createGitMergeTool(throwingExec, "/fake"), {
+        ref: "main",
+      })
+    })
+  })
+
+  it("git_merge_abort writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitMergeAbortTool(successExec, "/fake"), {})
+      await invokeTool(createGitMergeAbortTool(throwingExec, "/fake"), {})
+    })
+  })
+
+  it("git_rebase writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => "Successfully rebased"
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitRebaseTool(successExec, "/fake"), {
+        ref: "main",
+      })
+      await invokeTool(createGitRebaseTool(throwingExec, "/fake"), {
+        ref: "main",
+      })
+    })
+  })
+
+  it("git_rebase_abort writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitRebaseAbortTool(successExec, "/fake"), {})
+      await invokeTool(createGitRebaseAbortTool(throwingExec, "/fake"), {})
+    })
+  })
+
+  it("git_conflict_files writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => "file1.ts\nfile2.ts"
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitConflictFilesTool(successExec, "/fake"), {})
+      await invokeTool(createGitConflictFilesTool(throwingExec, "/fake"), {})
+    })
+  })
+
+  it("git_commit_no_edit writes nothing to the terminal", async () => {
+    const successExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("rev-parse --short")) return "abc1234"
+      return ""
+    }
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createGitCommitNoEditTool(successExec, "/fake"), {})
+      await invokeTool(createGitCommitNoEditTool(throwingExec, "/fake"), {})
+    })
   })
 })

@@ -474,12 +474,10 @@ export function createGitFetchTool(exec: GitExec, cwd: string) {
         const gitArgs = args.branch
           ? ["fetch", args.remote, args.branch]
           : ["fetch", args.remote]
-        const output = exec(gitArgs, cwd)
-        console.log(output)
+        exec(gitArgs, cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: true, code: "GIT_FETCH_ERROR" }),
@@ -512,12 +510,10 @@ export function createGitPushTool(exec: GitExec, cwd: string) {
           args.setUpstream && args.branch
             ? ["push", "--set-upstream", "origin", args.branch]
             : ["push"]
-        const output = exec(gitArgs, cwd)
-        console.log(output)
+        exec(gitArgs, cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, { retryable: true, code: "GIT_PUSH_ERROR" }),
@@ -536,12 +532,10 @@ export function createGitPushForceWithLeaseTool(exec: GitExec, cwd: string) {
       "--force-with-lease to prevent overwriting others' work.",
     execute: async () => {
       try {
-        const output = exec(["push", "--force-with-lease"], cwd)
-        console.log(output)
+        exec(["push", "--force-with-lease"], cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, {
@@ -569,8 +563,7 @@ export function createGitMergeTool(exec: GitExec, cwd: string) {
     },
     execute: async (args: { ref: string }) => {
       try {
-        const output = exec(["merge", args.ref], cwd)
-        console.log(output)
+        exec(["merge", args.ref], cwd)
         return {
           output: JSON.stringify(
             success({ success: true, conflicted: false }),
@@ -578,7 +571,6 @@ export function createGitMergeTool(exec: GitExec, cwd: string) {
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         // Detect merge conflicts by checking error message.
         if (/conflict/i.test(msg)) {
           try {
@@ -627,12 +619,10 @@ export function createGitMergeAbortTool(exec: GitExec, cwd: string) {
     description: "Abort an in-progress merge and restore the pre-merge state.",
     execute: async () => {
       try {
-        const output = exec(["merge", "--abort"], cwd)
-        console.log(output)
+        exec(["merge", "--abort"], cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, {
@@ -661,8 +651,7 @@ export function createGitRebaseTool(exec: GitExec, cwd: string) {
     },
     execute: async (args: { ref: string }) => {
       try {
-        const output = exec(["rebase", args.ref], cwd)
-        console.log(output)
+        exec(["rebase", args.ref], cwd)
         return {
           output: JSON.stringify(
             success({ success: true, conflicted: false }),
@@ -670,7 +659,6 @@ export function createGitRebaseTool(exec: GitExec, cwd: string) {
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         // Detect rebase conflicts by checking error message.
         if (/conflict/i.test(msg)) {
           try {
@@ -720,12 +708,10 @@ export function createGitRebaseAbortTool(exec: GitExec, cwd: string) {
       "Abort an in-progress rebase and restore the pre-rebase state.",
     execute: async () => {
       try {
-        const output = exec(["rebase", "--abort"], cwd)
-        console.log(output)
+        exec(["rebase", "--abort"], cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, {
@@ -748,11 +734,9 @@ export function createGitConflictFilesTool(exec: GitExec, cwd: string) {
       try {
         const output = exec(["diff", "--name-only", "--diff-filter=U"], cwd)
         const files = output.split("\n").filter((f) => f.length > 0)
-        console.log(output)
         return { output: JSON.stringify(success({ files })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, {
@@ -774,13 +758,11 @@ export function createGitCommitNoEditTool(exec: GitExec, cwd: string) {
       "(--no-edit). Returns the short SHA of the new commit.",
     execute: async () => {
       try {
-        const commitOutput = exec(["commit", "--no-edit"], cwd)
-        console.log(commitOutput)
+        exec(["commit", "--no-edit"], cwd)
         const sha = exec(["rev-parse", "--short", "HEAD"], cwd)
         return { output: JSON.stringify(success({ success: true, sha })) }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.log(msg)
         return {
           output: JSON.stringify(
             failure(msg, {

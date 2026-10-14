@@ -23,7 +23,8 @@
   `git_merge_abort`, `git_rebase`, `git_rebase_abort`,
   `git_conflict_files`, `git_commit_no_edit`. All use
   injectable `GitExec`, return minimal JSON to LLM, print
-  full output to TUI (D2, D4).
+  full output to TUI (D2, D4; superseded by
+  fix-tui-git-output-leak: envelope-only output).
 - [x] 1.3 Register all new tools in the `uf-workflow`
   plugin `server()` function's returned `tool` object.
 

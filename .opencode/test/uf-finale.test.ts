@@ -342,7 +342,7 @@ describe("uf_finale_stage", () => {
         return "file1.ts\nfile2.ts\nfile3.ts"
       return ""
     }
-    const result = await invokeTool<{ fileCount: number }>(
+    const result = await invokeTool<{ fileCount: number; files: string[] }>(
       createUfFinaleStageTool(mockExec, "/fake"),
       {},
     )
@@ -350,6 +350,11 @@ describe("uf_finale_stage", () => {
     expect(result.status).toBe("ok")
     if (result.status === "ok") {
       expect(result.data?.fileCount).toBe(3)
+      expect(result.data?.files).toStrictEqual([
+        "file1.ts",
+        "file2.ts",
+        "file3.ts",
+      ])
     }
     expect(commands).toContain("add .")
     expect(commands).toContain("diff --cached --name-only")
@@ -357,7 +362,7 @@ describe("uf_finale_stage", () => {
 
   it("returns zero count when no files staged", async () => {
     const mockExec: GitExec = () => ""
-    const result = await invokeTool<{ fileCount: number }>(
+    const result = await invokeTool<{ fileCount: number; files: string[] }>(
       createUfFinaleStageTool(mockExec, "/fake"),
       {},
     )
@@ -365,6 +370,7 @@ describe("uf_finale_stage", () => {
     expect(result.status).toBe("ok")
     if (result.status === "ok") {
       expect(result.data?.fileCount).toBe(0)
+      expect(result.data?.files).toStrictEqual([])
     }
   })
 
@@ -1538,11 +1544,332 @@ describe("uf_finale_return_to_main", () => {
       createUfFinaleReturnToMainTool(mockExec, "/fake"),
       {},
     )
-
     expect(result.status).toBe("error")
     if (result.status === "error") {
       expect(result.code).toBe("RETURN_TO_MAIN_ERROR")
       expect(result.message).toBe("string error from git")
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Terminal-write regression tests (Requirement 1, TC-006)
+// ---------------------------------------------------------------------------
+
+describe("terminal-write regression (Requirement 1)", () => {
+  const throwingGitExec: GitExec = () => {
+    throw new Error("simulated subprocess failure")
+  }
+
+  /**
+   * Run the given invocations with console methods and stdio streams
+   * spied and assert that no terminal writes occurred.
+   */
+  async function expectNoTerminalWrites(
+    run: () => Promise<void>,
+  ): Promise<void> {
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(() => {}),
+      vi.spyOn(console, "error").mockImplementation(() => {}),
+      vi.spyOn(console, "info").mockImplementation(() => {}),
+      vi.spyOn(console, "warn").mockImplementation(() => {}),
+      vi.spyOn(console, "debug").mockImplementation(() => {}),
+      vi.spyOn(console, "trace").mockImplementation(() => {}),
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true),
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true),
+    ]
+    try {
+      await run()
+      for (const spy of spies) {
+        expect(spy).not.toHaveBeenCalled()
+      }
+    } finally {
+      for (const spy of spies) {
+        spy.mockRestore()
+      }
+    }
+  }
+
+  it("uf_finale_startup writes nothing to the terminal", async () => {
+    const successExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "feature/x"
+      if (cmd.includes("--porcelain")) return "?? .env\n M src/app.ts"
+      if (cmd.includes("@{u}..HEAD")) return "abc1234 first commit"
+      return ""
+    }
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createUfFinaleStartupTool(successExec, "/fake"), {})
+      await invokeTool(createUfFinaleStartupTool(throwingGitExec, "/fake"), {})
+    })
+  })
+
+  it("uf_finale_stage writes nothing to the terminal", async () => {
+    const successExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--cached --name-only")) return "file1.ts\nfile2.ts"
+      return ""
+    }
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createUfFinaleStageTool(successExec, "/fake"), {})
+      await invokeTool(createUfFinaleStageTool(throwingGitExec, "/fake"), {})
+    })
+  })
+
+  it("uf_finale_commit_context writes nothing to the terminal", async () => {
+    const successExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--cached --stat"))
+        return " file1.ts | 10 ++++++++++\n 1 file changed, 10 insertions(+)"
+      if (cmd.includes("log -5")) return "abc1234 feat: add stuff"
+      return ""
+    }
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createUfFinaleCommitContextTool(successExec, "/fake"), {
+        rawModelId: "claude-sonnet-4",
+      })
+      await invokeTool(
+        createUfFinaleCommitContextTool(throwingGitExec, "/fake"),
+        { rawModelId: "claude-sonnet-4" },
+      )
+    })
+  })
+
+  it("uf_finale_push_state writes nothing to the terminal", async () => {
+    const successExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref @{u}")) return "origin/feature"
+      if (cmd.includes("@{u}..HEAD --count")) return "2"
+      if (cmd.includes("HEAD..@{u} --count")) return "1"
+      return ""
+    }
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createUfFinalePushStateTool(successExec, "/fake"), {})
+      await invokeTool(
+        createUfFinalePushStateTool(throwingGitExec, "/fake"),
+        {},
+      )
+    })
+  })
+
+  it("uf_finale_pr_context writes nothing to the terminal", async () => {
+    const richExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("merge-base"))
+        return "abc123def456abc123def456abc123def456abc1"
+      if (cmd.includes("log --oneline")) return "def456 feat: stuff"
+      if (cmd.includes("diff --stat")) return " file.ts | 5 +++++\n 1 file changed"
+      if (cmd.includes("--abbrev-ref HEAD")) return "feature/x"
+      throw new Error("skip")
+    }
+    await expectNoTerminalWrites(async () => {
+      vi.mocked(execSync).mockImplementation((cmd) => {
+        const cmdStr = String(cmd)
+        if (cmdStr.includes("gh pr view --json number,url,title")) {
+          return JSON.stringify({
+            number: 42,
+            url: "https://github.com/owner/repo/pull/42",
+            title: "My PR",
+          })
+        }
+        if (cmdStr.includes("--json isFork --jq")) return "true"
+        if (cmdStr.includes("--json parent")) {
+          return JSON.stringify({
+            parent: { owner: { login: "upstream-org" }, name: "upstream-repo" },
+          })
+        }
+        throw new Error(`unexpected: ${cmdStr}`)
+      })
+      vi.mocked(readFileSync).mockImplementation((pathArg) => {
+        const p = String(pathArg)
+        if (p.includes("PULL_REQUEST_TEMPLATE.md")) {
+          return "## Summary\nDescribe changes.\n\n## Testing\nHow tested."
+        }
+        if (p.includes(".openspec.yaml")) {
+          return "name: my-change\noriginating_issue: 123\n"
+        }
+        if (p.includes("unleash-summary")) {
+          return JSON.stringify({ steps: ["s1"], verdict: "APPROVE" })
+        }
+        throw new Error("ENOENT")
+      })
+      await invokeTool(createUfFinalePrContextTool(richExec, "/fake"), {})
+      await invokeTool(createUfFinalePrContextTool(throwingGitExec, "/fake"), {})
+    })
+  })
+
+  it("uf_finale_create_pr writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      vi.mocked(mkdtempSync).mockReturnValue("/tmp/uf-finale-regression")
+      vi.mocked(writeFileSync).mockImplementation(() => {})
+      vi.mocked(rmSync).mockImplementation(() => {})
+      vi.mocked(execSync)
+        .mockReturnValueOnce("https://github.com/owner/repo/pull/42\n")
+        .mockImplementationOnce(() => {
+          throw new Error("gh: not authenticated")
+        })
+      await invokeTool(createUfFinaleCreatePrTool(successExec, "/fake"), {
+        title: "My PR title",
+        body: "PR body content",
+      })
+      await invokeTool(createUfFinaleCreatePrTool(successExec, "/fake"), {
+        title: "My PR title",
+        body: "PR body content",
+      })
+    })
+  })
+
+  it("uf_finale_ci_poll writes nothing to the terminal (pass/fail/error)", async () => {
+    const mockExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      vi.mocked(execSync).mockImplementation((cmd) => {
+        const cmdStr = String(cmd)
+        if (cmdStr.includes("gh pr view")) {
+          return JSON.stringify({
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+          })
+        }
+        if (cmdStr.includes("gh pr checks")) {
+          return JSON.stringify([
+            {
+              name: "CI",
+              state: "COMPLETED",
+              conclusion: "SUCCESS",
+              detailsUrl: "https://ci/1",
+            },
+          ])
+        }
+        throw new Error(`unexpected: ${cmdStr}`)
+      })
+      await invokeTool(createUfFinaleCiPollTool(mockExec, "/fake"), {
+        prNumber: 42,
+      })
+
+      // Fail path: a check with a FAILURE conclusion
+      vi.mocked(execSync).mockImplementation((cmd) => {
+        const cmdStr = String(cmd)
+        if (cmdStr.includes("gh pr view")) {
+          return JSON.stringify({
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+          })
+        }
+        if (cmdStr.includes("gh pr checks")) {
+          return JSON.stringify([
+            {
+              name: "Lint",
+              state: "COMPLETED",
+              conclusion: "FAILURE",
+              detailsUrl: "https://ci/lint",
+            },
+          ])
+        }
+        throw new Error(`unexpected: ${cmdStr}`)
+      })
+      await invokeTool(createUfFinaleCiPollTool(mockExec, "/fake"), {
+        prNumber: 42,
+      })
+
+      // Error path: gh CLI failure during poll
+      vi.mocked(execSync).mockImplementation(() => {
+        throw new Error("gh: command not found")
+      })
+      await invokeTool(createUfFinaleCiPollTool(mockExec, "/fake"), {
+        prNumber: 42,
+      })
+    })
+  })
+
+  it("uf_finale_ci_poll writes nothing to the terminal (pending/timeout)", async () => {
+    const mockExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      vi.useFakeTimers()
+      try {
+        let checkCallCount = 0
+        vi.mocked(execSync).mockImplementation((cmd) => {
+          const cmdStr = String(cmd)
+          if (cmdStr.includes("gh pr view")) {
+            return JSON.stringify({
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "CLEAN",
+            })
+          }
+          if (cmdStr.includes("gh pr checks")) {
+            checkCallCount++
+            if (checkCallCount === 1) {
+              return JSON.stringify([
+                {
+                  name: "CI",
+                  state: "IN_PROGRESS",
+                  conclusion: "",
+                  detailsUrl: "https://ci/1",
+                },
+              ])
+            }
+            return JSON.stringify([
+              {
+                name: "CI",
+                state: "COMPLETED",
+                conclusion: "SUCCESS",
+                detailsUrl: "https://ci/1",
+              },
+            ])
+          }
+          throw new Error(`unexpected: ${cmdStr}`)
+        })
+
+        const pendingPromise = invokeTool(
+          createUfFinaleCiPollTool(mockExec, "/fake"),
+          { prNumber: 42 },
+        )
+        await vi.advanceTimersByTimeAsync(30_000)
+        await pendingPromise
+
+        // Timeout path: checks remain pending past the configured limit
+        vi.mocked(execSync).mockImplementation((cmd) => {
+          const cmdStr = String(cmd)
+          if (cmdStr.includes("gh pr view")) {
+            return JSON.stringify({
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "CLEAN",
+            })
+          }
+          if (cmdStr.includes("gh pr checks")) {
+            return JSON.stringify([
+              {
+                name: "CI",
+                state: "PENDING",
+                conclusion: "",
+                detailsUrl: "https://ci/1",
+              },
+            ])
+          }
+          throw new Error(`unexpected: ${cmdStr}`)
+        })
+
+        const timeoutPromise = invokeTool(
+          createUfFinaleCiPollTool(mockExec, "/fake"),
+          { prNumber: 42, timeoutMinutes: 1 },
+        )
+        await vi.advanceTimersByTimeAsync(30_000)
+        await vi.advanceTimersByTimeAsync(30_000)
+        await timeoutPromise
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  it("uf_finale_return_to_main writes nothing to the terminal", async () => {
+    const successExec: GitExec = () => ""
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createUfFinaleReturnToMainTool(successExec, "/fake"), {})
+      await invokeTool(
+        createUfFinaleReturnToMainTool(throwingGitExec, "/fake"),
+        {},
+      )
+    })
   })
 })

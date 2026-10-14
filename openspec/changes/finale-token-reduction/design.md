@@ -67,6 +67,12 @@ tracking, progress) to TUI.
 **Rationale**: Observable Quality (Principle III). Humans see
 everything; LLM gets only what it needs for decisions.
 
+> **Superseded** by `fix-tui-git-output-leak`
+> (openspec/changes/fix-tui-git-output-leak/): tool handlers
+> MUST NOT write to the process terminal; all output flows
+> through JSON result envelopes (`plugin-terminal-hygiene`
+> capability). This decision's TUI-echo behavior is removed.
+
 ### D3: Internal CI polling loop
 
 `uf_finale_ci_poll` blocks internally with configurable
