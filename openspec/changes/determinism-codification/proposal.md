@@ -50,6 +50,13 @@ rules, review convention pack, and session skill.
    `determinism.md`, plus the previously unlisted `ci.md` and
    `ci-custom.md`).
 6. **`CHANGELOG.md`**: entry for the governance codification.
+7. **`README.md` and principle-count reconciliation**: the
+   README Constitution section still enumerates four core
+   principles; re-enumerate all six (adding V. Security by
+   Default and VI. Deterministic Execution) and fix the
+   governance bridge bullet's "four org principles" reference.
+   The constitution's Hero Constitution Alignment count
+   reference ("five org principles") is reconciled to six.
 
 Deliberately repo-local: pack and skill changes do not propagate via
 `uf init`. Hero repos adopt the principle through constitutional
@@ -79,7 +86,8 @@ None.
   `.opencode/skills/determinism-first/SKILL.md` (new),
   `internal/scaffold/scaffold_test.go` (exclusion map only),
   `internal/schemas/packvalidator_test.go` (skip list only),
-  `CHANGELOG.md`.
+  `CHANGELOG.md`, `README.md` (Constitution section count
+  reconciliation only).
 - **Hero repositories**: new MUST rules trigger the standard
   alignment-review obligation (alignment issue within one release
   cycle, resolved before the next major version).
@@ -91,8 +99,16 @@ None.
 - **Tests**: `make test` (canonical-embedded walk passes via the new
   exclusions), `make plugin-test` (verify no golden tests break from
   the added pack).
-- **Docs gate**: exempt — repo-internal conventions; nothing
-  user-facing propagates.
+- **Docs gate**: not exempt. The constitution amendment and the
+  new pack and skill alter repo-wide agent and review-council
+  behavior, which satisfies "user-facing" per org precedent:
+  (a) README.md's Constitution section is reconciled in this
+  change (task 1.8); (b) the org constitution's Cross-Repo
+  Documentation rule requires a `unbound-force/website` issue
+  for the constitution page update before PR merge (task 1.10;
+  Principle V precedent: website issues #142 and #254); (c)
+  AGENTS.md's documentation gate requires a documentation issue
+  in this repo (task 1.11).
 
 ## Constitution Alignment
 
