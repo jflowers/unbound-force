@@ -15,7 +15,7 @@
 All tasks in this group touch different files and have no
 ordering constraints.
 
-- [ ] 1.1 [P] Amend `.specify/memory/constitution.md`: insert
+- [x] 1.1 [P] Amend `.specify/memory/constitution.md`: insert
   Principle VI "Deterministic Execution" after Principle V
   (before `## Hero Constitution Alignment`) in the established
   format (intro + bold-lead bullets + Rationale); update the
@@ -24,15 +24,15 @@ ordering constraints.
   the footer to Version 1.4.0, Last Amended 2026-10-14. No
   scaffold asset changes (`specify/` is excluded from drift
   tests).
-- [ ] 1.2 [P] Create `.opencode/uf/packs/determinism.md` with
+- [x] 1.2 [P] Create `.opencode/uf/packs/determinism.md` with
   DE-001 [MUST], DE-002 [SHOULD], DE-003 [MUST], DE-004 [SHOULD]
   per the spec scenarios; follow the governance-pack format
   precedent (see `content.md`, `ci.md`) — domain-specific
   sections and RFC 2119 rules, not the coding-pack H2 schema.
-- [ ] 1.3 [P] Create `.opencode/skills/determinism-first/SKILL.md`
+- [x] 1.3 [P] Create `.opencode/skills/determinism-first/SKILL.md`
   with YAML frontmatter (name/description/tags) and the
   classify-before-writing guidance body per the spec.
-- [ ] 1.4 [P] Update `AGENTS.md`: add the "Determinism gate"
+- [x] 1.4 [P] Update `AGENTS.md`: add the "Determinism gate"
   Behavioral Rule (CRITICAL severity, style-matched to existing
   rules) and make the Convention Packs listing exhaustive
   (add `determinism.md`, `ci.md`, `ci-custom.md`).
