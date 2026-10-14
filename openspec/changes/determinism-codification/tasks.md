@@ -36,15 +36,15 @@ ordering constraints.
   Behavioral Rule (CRITICAL severity, style-matched to existing
   rules) and make the Convention Packs listing exhaustive
   (add `determinism.md`, `ci.md`, `ci-custom.md`).
-- [ ] 1.5 [P] Add the CHANGELOG.md entry for this change
+- [x] 1.5 [P] Add the CHANGELOG.md entry for this change
   (repo-local codification, constitution 1.4.0, pack, skill,
   AGENTS.md rule).
-- [ ] 1.6 [P] Update `internal/scaffold/scaffold_test.go`
+- [x] 1.6 [P] Update `internal/scaffold/scaffold_test.go`
   `knownNonEmbeddedFiles`: add entries for
   `opencode/uf/packs/determinism.md` and
   `opencode/skills/determinism-first/SKILL.md` following the
   existing map style. No scaffold asset is created.
-- [ ] 1.7 [P] Update `internal/schemas/packvalidator_test.go`:
+- [x] 1.7 [P] Update `internal/schemas/packvalidator_test.go`:
   add `determinism.md` to the skip list in
   `TestValidateConventionPack_AllPacksValid` with a rationale
   comment (governance pack, not a coding convention pack),
