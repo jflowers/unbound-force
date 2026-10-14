@@ -1,0 +1,62 @@
+---
+pack_id: determinism
+language: Any
+version: 1.0.0
+---
+
+<!-- repo-local governance pack (not a scaffold asset);
+     governance-styled per the content.md/ci.md precedent -->
+
+# Convention Pack: Determinism (Constitution Principle VI)
+
+This is the determinism governance pack for the Unbound Force
+agent ecosystem. It codifies Constitution Principle VI —
+Deterministic Execution — as review rules: agent context is a
+scarce shared resource, and deterministic procedures MUST
+execute in tools rather than be re-reasoned from prose.
+
+Rules carry RFC 2119 markers with severity mapping to the
+severity pack. Violations of the [MUST] rules (DE-001,
+DE-003) are CRITICAL findings; the [SHOULD] rules (DE-002,
+DE-004) are guidance that is valuable but not universally
+applicable. The rules govern new and modified instruction;
+existing prose is migrated opportunistically at review time,
+not retroactively.
+
+---
+
+## Tool Extraction
+
+- **DE-001** [MUST] Mechanical instruction added to commands,
+  agents, or skills MUST be extracted to an executable tool
+  with tests. A step is mechanical when it is a fixed
+  procedure with the same output every time: parsing,
+  existence checks, git choreography, output template
+  rendering, enumeration loops. Judgment steps (decisions,
+  evaluation, human interaction) remain in prose.
+
+- **DE-002** [SHOULD] Extractions SHOULD preserve one or two
+  tool output-format examples near the decision points that
+  consume them, so consuming agents still recognize the
+  rendered shape without re-carrying the instruction.
+
+---
+
+## Prescribed Output Rendering
+
+- **DE-003** [MUST] Prescribed terminal output MUST be
+  tool-rendered, not reconstructed from instructed templates.
+  When a command's output format is prescribed, the tool that
+  performs the procedure renders it; agents MUST NOT be
+  instructed to reproduce the format from prose. Behavioral
+  guards that verify rendered output are interim mitigations,
+  not the mechanism of record.
+
+---
+
+## Efficiency Evidence
+
+- **DE-004** [SHOULD] Change records SHOULD include
+  measurable line/token deltas when instruction text changes,
+  so efficiency claims are backed by before/after counts
+  rather than impressions.
