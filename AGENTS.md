@@ -185,6 +185,15 @@ These rules are non-negotiable. Violations are CRITICAL severity.
   Review: fixes only. Violation = process error, stop immediately.
 - **CI parity**: MUST replicate CI checks locally before marking
   tasks complete. Derive commands from `.github/workflows/`.
+- **Determinism gate**: Before writing, agents MUST classify
+  the work as deterministic or judgment-based. Deterministic
+  work (build/test/lint commands, transformations, verification)
+  MUST be executed via the exact commands or scripts rather
+  than paraphrased or improvised. Agents MUST NOT add
+  mechanical procedural prose (parsing, existence checks, git
+  choreography, output template rendering, enumeration loops)
+  to commands, agents, or skills where an executable tool is
+  feasible. Violations are CRITICAL severity.
 - **Review council**: MUST run `/uf.review-council` before PR
   submission (already executed as `/uf.unleash` Step 8;
   do not re-run). Resolve all REQUEST CHANGES. No code
@@ -338,6 +347,9 @@ before writing or reviewing code.
 - `.opencode/uf/packs/severity.md`
 - `.opencode/uf/packs/content.md`
 - `.opencode/uf/packs/content-custom.md`
+- `.opencode/uf/packs/ci.md`
+- `.opencode/uf/packs/ci-custom.md`
+- `.opencode/uf/packs/determinism.md`
 - `.opencode/uf/packs/go.md`
 - `.opencode/uf/packs/go-custom.md`
 - `.opencode/uf/packs/python.md`
