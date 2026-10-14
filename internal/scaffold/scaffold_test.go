@@ -2085,6 +2085,9 @@ var knownNonEmbeddedFiles = map[string]bool{
 	// DCP config — generated programmatically by configureDCPConfig(),
 	// not embedded as a scaffold asset
 	".opencode/dcp.jsonc": true,
+	// Determinism governance — repo-local files, not present in scaffold assets
+	".opencode/uf/packs/determinism.md":           true,
+	".opencode/skills/determinism-first/SKILL.md": true,
 }
 
 func TestCanonicalSources_AreEmbedded(t *testing.T) {
