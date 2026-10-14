@@ -1,11 +1,13 @@
 <!--
   SYNC IMPACT REPORT
   ==================
-  Version change: 1.3.0 → 1.3.1 (PATCH: remove Muti-Mind and Mx F references)
+  Version change: 1.3.1 → 1.4.0 (MINOR: new principle, Deterministic Execution)
 
   Added or expanded guidance:
-    - Gatekeeping Integrity now permits narrowly bounded, verified
-      dependency pin updates without permitting gate weakening.
+    - New Principle VI "Deterministic Execution" — agent context is
+      a scarce shared resource; deterministic procedures MUST
+      execute in tools with tests rather than be re-reasoned from
+      prose.
 
   Unchanged principles:
     - I. Autonomous Collaboration
@@ -15,33 +17,36 @@
     - V. Security by Default
 
   Changed sections:
-    - Hero Constitution Alignment — hero repositories must review
-      alignment with the amended gatekeeping rule.
-    - Development Workflow — Gatekeeping Integrity defines the
-      verified pin-update exception and its required evidence.
+    - Core Principles — Principle VI "Deterministic Execution"
+      added after Principle V, covering executable tools with
+      tests, tool-rendered prescribed output, preserved
+      decision-point examples, and measurable efficiency deltas.
 
   Unchanged sections:
+    - Hero Constitution Alignment procedure
+    - Development Workflow
     - Governance amendment and versioning procedures
 
   Templates requiring updates:
     ✅ .specify/templates/plan-template.md — no changes needed;
        Constitution Check section is generic and will align at
-       plan time using these five principles.
+       plan time using these six principles.
     ✅ .specify/templates/spec-template.md — no changes needed.
     ✅ .specify/templates/tasks-template.md — no changes needed.
     ✅ .specify/templates/checklist-template.md — no changes needed.
     ✅ .specify/templates/agent-file-template.md — no changes needed.
 
   Hero constitution alignment:
-    ⚠  All hero repositories — review alignment with the amended
-       Gatekeeping Integrity rule and open an alignment issue within
-       one release cycle where a MUST rule is affected.
+    ⚠  All hero repositories — review alignment with the new
+       Principle VI MUST rules and open an alignment issue within
+       one release cycle, resolving it before the next major
+       version.
 
   Migration:
-    - Existing pins remain unchanged unless the documented exception
-      requirements are all satisfied.
-    - Agents must stop and report when provenance, validation,
-      rollback, or review evidence is missing.
+    - None required — no existing principle is altered or removed.
+    - Principle VI governs new and modified instruction text in
+      commands, agents, and skills; existing templates are cleaned
+      up opportunistically at review time.
 -->
 
 # Unbound Force Constitution
@@ -189,6 +194,36 @@ privilege boundaries are enforced before code reaches review — not
 discovered during review when anchoring bias and finding fragmentation
 can cause under-classification.
 
+### VI. Deterministic Execution
+
+Agent context is a scarce shared resource. Deterministic procedures
+MUST execute in tools rather than be re-reasoned from prose.
+Judgment — decisions, evaluation, human interaction — belongs in
+instruction prose.
+
+- **Executable tools with tests**: Mechanical procedures added to
+  commands, agents, or skills — parsing, existence checks, git
+  choreography, output template rendering, enumeration loops — MUST
+  be extracted to executable tools that ship with tests.
+- **Tool-rendered prescribed output**: Prescribed terminal output
+  MUST be rendered by tools, not reconstructed from instructed
+  templates. Behavioral guards such as re-read rules and emit-time
+  verification are interim mitigations, not the mechanism of record.
+- **Preserved decision-point examples**: When instruction is
+  extracted to a tool, one or two tool output-format examples
+  SHOULD be preserved near the decision points that consume them.
+- **Measurable efficiency claims**: Change records SHOULD include
+  measurable line or token deltas when instruction text changes, so
+  efficiency claims rest on evidence rather than assertion.
+
+**Rationale**: Behavioral guards mitigate the symptoms of prompt
+drift but cannot cure the cause — prescribed procedures and output
+formats living as prose in conversation content. Tool-rendered
+output cannot drift after context compression, and extraction saves
+tokens while eliminating re-reasoning errors. Without codification
+the practice regresses with every new command template and leaves
+reviewers no rule to cite.
+
 ## Hero Constitution Alignment
 
 Every hero repository MUST maintain its own constitution in
@@ -289,4 +324,4 @@ and project-specific guidance.
   implicit priority over another; resolution is context-dependent
   and requires written justification.
 
-**Version**: 1.3.1 | **Ratified**: 2026-02-25 | **Last Amended**: 2026-10-10
+**Version**: 1.4.0 | **Ratified**: 2026-02-25 | **Last Amended**: 2026-10-14
