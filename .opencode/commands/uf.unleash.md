@@ -346,25 +346,105 @@ and `/speckit.checklist` -- the review council's 5
 Divisor agents provide equivalent coverage (consistency
 analysis + quality validation) in a single pass.
 
-1. Read the full contents of
-   `.opencode/commands/uf.review-council.md`.
-2. Delegate to the `cobalt-crush-dev` agent via the Task
-   tool with the review council's instructions, adding
-   the explicit mode override: "Run in **Spec Review
-   Mode** -- review the spec artifacts in `FEATURE_DIR`,
-   not code." The review council auto-detects the
-   workflow tier from the branch name (`opsx/*` vs
-   `NNN-*`).
-3. Collect the review results.
+**Normative protocol reference**: the "Resolve Immutable
+Input Context", "Shared Dispatch, Evidence, and
+Finalization Protocol", and "Spec Review Mode" sections
+of `.opencode/commands/uf.review-council.md` govern the
+dispatch sequence below. This command cites those
+sections instead of embedding their text.
+
+1. Announce: "Spec review starting -- dispatching the
+   review council directly via the review-dispatch
+   plugin (no child driver session)."
+2. Call `resolve_base_ref` (no network access) and
+   announce the resolved base ref and its SHA. SHA and
+   ref validation failures MUST stop the step
+   (fail-closed, no fallback).
+3. Capture the immutable input context:
+   - Resolve the head SHA via `git rev-parse HEAD`.
+   - Capture tracked changes via
+     `git diff <base_sha> -- .` and untracked files
+     via `git ls-files --others --exclude-standard`
+     (treated as full-content additions in the diff).
+   - Save the combined diff to a file.
+   - Derive the raw `changed_files` list with per-file
+     insertion/deletion counts.
+   - If HEAD equals the base SHA and the working tree
+     carries the change (no commits ahead), the input
+     context is the uncommitted local path:
+     `uncommitted: true` with `pr_number: null`.
+4. Discover reviewer agents: enumerate the regular
+   `divisor-*.md` files in `.opencode/agents/`, strip
+   the `.md` extension, and sort the list. Zero
+   discovered reviewers MUST stop the step
+   (fail-closed).
+5. Load the `dispatch-advisor` skill (invoke the
+   `skill` tool with name `dispatch-advisor`), then
+   call `plan_review_dispatch` with mode `specs`,
+   `full: false`, `augment: false`, and the
+   `changed_files` list. Display the plan JSON exactly
+   as returned. Proceed only when the plan status is
+   `ready`, `workflow_result` is null, and `errors` is
+   empty; otherwise finalize the failed dispatch and
+   exit.
+6. Call `dispatch_review_runs` exactly once with mode
+   `specs`, command `review-council`, `diff_path` (the
+   saved diff file), `changed_files`, `input_context`,
+   `plan_entries`, `session_metadata` (command, mode,
+   full, input context, change profile, plan,
+   coverage), and the plan limits (`max_parallel_runs`,
+   `budget_usd`, `per_run_timeout_ms`). Pass the spec
+   artifacts as `review_context`. Then call
+   `consolidate_dispatch` exactly once per finalization
+   attempt with provenance: branch, 40-character head
+   SHA, and `workflow_id: "uf.review-council"`.
 
 **Processing results**:
 
-- If all reviewers APPROVE: proceed to step 5.
+- If the verdict is APPROVE or APPROVE WITH ADVISORIES:
+  record any advisories for the final report and
+  proceed to step 5 (approving verdicts never trigger
+  the consent gate below).
 
-- If only LOW and MEDIUM findings exist: auto-fix them
-  (the review council handles this per its hybrid fix
-  policy). After fixes, re-run the review. If all
-  APPROVE after fixes, proceed.
+- If the verdict is REQUEST CHANGES with only LOW and
+  MEDIUM findings (any HIGH/CRITICAL finding bypasses
+  this gate): present the spec auto-fix consent gate.
+  Spec artifacts MUST NOT be modified on LOW/MEDIUM
+  findings without explicit human consent. The
+  council's session-resume guard applies to this
+  gate: consent captured before a context compression
+  or session resume is not valid, and the question
+  MUST be re-presented on resume. Use the **question
+  tool** with the council's three options, exactly as
+  labeled below:
+  - **"Apply auto-fixes"** (consent): the parent
+    command itself applies the LOW/MEDIUM fixes per
+    `.opencode/uf/packs/severity.md` -- formatting,
+    status fields, terminology, cross-references,
+    obvious gaps, stale metadata. HIGH/CRITICAL
+    findings are report-only and MUST NOT be
+    auto-fixed.
+  - **"Review findings first"**: display the findings,
+    then the question tool re-presents the same three
+    options. No spec edits occur until a selection is
+    made.
+  - **"Skip auto-fixes -- report only"** (decline):
+    exit using the same exit path as the HIGH/CRITICAL
+    branch below (tier-specific recovery guidance and
+    the "paused at: spec review" exit template),
+    making no spec edits.
+
+  After consented fixes, re-run the review: re-resolve
+  the immutable input, re-validate the full plan, and
+  rerun every included reviewer (not just failing or
+  content-affected ones), reusing a single
+  sibling-evidence acquisition across the iteration.
+  Keep the iteration counter. Each re-run verdict is
+  processed through these same rules -- the gate
+  re-presents on REQUEST CHANGES with only LOW/MEDIUM
+  findings. Cap at 3 iterations: if REQUEST CHANGES
+  persists to a fourth encounter, exit with the same
+  tier-specific recovery guidance and exit template.
 
   > CHECKPOINT: Call `checkpoint` with `command:
   > "uf.unleash"`, `step: "spec-review"`, and
@@ -568,38 +648,168 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
 ### 8. Step 6 -- Code Review
 
 Review the implementation using the review council in
-code review mode. This includes the Phase 1a CI hard
-gate, Phase 1b Gaze quality analysis (if available), and
-Divisor agent reviews.
+code review mode, dispatched directly via the
+review-dispatch plugin (no child driver session). This
+includes the Phase 1a pre-flight soft gate (all checks
+executed, failures classified by causality, only
+branch-caused failures block), Phase 1b Gaze quality
+analysis (conditional, informational), and Divisor agent
+reviews.
 
-1. Read the full contents of
-   `.opencode/commands/uf.review-council.md`.
-2. Delegate to the `cobalt-crush-dev` agent via the Task
-   tool with the review council's instructions, adding
-   the explicit mode override: "Run in **Code Review
-   Mode** -- review the implementation code in
-   `FEATURE_DIR`."
-3. Collect the review results.
+**Normative protocol reference**: the "Resolve Immutable
+Input Context", "Shared Dispatch, Evidence, and
+Finalization Protocol", and "Code Review Mode" sections
+of `.opencode/commands/uf.review-council.md` govern the
+pre-flight gate and dispatch sequence below. This
+command cites those sections instead of embedding their
+text.
 
-**If Gaze is not installed**: the review council will
-skip Phase 1b with an informational note. This is
-non-blocking -- code review proceeds without Gaze
-quality data.
+1. Run the pre-flight soft gate: load the `pre-flight`
+   skill (invoke the `skill` tool with name `pre-flight`)
+   in `soft-gate` mode and execute ALL detected checks
+   without stopping at the first failure -- record every
+   exit code and output.
+   - If all checks pass: proceed to the dispatch below.
+   - When any check fails, establish a baseline per the
+     skill's Phase 4a (Tier 1: CI API via `gh`; Tier 2:
+     local worktree fallback), then classify each
+     failure per its Phase 4b as `branch-caused`,
+     `pre-existing`, or `unknown` (unknown is treated as
+     branch-caused).
+   - **Branch-caused (or unknown) failures**: STOP
+     before dispatching any reviewers. Report each
+     failure as a CRITICAL finding with full output.
+     Finalize the dispatch fail-closed with NO child
+     reviewer runs (a dispatch with zero executed
+     reviewers, verdict UNAVAILABLE), then **EXIT** with
+     the failure details:
+
+     ```
+     ## /uf.unleash paused at: code review
+
+     **Reason**: Pre-flight gate: branch-caused failures
+
+     ### Findings
+
+     [list each branch-caused failure as a CRITICAL
+     finding with its full output]
+
+     ### What to do next
+     Fix the branch-caused failures, then re-run
+     `/uf.unleash`.
+
+     ### Then resume
+     Run `/uf.unleash` to continue from code review.
+     ```
+
+   - **Pre-existing failures**: record them for the
+     final report; they are non-blocking. Proceed.
+   - **Gaze Phase 1b** (conditional, informational): if
+     Gaze is not installed, skip Phase 1b with an
+     informational note. This is non-blocking -- code
+     review proceeds without Gaze quality data. When
+     Gaze is installed, run Phase 1b as specified in the
+     cited "Code Review Mode" section.
+
+2. Dispatch the review council directly -- the same
+   sequence as Step 4, with mode `code`:
+   a. Announce: "Code review starting -- dispatching the
+      review council directly via the review-dispatch
+      plugin (no child driver session)."
+   b. Call `resolve_base_ref` (no network access) and
+      announce the resolved base ref and its SHA. SHA
+      and ref validation failures MUST stop the step
+      (fail-closed, no fallback).
+   c. Capture the immutable input context:
+      - Resolve the head SHA via `git rev-parse HEAD`.
+      - Capture tracked changes via
+        `git diff <base_sha> -- .` and untracked files
+        via `git ls-files --others --exclude-standard`
+        (treated as full-content additions in the diff).
+      - Save the combined diff to a file.
+      - Derive the raw `changed_files` list with
+        per-file insertion/deletion counts.
+      - If HEAD equals the base SHA and the working
+        tree carries the change (no commits ahead), the
+        input context is the uncommitted local path:
+        `uncommitted: true` with `pr_number: null`.
+   d. Discover reviewer agents: enumerate the regular
+      `divisor-*.md` files in `.opencode/agents/`,
+      strip the `.md` extension, and sort the list.
+      Zero discovered reviewers MUST stop the step
+      (fail-closed).
+   e. Load the `dispatch-advisor` skill, then call
+      `plan_review_dispatch` with mode `code`,
+      `full: false`, `augment: false`, and the
+      `changed_files` list. Display the plan JSON
+      exactly as returned. Proceed only when the plan
+      status is `ready`, `workflow_result` is null, and
+      `errors` is empty; otherwise finalize the failed
+      dispatch and exit.
+   f. Call `dispatch_review_runs` exactly once with mode
+      `code`, command `review-council`, `diff_path` (the
+      saved diff file), `changed_files`, `input_context`,
+      `plan_entries`, `session_metadata` (command, mode,
+      full, input context, change profile, plan,
+      coverage), and the plan limits (`max_parallel_runs`,
+      `budget_usd`, `per_run_timeout_ms`). Pass the
+      soft-gate results as `pre_flight_results` (verdict,
+      causality classifications, baseline method). Then
+      call `consolidate_dispatch` exactly once per
+      finalization attempt with provenance: branch,
+      40-character head SHA, and
+      `workflow_id: "uf.review-council"`.
 
 **Processing results**:
 
-- If all reviewers APPROVE (and CI passes):
-  Proceed to step 7.
+- If the verdict is APPROVE or APPROVE WITH ADVISORIES
+  (at least one successful reviewer assessment is
+  required for a valid verdict): record any advisories
+  for the final report and proceed to step 7.
 
-- If findings exist: attempt to fix them. For each
-  iteration (up to 3 total):
-  a. Address the findings by making code fixes.
-  b. Re-run the review council in code review mode.
-  c. If all APPROVE: proceed to step 7.
+- If the verdict is REQUEST CHANGES: enter the fix loop.
+  For each iteration (up to 3 total):
+  a. Address the findings by making code fixes --
+     delegate the code-fix application to the
+     `cobalt-crush-dev` agent via the Task tool (fix
+     application is content work, not review driving --
+     code fixes proceed without a human decision).
+  b. Re-run the review: re-resolve the immutable input,
+     re-validate the full plan, and rerun every included
+     reviewer (not just failing or content-affected
+     ones), reusing a single sibling-evidence
+     acquisition across the iteration, and again
+     passing fresh `pre_flight_results` from a re-run
+     of the soft gate. Keep the iteration counter.
+  c. If the verdict is APPROVE or APPROVE WITH
+     ADVISORIES: proceed to step 7.
 
   > CHECKPOINT: Call `checkpoint` with `command:
   > "uf.unleash"`, `step: "code-review"`, and
   > `data: '{"iteration": N}'`.
+
+- If the verdict is INCONCLUSIVE or UNAVAILABLE (no
+  successful reviewer assessment, on the initial run or
+  any re-run): **EXIT** with the no-success reasons --
+  which reviewers ran or failed, and why:
+
+  ```
+  ## /uf.unleash paused at: code review
+
+  **Reason**: Code review produced no successful
+  assessment
+
+  ### No-success reasons
+
+  [list which reviewers ran or failed, and why]
+
+  ### What to do next
+  Address the reviewer-run failures, then re-run
+  `/uf.unleash`.
+
+  ### Then resume
+  Run `/uf.unleash` to continue from code review.
+  ```
 
 - If 3 iterations are exhausted with remaining findings:
   **EXIT** with the persistent issues:
@@ -756,11 +966,16 @@ Format the output as:
 
 - **NEVER pause between steps to ask for human
   confirmation** -- proceed immediately from one step to
-  the next. The only valid reasons to exit the pipeline
-  are: unanswerable clarification questions,
-  HIGH/CRITICAL spec findings, build/test failures,
-  merge conflicts, and 3 review iterations exhausted.
-  All other transitions are autonomous.
+  the next. The single exception is the spec auto-fix
+  consent gate in Step 4: when a spec review returns
+  REQUEST CHANGES with only LOW/MEDIUM findings, the
+  question tool MUST be presented before any spec
+  artifact is modified. That gate is the only legitimate
+  mid-pipeline human interaction. The valid reasons to
+  exit the pipeline are: unanswerable clarification
+  questions, HIGH/CRITICAL spec findings, build/test
+  failures, merge conflicts, and 3 review iterations
+  exhausted. All other transitions are autonomous.
 - **NEVER run on `main`** -- the command is for Speckit
   (`NNN-*`) and OpenSpec (`opsx/*`) feature branches
 - **NEVER skip spec review exit on HIGH/CRITICAL** --

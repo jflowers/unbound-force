@@ -6,6 +6,36 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- unleash-direct-review-dispatch: Rewrote `/uf.unleash`
+  Steps 4 (Spec Review) and 6 (Code Review) to call
+  review-dispatch tools directly (resolve_base_ref,
+  plan_review_dispatch, dispatch_review_runs,
+  consolidate_dispatch) instead of delegating to a
+  cobalt-crush-dev driver session — one child session
+  removed per review step and the 1,145-line council
+  command payload no longer enters the dispatch path;
+  council protocol sections are cited as normative
+  reference instead. Added a parent-side spec auto-fix
+  consent gate: on REQUEST CHANGES with only LOW/MEDIUM
+  findings, the question tool MUST be presented (Apply
+  auto-fixes / Review findings first / Skip auto-fixes)
+  before any spec artifact is modified; consented fixes
+  follow severity.md (HIGH/CRITICAL report-only), then
+  every included reviewer re-runs (max 3 iterations).
+  Step 6 now runs the pre-flight soft gate before
+  dispatch (branch-caused failures stop with fail-closed
+  finalization and zero child reviewers; pre-existing
+  failures recorded non-blocking) and maps verdicts:
+  approving verdicts proceed, REQUEST CHANGES enters the
+  ≤3-iteration fix loop with cobalt-crush-dev applying
+  code fixes, INCONCLUSIVE/UNAVAILABLE exits with
+  reasons. The "NEVER pause between steps" guardrail now
+  names the consent gate as the single legitimate
+  mid-pipeline human interaction. Command markdown only;
+  scaffold mirror byte-identical (791 → 1006 lines).
+  Increment 1 of the deterministic-instruction migration.
+  (Spec: openspec/changes/unleash-direct-review-dispatch/,
+  Refs: #716)
 - review-voice-pack: Added `review-voice` + `review-voice-custom`
   convention pack pair for per-project review-output prose style
   (sentence style, framing, tone). Always-deployed via scaffold
