@@ -99,6 +99,17 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- address-feedback-model-normalization: `/uf.address-feedback`
+  Phase 4.2 (Commit Changes) now instructs agents to call the
+  existing tested `normalize_model_name` MCP tool with their
+  raw model identifier and use the returned `normalized` value,
+  replacing the inline 6-step model-name normalization prose;
+  the warn-user fallback on `unknown-model` is preserved
+  verbatim and the scaffold mirror was synced byte-identical.
+  Command markdown only; no tool behavior change. Increment 2
+  of the deterministic-instruction migration (Principle VI). (Spec:
+  openspec/changes/address-feedback-model-normalization/,
+  Fixes: #709)
 - dispatch-finalize-determinism: Review dispatch finalization is
   now deterministic and single-call. `consolidate_dispatch`
   internally finalizes when given provenance `{branch, commit,
