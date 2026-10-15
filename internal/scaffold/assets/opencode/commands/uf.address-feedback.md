@@ -729,21 +729,11 @@ Signed-off-by: <author>
 Assisted-by: <model>
 ```
 
-Where `<model>` is the model family name you are
-currently running as. To resolve the model name:
-(1) read your model identifier from the system prompt
-or runtime environment; (2) remove everything before
-and including the last `/`; (3) remove everything
-after and including the first `@`; (4) remove any
-trailing date suffix matching `-YYYYMMDD` (a hyphen
-followed by exactly 8 digits); (5) repeatedly remove
-any trailing version segment matching `-N` (a hyphen
-followed by a single digit at the end) until no more
-remain; (6) validate the result
-contains only `[a-zA-Z0-9._-]` characters. If the
-result is empty, contains invalid characters, or
-cannot be determined, use the literal string
-`unknown-model` and warn the user (e.g., "Could not
+Where `<model>` is the normalized model family name.
+Call `normalize_model_name` with your raw model
+identifier from the system prompt. Use the returned
+`normalized` value. If the tool returns an error or
+`unknown-model`, warn the user (e.g., "Could not
 determine AI model name — using 'unknown-model' in
 attribution").
 
