@@ -1,6 +1,7 @@
 import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { tool, type PluginModule } from "@opencode-ai/plugin"
+import { z } from "zod"
 import {
   defaultGitExec,
   failure,
@@ -380,6 +381,188 @@ export function createClearProgressTool(exec: GitExec, cwd: string) {
             failure(msg, {
               retryable: false,
               code: "CLEAR_PROGRESS_ERROR",
+            }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// persist_unleash_summary tool
+// ---------------------------------------------------------------------------
+
+/** Artifact directory for unleash summaries, relative to project root. */
+const UNLEASH_SUMMARY_DIR = ".uf/artifacts/unleash-summary"
+
+/**
+ * Flat artifact schema persisted by persist_unleash_summary (FR-002, D2).
+ *
+ * The three content fields are top-level camelCase strings because the
+ * implemented consumer (uf_finale_pr_context) returns the parsed file
+ * wholesale and finale prose reads `.whatWasBuilt` / `.howToVerify`
+ * without unwrapping. Provenance metadata rides along at the top level;
+ * consumers ignore unknown fields, so the metadata is forward-safe.
+ */
+export interface UnleashSummaryArtifact {
+  /** Markdown body of the "What Was Built" section (no `##` header). */
+  whatWasBuilt: string
+  /** Markdown body of the "How to Verify" section (no `##` header). */
+  howToVerify: string
+  /** Markdown body of the "Test Results" section (no `##` header). */
+  testResults: string
+  /** Artifact kind discriminator; always "unleash-summary". */
+  artifact_type: "unleash-summary"
+  /** Artifact schema version. */
+  schema_version: 1
+  /** Raw git branch name detected at write time (slug is derived from it). */
+  branch: string
+  /** ISO 8601 timestamp of the write. */
+  timestamp: string
+}
+
+/**
+ * Write the unleash-summary artifact with restricted permissions and
+ * symlink refusal (FR-003, D6).
+ *
+ * Mirrors the checkpoint writeState hardening — recursive mkdir 0o700,
+ * file mode 0o600, pretty JSON plus trailing newline, unconditional
+ * overwrite — and additionally refuses a symlinked TARGET FILE
+ * (writeState guards only the parent directory). Returns the resolved
+ * artifact path.
+ */
+function writeUnleashSummary(
+  cwd: string,
+  slug: string,
+  artifact: UnleashSummaryArtifact,
+): string {
+  const dir = resolve(cwd, UNLEASH_SUMMARY_DIR)
+  const fp = resolve(dir, `${slug}.json`)
+  if (!fp.startsWith(dir + "/")) {
+    throw new Error(
+      "Path traversal blocked: resolved path escapes .uf/artifacts/unleash-summary/",
+    )
+  }
+  try {
+    const dirStats = lstatSync(dir)
+    if (dirStats.isSymbolicLink()) {
+      throw new Error("Refusing to write into symlinked directory")
+    }
+  } catch (err: unknown) {
+    if (!isEnoent(err)) throw err
+    // Directory does not exist yet — will be created below.
+  }
+  try {
+    const fileStats = lstatSync(fp)
+    if (fileStats.isSymbolicLink()) {
+      throw new Error("Refusing to overwrite symlinked artifact file")
+    }
+  } catch (err: unknown) {
+    if (!isEnoent(err)) throw err
+    // Target file does not exist yet — first write.
+  }
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  writeFileSync(fp, JSON.stringify(artifact, null, 2) + "\n", { mode: 0o600 })
+  return fp
+}
+
+/**
+ * Factory for the persist_unleash_summary tool (FR-001 through FR-005).
+ *
+ * Persists the /uf.unleash Step 10 demo summary as a JSON artifact at
+ * `<cwd>/.uf/artifacts/unleash-summary/<slug>.json`, where `<slug>` is
+ * the sanitized auto-detected current git branch. There is deliberately
+ * no branch override parameter (D4): the consumer always reads by
+ * auto-detected branch, so the write path stays symmetric with the
+ * uf_finale_pr_context read path. A re-run overwrites the previous
+ * artifact unconditionally (latest run is authoritative).
+ *
+ * @param exec - Injected git executor (args array, no shell) used for
+ *   branch detection; enables test substitution.
+ * @param cwd - Project root used for git execution and artifact path
+ *   resolution.
+ * @returns The persist_unleash_summary tool definition.
+ */
+export function createPersistUnleashSummaryTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Persist the /uf.unleash Step 10 demo summary (What Was Built, " +
+      "How to Verify, Test Results) as a JSON artifact keyed by the " +
+      "current git branch at .uf/artifacts/unleash-summary/<slug>.json, " +
+      "for consumption by /uf.finale PR body generation. Overwrites any " +
+      "existing artifact for the branch (latest run is authoritative).",
+    // NOTE: the plugin SDK's tool() contract only recognizes `args`
+    // (zod raw shape); a `parameters` key is silently ignored, which
+    // strips runtime arguments before execute (the latent defect
+    // behind the checkpoint tool's empty exposed schema). This tool
+    // therefore declares its parameters via zod like review-dispatch.
+    args: {
+      whatWasBuilt: z.string().describe(
+        "Markdown body of the What Was Built section (without the ## header)",
+      ),
+      howToVerify: z.string().describe(
+        "Markdown body of the How to Verify section (without the ## header)",
+      ),
+      testResults: z.string().describe(
+        "Markdown body of the Test Results section (without the ## header)",
+      ),
+    },
+    execute: async (args) => {
+      try {
+        // FR-004 (D7): validate before any side effect — a violation
+        // writes nothing so /uf.finale keeps its no-artifact fallback.
+        const sections: ReadonlyArray<readonly [string, unknown]> = [
+          ["whatWasBuilt", args.whatWasBuilt],
+          ["howToVerify", args.howToVerify],
+          ["testResults", args.testResults],
+        ]
+        for (const [name, value] of sections) {
+          if (typeof value !== "string" || value.trim() === "") {
+            return {
+              output: JSON.stringify(
+                failure(
+                  `Parameter \`${name}\` must be a non-empty, non-whitespace string`,
+                  { retryable: false, code: "INVALID_UNLEASH_SUMMARY" },
+                ),
+              ),
+            }
+          }
+        }
+
+        // FR-001 (D4): the slug always comes from the auto-detected
+        // current branch; detached HEAD (or a git failure) throws below
+        // and nothing is written.
+        const branch = exec(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+        if (branch === "HEAD") {
+          throw new Error(
+            "Detached HEAD state — cannot key the unleash summary by branch",
+          )
+        }
+        const slug = sanitizeSlug(branch)
+
+        // D2: flat camelCase content fields plus top-level provenance.
+        const artifact: UnleashSummaryArtifact = {
+          whatWasBuilt: args.whatWasBuilt,
+          howToVerify: args.howToVerify,
+          testResults: args.testResults,
+          artifact_type: "unleash-summary",
+          schema_version: 1,
+          branch,
+          timestamp: new Date().toISOString(),
+        }
+
+        const artifactPath = writeUnleashSummary(cwd, slug, artifact)
+        return {
+          output: JSON.stringify(success({ path: artifactPath, branch })),
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          output: JSON.stringify(
+            failure(msg, {
+              retryable: false,
+              code: "PERSIST_UNLEASH_SUMMARY_ERROR",
             }),
           ),
         }
@@ -792,6 +975,7 @@ const UfWorkflowPlugin = {
         get_progress: createGetProgressTool(defaultGitExec, cwd),
         clear_progress: createClearProgressTool(defaultGitExec, cwd),
         normalize_model_name: createNormalizeModelNameTool(),
+        persist_unleash_summary: createPersistUnleashSummaryTool(defaultGitExec, cwd),
         git_fetch: createGitFetchTool(defaultGitExec, cwd),
         git_push: createGitPushTool(defaultGitExec, cwd),
         git_push_force_with_lease: createGitPushForceWithLeaseTool(defaultGitExec, cwd),

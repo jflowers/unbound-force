@@ -145,6 +145,7 @@ describe("provider-free scratch-repository smoke test", () => {
       "git_rebase",
       "git_rebase_abort",
       "normalize_model_name",
+      "persist_unleash_summary",
       "resolve_base_ref",
     ])
   })

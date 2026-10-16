@@ -1,6 +1,9 @@
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -34,12 +37,14 @@ import {
   createGitRebaseTool,
   createGetProgressTool,
   createNormalizeModelNameTool,
+  createPersistUnleashSummaryTool,
   createResolveBaseRefTool,
   type GitExec,
   type ProgressState,
   type ResolveBaseRefData,
   resolveKey,
   sanitizeSlug,
+  type UnleashSummaryArtifact,
 } from "../plugins/uf-workflow/index.js"
 
 // ---------------------------------------------------------------------------
@@ -139,6 +144,7 @@ describe("UfWorkflowPlugin", () => {
       "git_rebase",
       "git_rebase_abort",
       "normalize_model_name",
+      "persist_unleash_summary",
       "resolve_base_ref",
     ])
   })
@@ -695,6 +701,319 @@ describe("symlink defense (FR-005)", () => {
     expect(result.status).toBe("error")
     if (result.status === "error") {
       expect(result.message).toContain("symlinked state file")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// persist_unleash_summary tool tests (FR-001 through FR-005)
+// ---------------------------------------------------------------------------
+
+describe("persist_unleash_summary", () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "uf-unleash-summary-"))
+  })
+
+  afterEach(() => {
+    rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  /** Mock git exec reporting a slash branch to exercise slug sanitization. */
+  const opsxBranchExec: GitExec = () => "opsx/my-change"
+
+  /** Valid three-section payload mirroring the /uf.unleash Step 10 demo. */
+  const validArgs = {
+    whatWasBuilt: "Implemented the persist_unleash_summary tool",
+    howToVerify: "Run `make plugin-test` and confirm the suite passes",
+    testResults: "All prior tests still pass; new tool tests added",
+  }
+
+  /** Artifact path the `opsx/my-change` branch slug resolves to under cwd. */
+  const artifactPath = (cwd: string): string =>
+    join(cwd, ".uf", "artifacts", "unleash-summary", "opsx-my-change.json")
+
+  it("writes the artifact at the sanitized branch slug with schema fields and provenance", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
+    try {
+      const captured: Array<{ args: string[]; cwd: string }> = []
+      const mockExec: GitExec = (args: string[], cwd: string) => {
+        captured.push({ args, cwd })
+        return "opsx/my-change"
+      }
+
+      const result = await invokeTool<{ path: string; branch: string }>(
+        createPersistUnleashSummaryTool(mockExec, tmpDir),
+        validArgs,
+      )
+
+      expect(result.status).toBe("ok")
+      if (result.status === "ok") {
+        expect(result.data?.path).toBe(artifactPath(tmpDir))
+        expect(result.data?.branch).toBe("opsx/my-change")
+      }
+      // Branch detection runs exactly one rev-parse with the injected cwd.
+      expect(captured).toEqual([
+        { args: ["rev-parse", "--abbrev-ref", "HEAD"], cwd: tmpDir },
+      ])
+
+      const raw = readFileSync(artifactPath(tmpDir), "utf-8")
+      // Write format is pretty JSON with a trailing newline (FR-003).
+      expect(raw.endsWith("\n")).toBe(true)
+      const artifact = JSON.parse(raw) as UnleashSummaryArtifact
+      expect(artifact.whatWasBuilt).toBe(validArgs.whatWasBuilt)
+      expect(artifact.howToVerify).toBe(validArgs.howToVerify)
+      expect(artifact.testResults).toBe(validArgs.testResults)
+      expect(artifact.artifact_type).toBe("unleash-summary")
+      expect(artifact.schema_version).toBe(1)
+      expect(artifact.branch).toBe("opsx/my-change")
+      expect(artifact.timestamp).toBe("2026-01-01T00:00:00.000Z")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("exposes top-level whatWasBuilt and howToVerify strings (uf_finale_pr_context contract)", async () => {
+    await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      validArgs,
+    )
+
+    // uf_finale_pr_context reads the file wholesale and finale prose
+    // accesses `.whatWasBuilt` / `.howToVerify` directly — flat camelCase
+    // content fields with no result-envelope nesting around them.
+    const parsed = JSON.parse(
+      readFileSync(artifactPath(tmpDir), "utf-8"),
+    ) as Record<string, unknown>
+    expect(typeof parsed.whatWasBuilt).toBe("string")
+    expect(typeof parsed.howToVerify).toBe("string")
+    expect(parsed.whatWasBuilt).toBe(validArgs.whatWasBuilt)
+    expect(parsed.howToVerify).toBe(validArgs.howToVerify)
+    expect(parsed).not.toHaveProperty("data")
+    expect(parsed).not.toHaveProperty("status")
+  })
+
+  it("creates the artifact directory 0o700 and file 0o600 (FR-005)", async () => {
+    await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      validArgs,
+    )
+
+    const dir = join(tmpDir, ".uf", "artifacts", "unleash-summary")
+    expect(statSync(dir).mode & 0o777).toBe(0o700)
+    expect(statSync(artifactPath(tmpDir)).mode & 0o777).toBe(0o600)
+  })
+
+  it("overwrites the previous artifact and refreshes the timestamp", async () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
+      const tool = createPersistUnleashSummaryTool(opsxBranchExec, tmpDir)
+      await invokeTool(tool, validArgs)
+
+      vi.setSystemTime(new Date("2026-01-02T12:30:45.000Z"))
+      const replacement = {
+        whatWasBuilt: "Second run supersedes the first",
+        howToVerify: "Re-read the artifact and confirm only this content",
+        testResults: "Overwrite semantics verified",
+      }
+      const result = await invokeTool<{ path: string }>(tool, replacement)
+      expect(result.status).toBe("ok")
+
+      const artifact = JSON.parse(
+        readFileSync(artifactPath(tmpDir), "utf-8"),
+      ) as UnleashSummaryArtifact
+      expect(artifact.whatWasBuilt).toBe(replacement.whatWasBuilt)
+      expect(artifact.howToVerify).toBe(replacement.howToVerify)
+      expect(artifact.testResults).toBe(replacement.testResults)
+      expect(artifact.timestamp).toBe("2026-01-02T12:30:45.000Z")
+      // Unconditional overwrite: the branch still owns exactly one file.
+      expect(
+        readdirSync(join(tmpDir, ".uf", "artifacts", "unleash-summary")),
+      ).toEqual(["opsx-my-change.json"])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("rejects an empty whatWasBuilt without any filesystem side effect", async () => {
+    // Validation must precede the git call — this exec fails the test if run.
+    const neverCalledExec: GitExec = () => {
+      throw new Error("exec must not be called for invalid parameters")
+    }
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(neverCalledExec, tmpDir),
+      { ...validArgs, whatWasBuilt: "" },
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("INVALID_UNLEASH_SUMMARY")
+      expect(result.retryable).toBe(false)
+      expect(result.message).toContain("whatWasBuilt")
+      expect(result.message).toContain("non-empty")
+    }
+    // FR-004: validate before any side effect — nothing is created at all.
+    expect(existsSync(join(tmpDir, ".uf"))).toBe(false)
+  })
+
+  it("rejects whitespace-only howToVerify without any filesystem side effect", async () => {
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      { ...validArgs, howToVerify: "   \n\t " },
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("INVALID_UNLEASH_SUMMARY")
+      expect(result.message).toContain("howToVerify")
+    }
+    expect(existsSync(join(tmpDir, ".uf"))).toBe(false)
+  })
+
+  it("rejects a missing testResults without any filesystem side effect", async () => {
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      {
+        whatWasBuilt: validArgs.whatWasBuilt,
+        howToVerify: validArgs.howToVerify,
+      },
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("INVALID_UNLEASH_SUMMARY")
+      expect(result.message).toContain("testResults")
+    }
+    expect(existsSync(join(tmpDir, ".uf"))).toBe(false)
+  })
+
+  it("fails on detached HEAD without writing", async () => {
+    const detachedExec: GitExec = () => "HEAD"
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(detachedExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.message).toContain("Detached HEAD")
+    }
+    expect(existsSync(join(tmpDir, ".uf"))).toBe(false)
+  })
+
+  it("wraps git exec failures as PERSIST_UNLEASH_SUMMARY_ERROR", async () => {
+    const failExec: GitExec = () => {
+      throw new Error("git not found")
+    }
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(failExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.retryable).toBe(false)
+      expect(result.message).toContain("git not found")
+    }
+    expect(existsSync(join(tmpDir, ".uf"))).toBe(false)
+  })
+
+  it("stringifies non-Error operational failures", async () => {
+    const failExec: GitExec = () => {
+      throw "disk exploded" // eslint-disable-line no-throw-literal
+    }
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(failExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.message).toBe("disk exploded")
+    }
+  })
+
+  it("refuses to write into a symlinked artifact directory", async () => {
+    const realDir = join(tmpDir, "real-target")
+    const symlinkDir = join(tmpDir, ".uf", "artifacts", "unleash-summary")
+    mkdirSync(realDir, { recursive: true })
+    mkdirSync(join(tmpDir, ".uf", "artifacts"), { recursive: true })
+    symlinkSync(realDir, symlinkDir)
+
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.message).toContain("symlinked directory")
+    }
+    // Nothing was written through the link.
+    expect(readdirSync(realDir)).toEqual([])
+  })
+
+  it("refuses to overwrite a symlinked artifact file", async () => {
+    const dir = join(tmpDir, ".uf", "artifacts", "unleash-summary")
+    mkdirSync(dir, { recursive: true })
+    const realFile = join(tmpDir, "real-summary.json")
+    writeFileSync(realFile, "sentinel")
+    symlinkSync(realFile, join(dir, "opsx-my-change.json"))
+
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.message).toContain("symlinked artifact file")
+    }
+    // The real target behind the link was not modified.
+    expect(readFileSync(realFile, "utf-8")).toBe("sentinel")
+  })
+
+  it("returns operational failure on non-ENOENT directory stat errors", async () => {
+    // `.uf/artifacts` occupied by a regular file makes lstatSync of the
+    // artifact directory fail with ENOTDIR instead of ENOENT.
+    mkdirSync(join(tmpDir, ".uf"))
+    writeFileSync(join(tmpDir, ".uf", "artifacts"), "blocker")
+
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.message).toContain("ENOTDIR")
+    }
+  })
+
+  it("returns operational failure on non-ENOENT file stat errors", async () => {
+    // The artifact directory occupied by a regular file makes lstatSync of
+    // the artifact file path fail with ENOTDIR instead of ENOENT.
+    mkdirSync(join(tmpDir, ".uf", "artifacts"), { recursive: true })
+    writeFileSync(join(tmpDir, ".uf", "artifacts", "unleash-summary"), "blocker")
+
+    const result = await invokeTool(
+      createPersistUnleashSummaryTool(opsxBranchExec, tmpDir),
+      validArgs,
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.message).toContain("ENOTDIR")
     }
   })
 })

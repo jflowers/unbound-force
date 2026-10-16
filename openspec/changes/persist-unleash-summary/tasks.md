@@ -12,7 +12,7 @@
 
 ## 1. Producer tool (uf-workflow plugin)
 
-- [ ] 1.1 Implement `createPersistUnleashSummaryTool(exec, cwd)`
+- [x] 1.1 Implement `createPersistUnleashSummaryTool(exec, cwd)`
   in `.opencode/plugins/uf-workflow/index.ts`: three required
   string parameters (`whatWasBuilt`, `howToVerify`,
   `testResults`); non-empty/non-whitespace validation (code
@@ -28,14 +28,14 @@
   `timestamp` (ISO 8601); `success()` envelope with resolved
   path and branch, `failure()` envelope with code
   `PERSIST_UNLEASH_SUMMARY_ERROR` for operational errors
-- [ ] 1.2 Register `persist_unleash_summary` in the
+- [x] 1.2 Register `persist_unleash_summary` in the
   `UfWorkflowPlugin` server tool map (canonical
   `.opencode/plugins/uf-workflow/index.ts` only in this task;
   scaffold mirror happens in group 3)
 
 ## 2. Command integration and tests (different files)
 
-- [ ] 2.1 [P] Extend `.opencode/commands/uf.unleash.md` Step 10:
+- [x] 2.1 [P] Extend `.opencode/commands/uf.unleash.md` Step 10:
   after the demo format block (before the CHECKPOINT
   blockquote), add an instruction to call
   `persist_unleash_summary` with `{whatWasBuilt, howToVerify,
@@ -43,7 +43,7 @@
   sections, excluding the `##` headers — and on tool failure
   warn and continue to CHECKPOINT (soft-fail; no mechanical
   prose for paths, branch detection, or serialization)
-- [ ] 2.2 [P] Add tests to `.opencode/test/uf-workflow.test.ts`
+- [x] 2.2 [P] Add tests to `.opencode/test/uf-workflow.test.ts`
   for `createPersistUnleashSummaryTool` using the injectable
   `GitExec` + temp-dir pattern: happy path (slug path
   `opsx/my-change` → `opsx-my-change.json`, schema fields incl.
@@ -57,35 +57,35 @@
 
 ## 3. Scaffold mirror sync (after canonical files final)
 
-- [ ] 3.1 [P] Mirror the command:
+- [x] 3.1 [P] Mirror the command:
   `cp .opencode/commands/uf.unleash.md
   internal/scaffold/assets/opencode/commands/uf.unleash.md`
-- [ ] 3.2 [P] Mirror the plugin:
+- [x] 3.2 [P] Mirror the plugin:
   `cp .opencode/plugins/uf-workflow/index.ts
   internal/scaffold/assets/opencode/plugins/uf-workflow/index.ts`
 
 ## 4. Documentation
 
-- [ ] 4.1 Add a `persist-unleash-summary` entry under
+- [x] 4.1 Add a `persist-unleash-summary` entry under
   `## Unreleased` → `### Added` in `CHANGELOG.md` following the
   `- <change-name>: <summary>` format with
   `(Spec: openspec/changes/persist-unleash-summary/, Refs: #707)`
-- [ ] 4.2 Assess the documentation gate: file a documentation
+- [x] 4.2 Assess the documentation gate: file a documentation
   issue for the user-facing behavior change unless an exemption
   applies (internal workflow plumbing with user-visible PR body
   improvement — record the assessment either way)
 
 ## 5. Verification
 
-- [ ] 5.1 Run `make plugin-test` — full TypeScript suite
+- [x] 5.1 Run `make plugin-test` — full TypeScript suite
   (unit, integration, smoke, coverage) must pass including the
   new tool tests
-- [ ] 5.2 Run `go test -race -count=1 ./internal/scaffold/...`
+- [x] 5.2 Run `go test -race -count=1 ./internal/scaffold/...`
   — embedded-asset drift tests and command contract tests must
   pass after the mirror sync
-- [ ] 5.3 Run `make check` for CI parity (lint, test, build,
+- [x] 5.3 Run `make check` for CI parity (lint, test, build,
   coverage gate, plugin tests) — must pass end to end
-- [ ] 5.4 Verify constitution alignment per the proposal:
+- [x] 5.4 Verify constitution alignment per the proposal:
   artifact-based collaboration with no runtime coupling (I),
   standalone tool usability plus preserved finale fallback (II),
   machine-parseable artifact with provenance and structured

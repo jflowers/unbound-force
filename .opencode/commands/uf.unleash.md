@@ -957,6 +957,14 @@ Format the output as:
 - [tier-specific refinement option selected above]
 ```
 
+After presenting the demo output, call the
+`persist_unleash_summary` tool with `whatWasBuilt`,
+`howToVerify`, and `testResults` — the markdown bodies
+of the What Was Built, How to Verify, and Test Results
+sections you presented, excluding their `##` headers.
+If the tool fails, warn the developer and continue to
+the CHECKPOINT; never abort the pipeline.
+
 > CHECKPOINT: Call `checkpoint` with `command:
 > "uf.unleash"` and `step: "demo"`. Then call
 > `clear_progress` with `command: "uf.unleash"` to

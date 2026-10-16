@@ -6,6 +6,21 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- persist-unleash-summary: `/uf.unleash` Step 10 (Demo) now
+  persists the presented demo output via a new
+  `persist_unleash_summary` uf-workflow tool: the What Was
+  Built, How to Verify, and Test Results section bodies
+  (excluding `##` headers) are written as a flat JSON
+  artifact at `.uf/artifacts/unleash-summary/<branch>.json`
+  (validation-first, hardened write: 0o700 dir, 0o600 file,
+  symlink refusal, detached-HEAD and git-error failures).
+  `/uf.finale` reads the artifact in the PR body through
+  `uf_finale_pr_context`, replacing grep-based working-tree
+  recovery. Soft-fail in the pipeline: persist errors warn
+  and continue. Plugin tool + tests (14), command update,
+  scaffold mirrors.
+  (Spec: openspec/changes/persist-unleash-summary/,
+  Refs: #707)
 - unleash-direct-review-dispatch: Rewrote `/uf.unleash`
   Steps 4 (Spec Review) and 6 (Code Review) to call
   review-dispatch tools directly (resolve_base_ref,
