@@ -44,7 +44,7 @@ import {
   type ResolveBaseRefData,
   resolveKey,
   sanitizeSlug,
-  type UnleashSummaryArtifact,
+  type UnleashSummary,
 } from "../plugins/uf-workflow/index.js"
 
 // ---------------------------------------------------------------------------
@@ -133,6 +133,8 @@ describe("UfWorkflowPlugin", () => {
     expect(Object.keys(result.tool).sort()).toEqual([
       "checkpoint",
       "clear_progress",
+      "format_unleash_demo",
+      "format_unleash_exit",
       "get_progress",
       "git_commit_no_edit",
       "git_conflict_files",
@@ -143,9 +145,18 @@ describe("UfWorkflowPlugin", () => {
       "git_push_force_with_lease",
       "git_rebase",
       "git_rebase_abort",
+      "mark_task_complete",
       "normalize_model_name",
+      "parse_tasks",
       "persist_unleash_summary",
       "resolve_base_ref",
+      "resolve_clarification",
+      "scan_clarifications",
+      "scan_conflict_markers",
+      "uf_delegate_command",
+      "uf_unleash_branch_gate",
+      "uf_unleash_detect_resume",
+      "write_unleash_summary",
     ])
   })
 })
@@ -706,7 +717,19 @@ describe("symlink defense (FR-005)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// persist_unleash_summary tool tests (FR-001 through FR-005)
+// persist_unleash_summary tool tests (FR-001 through FR-005 of the
+// persist-unleash-summary change, adjusted to the merged contract).
+//
+// The merge of persist-unleash-summary (origin/main) and
+// unleash-deterministic-tools (this branch) deduplicated the two Step 10
+// summary writers into write_unleash_summary as the mechanism of record;
+// createPersistUnleashSummaryTool is the compatibility factory and the
+// server tool map registers the same implementation under
+// persist_unleash_summary. These tests exercise that registration surface
+// with the merged input contract (the full eight-parameter payload) and
+// the merged failure taxonomy (DETACHED_HEAD, SUMMARY_DIR_IS_SYMLINK,
+// SUMMARY_PATH_IS_SYMLINK, SUMMARY_WRITE_ERROR instead of the original
+// single PERSIST_UNLEASH_SUMMARY_ERROR catch-all).
 // ---------------------------------------------------------------------------
 
 describe("persist_unleash_summary", () => {
@@ -723,8 +746,16 @@ describe("persist_unleash_summary", () => {
   /** Mock git exec reporting a slash branch to exercise slug sanitization. */
   const opsxBranchExec: GitExec = () => "opsx/my-change"
 
-  /** Valid three-section payload mirroring the /uf.unleash Step 10 demo. */
+  /** Valid full payload: the three demo sections plus the merged workflow metadata. */
   const validArgs = {
+    change_name: "my-change",
+    tier: "openspec",
+    feature_dir: "openspec/changes/my-change/",
+    review_verdicts: {
+      spec_review: { verdict: "APPROVE", iterations: 1 },
+      code_review: { verdict: "APPROVE WITH ADVISORIES", iterations: 2 },
+    },
+    learnings_stored: [".uf/dewey/learnings/persist-unleash-summary-20261016T080000-jay-flowers.md"],
     whatWasBuilt: "Implemented the persist_unleash_summary tool",
     howToVerify: "Run `make plugin-test` and confirm the suite passes",
     testResults: "All prior tests still pass; new tool tests added",
@@ -762,7 +793,7 @@ describe("persist_unleash_summary", () => {
       const raw = readFileSync(artifactPath(tmpDir), "utf-8")
       // Write format is pretty JSON with a trailing newline (FR-003).
       expect(raw.endsWith("\n")).toBe(true)
-      const artifact = JSON.parse(raw) as UnleashSummaryArtifact
+      const artifact = JSON.parse(raw) as UnleashSummary
       expect(artifact.whatWasBuilt).toBe(validArgs.whatWasBuilt)
       expect(artifact.howToVerify).toBe(validArgs.howToVerify)
       expect(artifact.testResults).toBe(validArgs.testResults)
@@ -815,6 +846,7 @@ describe("persist_unleash_summary", () => {
 
       vi.setSystemTime(new Date("2026-01-02T12:30:45.000Z"))
       const replacement = {
+        ...validArgs,
         whatWasBuilt: "Second run supersedes the first",
         howToVerify: "Re-read the artifact and confirm only this content",
         testResults: "Overwrite semantics verified",
@@ -824,7 +856,7 @@ describe("persist_unleash_summary", () => {
 
       const artifact = JSON.parse(
         readFileSync(artifactPath(tmpDir), "utf-8"),
-      ) as UnleashSummaryArtifact
+      ) as UnleashSummary
       expect(artifact.whatWasBuilt).toBe(replacement.whatWasBuilt)
       expect(artifact.howToVerify).toBe(replacement.howToVerify)
       expect(artifact.testResults).toBe(replacement.testResults)
@@ -899,13 +931,15 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      // Merged taxonomy: the branch-derived file name gets a dedicated
+      // DETACHED_HEAD code rather than the original catch-all.
+      expect(result.code).toBe("DETACHED_HEAD")
       expect(result.message).toContain("Detached HEAD")
     }
     expect(existsSync(join(tmpDir, ".uf"))).toBe(false)
   })
 
-  it("wraps git exec failures as PERSIST_UNLEASH_SUMMARY_ERROR", async () => {
+  it("wraps git exec failures as SUMMARY_WRITE_ERROR", async () => {
     const failExec: GitExec = () => {
       throw new Error("git not found")
     }
@@ -916,7 +950,7 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.code).toBe("SUMMARY_WRITE_ERROR")
       expect(result.retryable).toBe(false)
       expect(result.message).toContain("git not found")
     }
@@ -934,7 +968,7 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.code).toBe("SUMMARY_WRITE_ERROR")
       expect(result.message).toBe("disk exploded")
     }
   })
@@ -953,7 +987,8 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      // Merged taxonomy: the directory refusal carries its own code.
+      expect(result.code).toBe("SUMMARY_DIR_IS_SYMLINK")
       expect(result.message).toContain("symlinked directory")
     }
     // Nothing was written through the link.
@@ -974,8 +1009,9 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
-      expect(result.message).toContain("symlinked artifact file")
+      // Merged taxonomy: the target-file refusal carries its own code.
+      expect(result.code).toBe("SUMMARY_PATH_IS_SYMLINK")
+      expect(result.message).toContain("symlinked path")
     }
     // The real target behind the link was not modified.
     expect(readFileSync(realFile, "utf-8")).toBe("sentinel")
@@ -994,7 +1030,7 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.code).toBe("SUMMARY_WRITE_ERROR")
       expect(result.message).toContain("ENOTDIR")
     }
   })
@@ -1012,7 +1048,7 @@ describe("persist_unleash_summary", () => {
 
     expect(result.status).toBe("error")
     if (result.status === "error") {
-      expect(result.code).toBe("PERSIST_UNLEASH_SUMMARY_ERROR")
+      expect(result.code).toBe("SUMMARY_WRITE_ERROR")
       expect(result.message).toContain("ENOTDIR")
     }
   })

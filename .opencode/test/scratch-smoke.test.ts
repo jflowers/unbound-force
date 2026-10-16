@@ -134,6 +134,8 @@ describe("provider-free scratch-repository smoke test", () => {
     expect(Object.keys(hooks.tool).sort()).toEqual([
       "checkpoint",
       "clear_progress",
+      "format_unleash_demo",
+      "format_unleash_exit",
       "get_progress",
       "git_commit_no_edit",
       "git_conflict_files",
@@ -144,9 +146,18 @@ describe("provider-free scratch-repository smoke test", () => {
       "git_push_force_with_lease",
       "git_rebase",
       "git_rebase_abort",
+      "mark_task_complete",
       "normalize_model_name",
+      "parse_tasks",
       "persist_unleash_summary",
       "resolve_base_ref",
+      "resolve_clarification",
+      "scan_clarifications",
+      "scan_conflict_markers",
+      "uf_delegate_command",
+      "uf_unleash_branch_gate",
+      "uf_unleash_detect_resume",
+      "write_unleash_summary",
     ])
   })
 

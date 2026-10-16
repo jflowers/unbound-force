@@ -37,22 +37,10 @@ off on re-run.
 > Do NOT infer which steps are complete from compressed
 > context summaries. Only checkpoint state is
 > authoritative for resumability.
->
-> Use the `checkpoint` tool to record progress after
-> each step completes. Call `get_progress` on resume to
-> check which steps are done. This is your live state
-> record.
 
-**Execution Checklist** -- tracked via `checkpoint` tool:
-
-On startup, call `get_progress` with `command:
-"uf.unleash"` to retrieve the current state. If state
-exists, `completed_steps` shows which steps are done.
-After completing each step, call `checkpoint` with
-`command: "uf.unleash"` and `step: "step-N-name"` to
-record progress. Include relevant data (iteration
-counts, verdicts) in the `data` parameter as a JSON
-string.
+Step tools checkpoint automatically as they complete; the
+review-loop iteration checkpoints and the completion
+`clear_progress` call remain explicit.
 
 ### TodoWrite Progress Tracking
 
@@ -85,105 +73,65 @@ previous interrupted runs:
 If `forge_worktree_list` is not available (Replicator
 not installed), skip this step silently.
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "startup-cleanup"`. Proceed
-> immediately to Step 1. Do NOT ask for confirmation.
+Proceed immediately to Step 1. Do NOT ask for confirmation.
 
 ### 1. Branch Safety Gate
 
-Get the current branch:
+Call the `uf_unleash_branch_gate` tool (no parameters). It
+reads the current branch, classifies it as OpenSpec
+(`opsx/*`) or Speckit (`NNN-*`), enforces the per-tier
+prerequisite (`openspec/changes/<name>/tasks.md` or
+`specs/<branch>/spec.md`), and auto-checkpoints
+`branch-safety-gate` on success.
 
-```bash
-git rev-parse --abbrev-ref HEAD
-```
+- **On success** (`status: "ok"`): set `WORKFLOW_TIER` and
+  `FEATURE_DIR` from the payload's `workflow_tier` and
+  `feature_dir` fields, then announce the detected mode:
+  - `workflow_tier = openspec`: Announce: "Detected
+    OpenSpec change: `<change_name>`"
+  - `workflow_tier = speckit`: Announce: "Detected Speckit
+    change: `<change_name>`"
 
-- If on `main`: **STOP** with error:
-  > "Cannot run /uf.unleash on main. Must be on a Speckit
-  > (`NNN-*`) or OpenSpec (`opsx/*`) feature branch."
+- **On failure**: the envelope (ON_MAIN, NO_TASKS, NO_SPEC,
+  or UNRECOGNIZED_BRANCH) carries the exact STOP message.
+  Emit the message and **STOP**.
 
-- If on `opsx/*`: **OpenSpec mode detected.**
-  Extract the change name from the branch:
-  `opsx/<name>` → `<name>`.
-  Set `FEATURE_DIR = openspec/changes/<name>/`.
-  Set `WORKFLOW_TIER = openspec`.
-
-  Check if `FEATURE_DIR/tasks.md` exists. If not:
-  **STOP** with error:
-  > "No tasks.md found for change `<name>`. Run
-  > `/opsx-propose` first."
-
-  Announce: "Detected OpenSpec change: `<name>`"
-
-- If the branch matches `NNN-*` (digits followed by a
-  dash): **Speckit mode detected.**
-
-  Validate that spec.md exists by running from the repo
-  root:
-
-  ```bash
-  .specify/scripts/bash/check-prerequisites.sh --json --require-spec
-  ```
-
-  If the script fails or no spec.md is found: **STOP**
-  with error:
-  > "No spec.md found in the feature directory. Run
-  > `/speckit.specify` first."
-
-  Extract the `FEATURE_DIR` from the JSON output. This
-  is the working directory for all subsequent steps.
-  Set `WORKFLOW_TIER = speckit`.
-
-- If the branch does not match `NNN-*` or `opsx/*`:
-  **STOP** with error:
-  > "Unrecognized branch pattern. /uf.unleash requires a
-  > Speckit feature branch (`NNN-*`) or OpenSpec branch
-  > (`opsx/*`). Run `/speckit.specify` or
-  > `/opsx-propose` to create one."
-
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "branch-safety-gate"`.
-> Proceed immediately to Step 2. Do NOT ask for
-> confirmation.
+Proceed immediately to Step 2. Do NOT ask for confirmation.
 
 ### 2. Resumability Detection
 
-Probe filesystem state to determine which steps are
-already complete. Check in order. **Important**:
+Call the `uf_unleash_detect_resume` tool with
+`{feature_dir: FEATURE_DIR, workflow_tier: WORKFLOW_TIER}`.
+The tool probes the feature-dir artifacts (spec.md
+clarification markers, plan.md and tasks.md existence,
+unchecked `- [ ]` task checkboxes) and derives
+spec-review and code-review completion from the dispatch
+artifacts under `.uf/artifacts/dispatch/`, reconciled
+with checkpoint state -- artifact evidence is
+authoritative, so a checkpoint claim without a matching
+approving dispatch artifact reports the review step
+incomplete. The tool auto-checkpoints
+`resumability-detection` on success. **Important**:
 compressed context summaries are NOT valid resumability
-indicators -- only the filesystem markers listed below
-are authoritative.
+indicators -- the tool's probing is the authority, even
+when checkpoint state is missing, cleared, or stale.
 
-**If `WORKFLOW_TIER = openspec`**: checks 1-3 are always
-"done" — these artifacts were created by `/opsx-propose`.
-Skip directly to check 4.
+The tool returns `{step_statuses, resume_from,
+all_complete, unchecked_count, checkpoint_claims}`:
+`step_statuses` maps `clarify`, `plan`, `tasks`,
+`spec_review`, `implement`, and `code_review` to done
+booleans (OpenSpec forces clarify, plan, and tasks done;
+implement is done when zero `- [ ]` boxes remain);
+`resume_from` names the first incomplete step in
+pipeline order (null when `all_complete` is true);
+`unchecked_count` carries implement progress; and
+`checkpoint_claims` reports what the state store claimed
+for the review steps. On failure, emit the envelope's
+error and **STOP** (fail-closed -- never guess step
+state).
 
-1. **Clarify done?** *(Speckit only)* Read spec.md in
-   the feature directory. Check for
-   `[NEEDS CLARIFICATION]` markers.
-   - If NO markers exist AND (a `## Clarifications`
-     section exists in spec.md OR plan.md exists in the
-     feature directory): clarify is done.
-   - Otherwise: clarify is needed.
-
-2. **Plan done?** *(Speckit only)* Check if `plan.md`
-   exists in the feature directory.
-
-3. **Tasks done?** *(Speckit only)* Check if `tasks.md`
-   exists in the feature directory.
-
-4. **Spec review done?** Call `get_progress` with
-   `command: "uf.unleash"` and check if `spec-review`
-   is in `completed_steps`.
-
-5. **Implementation done?** Read `FEATURE_DIR/tasks.md`
-   and check if all task checkboxes are `[x]` (no
-   `- [ ]` lines remain in the task phases).
-
-6. **Code review done?** Call `get_progress` with
-   `command: "uf.unleash"` and check if `code-review`
-   is in `completed_steps`.
-
-Display the detection results. For OpenSpec mode:
+Display the detection results, deriving each mark from
+`step_statuses` (✓ done, ✗ not done). For OpenSpec mode:
 
 ```
 Detected: OpenSpec mode — artifacts from /opsx-propose
@@ -198,17 +146,18 @@ Detected: clarify ✓ plan ✓ tasks ✓ spec-review ✗
 Resuming at step 4/8: Reviewing specs...
 ```
 
-Skip all steps that are detected as complete. Resume
-from the first incomplete step.
+Render each `[status]` as ✓ or ✗; when implement is
+incomplete, show its progress from `unchecked_count`
+(e.g., `implement ✗ (3 unchecked)`).
 
-If ALL steps are complete (all tasks done, tests pass):
-skip directly to step 7 (retrospective) since it is
-idempotent.
+Skip all steps whose `step_statuses` entries are true.
+Resume from `resume_from` (the first incomplete step);
+the `Resuming at step N/8` line names that step.
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "resumability-detection"`.
-> Proceed immediately to Step 3. Do NOT ask for
-> confirmation.
+If `all_complete: true` (every step done): skip directly
+to step 7 (retrospective) since it is idempotent.
+
+Proceed immediately to Step 3. Do NOT ask for confirmation.
 
 ### 3. Step 1 -- Clarify
 
@@ -216,55 +165,74 @@ idempotent.
 Announce: "OpenSpec mode — clarify handled by
 /opsx-propose."
 
-Scan spec.md in the feature directory for
-`[NEEDS CLARIFICATION]` markers.
+Call `scan_clarifications` with:
 
-**If no markers exist**: announce "No clarification
-needed" and proceed to step 2.
+```
+scan_clarifications
+  feature_dir: FEATURE_DIR
+```
 
-**If markers exist**: for each marker:
+The tool scans spec.md in the feature directory for
+`[NEEDS CLARIFICATION]` markers and returns
+`{questions: [{question, context, line}], count}`. On
+failure, emit the envelope's error and **STOP**
+(fail-closed).
 
-1. Extract the question text from the marker (e.g.,
-   `[NEEDS CLARIFICATION: What auth provider?]`).
-2. Read 3-5 surrounding lines for context.
-3. Formulate a targeted Dewey semantic search query by
+**If `count` is 0**: announce "No clarification needed"
+and proceed to step 2.
+
+**If questions exist**: for each question:
+
+1. Formulate a targeted Dewey semantic search query by
    combining the question's topic keywords with the
    project domain (from the spec title and description).
    Do NOT use the raw `[NEEDS CLARIFICATION]` text
    verbatim as the query.
 
-4. **If Dewey is available** (`dewey_semantic_search`
+2. **If Dewey is available** (`dewey_semantic_search`
    tool exists): call `dewey_semantic_search` with the
-   formulated query.
-   - Evaluate the results using your judgment. If the
-     results sufficiently answer the question:
-     - Remove the `[NEEDS CLARIFICATION: ...]` marker
-       from the spec text.
-     - Write the answer inline where the marker was.
-     - Add an entry to the `## Clarifications` section
-       at the bottom of spec.md with the format:
-       ```
-       - Q: [original question] -> A: [answer]
-         (Dewey-resolved from [page name or block UUID])
-       ```
-     - This is a silent auto-resolution -- do NOT ask
-       the human for confirmation.
+   formulated query and evaluate the results using your
+   judgment:
+   - If the results sufficiently answer the question,
+     call `resolve_clarification` with:
+
+     ```
+     resolve_clarification
+       feature_dir: FEATURE_DIR
+       question: [the question exactly as scanned]
+       answer: [the answer composed from the results]
+       source: [Dewey page name or block UUID]
+     ```
+
+     This is a silent auto-resolution -- do NOT ask
+     the human for confirmation. On failure, emit the
+     envelope's error and **STOP**.
    - If the results are empty, off-topic, or do not
      sufficiently answer the question: add the question
      to the unanswerable list.
 
-5. **If Dewey is NOT available**: add ALL questions to
+3. **If Dewey is NOT available**: add ALL questions to
    the unanswerable list. Note:
    > "Dewey not available -- all clarification questions
    > require human input."
 
-**After processing all markers**:
+**After processing all questions**:
 
 - If the unanswerable list is empty: all questions were
   auto-resolved. Announce how many were resolved and
   proceed to step 2.
-- If the unanswerable list is NOT empty: **EXIT** with
-  all unanswerable questions presented at once:
+- If the unanswerable list is NOT empty: **EXIT** by
+  calling `format_unleash_exit` with variant `clarify`
+  and the unanswerable questions, each passed as
+  `{question, context}` exactly as scanned:
+
+  ```
+  format_unleash_exit
+    variant: "clarify"
+    questions: [{question, context}, ...]
+  ```
+
+  Emit the returned `{text}` verbatim. Rendered shape:
 
   ```
   ## /uf.unleash paused at: clarify
@@ -272,9 +240,6 @@ needed" and proceed to step 2.
   **Reason**: N question(s) require human input
 
   Q1: [question text]
-  Context: [surrounding spec lines]
-
-  Q2: [question text]
   Context: [surrounding spec lines]
 
   ### What to do next
@@ -285,9 +250,7 @@ needed" and proceed to step 2.
   Run `/uf.unleash` to continue from the plan step.
   ```
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "clarify"`. Proceed
-> immediately to Step 4. Do NOT ask for confirmation.
+Proceed immediately to Step 4. Do NOT ask for confirmation.
 
 ### 4. Step 2 -- Plan
 
@@ -296,23 +259,21 @@ Announce: "OpenSpec mode — plan handled by
 /opsx-propose."
 
 Generate the implementation plan by delegating to the
-`cobalt-crush-dev` agent.
+`cobalt-crush-dev` agent via `uf_delegate_command`:
 
-1. Read the full contents of
-   `.opencode/commands/speckit.plan.md`.
-2. Delegate to the `cobalt-crush-dev` agent via the Task
-   tool, passing the plan command's instructions as the
-   agent's prompt. Include the feature directory path so
-   the agent knows where to write `plan.md`.
-3. After the agent completes, verify that `plan.md` was
-   created in the feature directory.
-4. If `plan.md` was NOT created: **STOP** with error:
-   > "Plan generation failed -- plan.md was not created.
-   > Check the agent output for errors."
+```
+uf_delegate_command
+  command_path: ".opencode/commands/speckit.plan.md"
+  feature_dir: FEATURE_DIR
+  expected_artifact: FEATURE_DIR + "plan.md"
+  checkpoint_step: "plan"
+```
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "plan"`. Proceed
-> immediately to Step 5. Do NOT ask for confirmation.
+The tool verifies `plan.md` and auto-checkpoints `plan` on
+success. On failure the envelope carries the exact STOP
+message -- emit it and **STOP**.
+
+Proceed immediately to Step 5. Do NOT ask for confirmation.
 
 ### 5. Step 3 -- Tasks
 
@@ -321,22 +282,21 @@ Announce: "OpenSpec mode — tasks handled by
 /opsx-propose."
 
 Generate the task list by delegating to the
-`cobalt-crush-dev` agent.
+`cobalt-crush-dev` agent via `uf_delegate_command`:
 
-1. Read the full contents of
-   `.opencode/commands/speckit.tasks.md`.
-2. Delegate to the `cobalt-crush-dev` agent via the Task
-   tool, passing the tasks command's instructions as the
-   agent's prompt. Include the feature directory path.
-3. After the agent completes, verify that `tasks.md` was
-   created in the feature directory.
-4. If `tasks.md` was NOT created: **STOP** with error:
-   > "Task generation failed -- tasks.md was not created.
-   > Check the agent output for errors."
+```
+uf_delegate_command
+  command_path: ".opencode/commands/speckit.tasks.md"
+  feature_dir: FEATURE_DIR
+  expected_artifact: FEATURE_DIR + "tasks.md"
+  checkpoint_step: "tasks"
+```
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "tasks"`. Proceed
-> immediately to Step 6. Do NOT ask for confirmation.
+The tool verifies `tasks.md` and auto-checkpoints `tasks`
+on success. On failure the envelope carries the exact STOP
+message -- emit it and **STOP**.
+
+Proceed immediately to Step 6. Do NOT ask for confirmation.
 
 ### 6. Step 4 -- Spec Review
 
@@ -430,9 +390,8 @@ sections instead of embedding their text.
     made.
   - **"Skip auto-fixes -- report only"** (decline):
     exit using the same exit path as the HIGH/CRITICAL
-    branch below (tier-specific recovery guidance and
-    the "paused at: spec review" exit template),
-    making no spec edits.
+    branch below (the tool-rendered `spec-review`
+    exit), making no spec edits.
 
   After consented fixes, re-run the review: re-resolve
   the immutable input, re-validate the full plan, and
@@ -443,27 +402,28 @@ sections instead of embedding their text.
   processed through these same rules -- the gate
   re-presents on REQUEST CHANGES with only LOW/MEDIUM
   findings. Cap at 3 iterations: if REQUEST CHANGES
-  persists to a fourth encounter, exit with the same
-  tier-specific recovery guidance and exit template.
+  persists to a fourth encounter, exit through the
+  same tool-rendered `spec-review` exit path.
 
   > CHECKPOINT: Call `checkpoint` with `command:
   > "uf.unleash"`, `step: "spec-review"`, and
   > `data: '{"iteration": N}'`.
 
 - If HIGH or CRITICAL findings remain after auto-fixing
-  LOW/MEDIUM: **EXIT** with the findings. Use
-  `WORKFLOW_TIER` to select the "What to do next"
-  recovery guidance:
-  - **If `WORKFLOW_TIER = speckit`**: "Run
-    `/speckit.clarify` to address the findings, then
-    re-run `/uf.unleash`."
-  - **If `WORKFLOW_TIER = openspec`**: "Update the
-    artifacts under `openspec/changes/<name>/` to
-    address the findings, then re-run `/uf.unleash`."
+  LOW/MEDIUM: **EXIT** by calling `format_unleash_exit`
+  with:
 
-  Before composing this exit message, re-read the
-  `WORKFLOW_TIER` branch instructions immediately above
-  to select the correct recovery guidance.
+  ```
+  format_unleash_exit
+    variant: "spec-review"
+    tier: WORKFLOW_TIER
+    findings: [HIGH/CRITICAL findings with context]
+    change_name: [change name]
+  ```
+
+  The tool selects the tier-specific recovery guidance
+  from `tier`. Emit the returned `{text}` verbatim.
+  Rendered shape:
 
   ```
   ## /uf.unleash paused at: spec review
@@ -475,20 +435,34 @@ sections instead of embedding their text.
   [list each HIGH/CRITICAL finding with context]
 
   ### What to do next
-  [tier-specific recovery guidance from above]
+  [tier-specific recovery guidance]
 
   ### Then resume
   Run `/uf.unleash` to continue from spec review.
   ```
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "spec-review"`. Proceed
-> immediately to Step 7. Do NOT ask for confirmation.
+Proceed immediately to Step 7. Do NOT ask for confirmation.
 
 ### 7. Step 5 -- Implement
 
-Parse `FEATURE_DIR/tasks.md` for phases and execute
-tasks.
+Read the phases and tasks by calling `parse_tasks` with:
+
+```
+parse_tasks
+  tasks_path: FEATURE_DIR + "tasks.md"
+```
+
+The tool returns `{phases: [{phase, tasks: [{id,
+description, parallel, done}]}], total_tasks, done_count,
+all_done}`. Every `##` heading starts a phase (the
+returned `phase` is its heading text); each top-level
+checkbox task carries its `id` (e.g. `5.1`, `T001`), its
+`description` with the `[P]` marker stripped, its
+`parallel` flag, and its `done` state. Number the phases
+1-based in document order -- that number is the `phase`
+value passed to per-task delegation and the implement
+exit variants. On failure, emit the envelope's error and
+**STOP** (fail-closed).
 
 **Derive build/test commands**: Load the `pre-flight`
 skill (invoke the `skill` tool with name `pre-flight`)
@@ -500,17 +474,46 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
 
 **For each phase in tasks.md**:
 
-1. Separate tasks into two groups:
-   - **Sequential** (no `[P]` marker): run first, in
+1. Separate the phase's tasks into two groups from the
+   parse result:
+   - **Sequential** (`parallel: false`): run first, in
      order
-   - **Parallel** (`[P]` marker): run after sequential
-     tasks complete
+   - **Parallel** (`parallel: true`, `[P]` marker): run
+     after sequential tasks complete
 
-2. **Sequential execution**: for each non-`[P]` task,
-   delegate to the `cobalt-crush-dev` agent via the Task
-   tool with the task description as the prompt. After
-   the agent completes, mark the task `[x]` in
-   `tasks.md` immediately.
+   Skip tasks already `done: true` -- resume re-runs only
+   incomplete work.
+
+2. **Sequential execution**: for each remaining non-`[P]`
+   task, delegate to the `cobalt-crush-dev` agent via
+   `uf_delegate_command`, passing the task description
+   as the prompt (prompt-only -- no `command_path` for
+   per-task implement calls):
+
+   ```
+   uf_delegate_command
+     prompt: [the task description exactly as parsed]
+     feature_dir: FEATURE_DIR
+     checkpoint_step: "implement"
+     phase: [phase number]
+   ```
+
+   The tool auto-checkpoints `implement` with the phase
+   data on success. On failure, emit the envelope's error
+   and **STOP**.
+
+   After each successful delegation, mark the task
+   complete immediately -- the checkbox is the
+   authoritative progress record, and `already_complete:
+   true` on resume is a no-op success:
+
+   ```
+   mark_task_complete
+     tasks_path: FEATURE_DIR + "tasks.md"
+     task_id: [the task's id from the parse result]
+   ```
+
+   On failure, emit the envelope's error and **STOP**.
 
 3. **Parallel execution**: check if
    `forge_worktree_create` is available.
@@ -537,16 +540,23 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
 
    d. Wait for all workers in the batch to complete.
 
-      > CHECKPOINT: Call `checkpoint` with `command:
-      > "uf.unleash"`, `step: "implement"`, and
-      > `data: '{"phase": N, "batch": M}'`.
-
    e. **If any worker fails**: stop spawning new workers
       (do not start the next batch). Wait for any
       already-running workers to complete or fail. Then
       call `forge_worktree_cleanup` with `cleanup_all:
-      true` to remove all worktrees. **EXIT** with error
-      context:
+      true` to remove all worktrees. **EXIT** by calling
+      `format_unleash_exit` with:
+
+      ```
+      format_unleash_exit
+        variant: "implement-worker-failed"
+        phase: [phase number]
+        failed_task: [task ID and description]
+        error: [error details from worker]
+      ```
+
+      Emit the returned `{text}` verbatim. Rendered
+      shape:
 
       ```
       ## /uf.unleash paused at: implement (Phase N)
@@ -569,15 +579,35 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
       - Call `forge_worktree_merge` for each worktree.
         This uses cherry-pick to apply the worker's
         commits to the main branch.
-      - After each merge, check for conflict markers
-        (`<<<<<<<`, `=======`, `>>>>>>>`) in the
-        affected files.
-      - If NO conflict markers remain: merge succeeded.
-        Call `forge_worktree_cleanup` for that worktree.
-      - If conflict markers remain: auto-resolution
+      - After each merge, scan the affected files for
+        conflict-marker residue -- cherry-pick leftovers
+        that `git diff --diff-filter=U` cannot see once
+        the merge completes:
+
+        ```
+        scan_conflict_markers
+          paths: [files affected by the merge]
+        ```
+
+        The tool returns `{conflicts: [{path, markers:
+        [{line, marker}]}], clean, warnings}`. On failure,
+        emit the envelope's error and **STOP**.
+      - If `clean: true`: merge succeeded. Call
+        `forge_worktree_cleanup` for that worktree.
+      - If `conflicts` is non-empty: auto-resolution
         failed. Call `forge_worktree_cleanup` with
-        `cleanup_all: true`. **EXIT** with conflict
-        details:
+        `cleanup_all: true`. **EXIT** by calling
+        `format_unleash_exit` with:
+
+        ```
+        format_unleash_exit
+          variant: "implement-merge-conflict"
+          phase: [phase number]
+          conflicting_files: [paths from the scan result]
+        ```
+
+        Emit the returned `{text}` verbatim. Rendered
+        shape:
 
         ```
         ## /uf.unleash paused at: implement (Phase N)
@@ -596,8 +626,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
         phase.
         ```
 
-   g. Mark each successfully merged `[P]` task as `[x]`
-      in `tasks.md`.
+   g. Mark each successfully merged `[P]` task complete
+      immediately by calling `mark_task_complete` with
+      the same `tasks_path` and the task's `task_id`.
 
    **If Swarm worktrees are NOT available**: fall back to
    sequential execution for `[P]` tasks. Announce:
@@ -605,8 +636,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    > tasks sequentially. Install Replicator for
    > parallel execution."
 
-   Execute each `[P]` task sequentially via the
-   `cobalt-crush-dev` agent, same as non-`[P]` tasks.
+   Execute each `[P]` task sequentially through the same
+   `uf_delegate_command` and `mark_task_complete`
+   sequence as non-`[P]` tasks.
 
    **Comms file reservations**: if `comms_reserve`
    is available, reserve file paths for each parallel
@@ -619,12 +651,20 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    pre-flight skill in `hard-gate` mode to execute all
    detected CI and local tool commands.
 
-   > CHECKPOINT: Call `checkpoint` with `command:
-   > "uf.unleash"`, `step: "implement"`, and
-   > `data: '{"phase": N, "status": "complete"}'`.
-
    - If all pass: proceed to the next phase.
-   - If any fail: **EXIT** with the failure details:
+   - If any fail: **EXIT** by calling
+     `format_unleash_exit` with:
+
+     ```
+     format_unleash_exit
+       variant: "implement-phase-checkpoint"
+       phase: [phase number]
+       failed_command: [the command that failed]
+       output: [error output]
+     ```
+
+     Emit the returned `{text}` verbatim. Rendered
+     shape:
 
      ```
      ## /uf.unleash paused at: implement (Phase N checkpoint)
@@ -641,9 +681,7 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
      Run `/uf.unleash` to continue from the next phase.
      ```
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "implement"`. Proceed
-> immediately to Step 8. Do NOT ask for confirmation.
+Proceed immediately to Step 8. Do NOT ask for confirmation.
 
 ### 8. Step 6 -- Code Review
 
@@ -681,8 +719,17 @@ text.
      failure as a CRITICAL finding with full output.
      Finalize the dispatch fail-closed with NO child
      reviewer runs (a dispatch with zero executed
-     reviewers, verdict UNAVAILABLE), then **EXIT** with
-     the failure details:
+     reviewers, verdict UNAVAILABLE), then **EXIT** by
+     calling `format_unleash_exit` with:
+
+     ```
+     format_unleash_exit
+       variant: "code-review-preflight"
+       findings: [branch-caused failures with full output]
+     ```
+
+     Emit the returned `{text}` verbatim. Rendered
+     shape:
 
      ```
      ## /uf.unleash paused at: code review
@@ -790,8 +837,16 @@ text.
 
 - If the verdict is INCONCLUSIVE or UNAVAILABLE (no
   successful reviewer assessment, on the initial run or
-  any re-run): **EXIT** with the no-success reasons --
-  which reviewers ran or failed, and why:
+  any re-run): **EXIT** by calling `format_unleash_exit`
+  with:
+
+  ```
+  format_unleash_exit
+    variant: "code-review-no-success"
+    reasons: [which reviewers ran or failed, and why]
+  ```
+
+  Emit the returned `{text}` verbatim. Rendered shape:
 
   ```
   ## /uf.unleash paused at: code review
@@ -812,7 +867,19 @@ text.
   ```
 
 - If 3 iterations are exhausted with remaining findings:
-  **EXIT** with the persistent issues:
+  **EXIT** by calling `format_unleash_exit` with:
+
+  ```
+  format_unleash_exit
+    variant: "code-review-iterations-exhausted"
+    persistent_findings: [findings that persist across
+      iterations, noting fixed vs. remaining]
+    circular_dependencies: [reviewer-check cycles, if any]
+  ```
+
+  Emit the returned `{text}` verbatim. Rendered shape
+  (`circular_dependencies` is optional -- pass it only
+  when cycles exist):
 
   ```
   ## /uf.unleash paused at: code review
@@ -837,9 +904,7 @@ text.
   Run `/uf.unleash` to continue from code review.
   ```
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "code-review"`. Proceed
-> immediately to Step 9. Do NOT ask for confirmation.
+Proceed immediately to Step 9. Do NOT ask for confirmation.
 
 ### 9. Step 7 -- Retrospective
 
@@ -883,18 +948,9 @@ memory.
 > PR scope and MUST be committed on the feature branch.
 > See the Commit scope rule in `AGENTS.md`.
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "retrospective"`. Proceed
-> immediately to Step 10. Do NOT ask for confirmation.
+Proceed immediately to Step 10. Do NOT ask for confirmation.
 
 ### 10. Step 8 -- Demo
-
-> **OUTPUT FIDELITY GUARD**: Before composing any demo
-> output, re-read this Step 10 Demo section (from this
-> heading through the CHECKPOINT blockquote below).
-> The template is the sole authority for prescribed
-> output format — NEVER reconstruct it from memory or
-> compressed context summaries.
 
 Present structured demo instructions to the developer.
 
@@ -920,22 +976,29 @@ Present structured demo instructions to the developer.
 3. **Test Results**: summarize the test output from the
    most recent build/test checkpoint.
 
-4. **Next Steps**: always present exactly these two
-   options as shown in the format block below — do not
-   paraphrase, add, or remove options. Use
-   `WORKFLOW_TIER` to select the second option:
-   - **If `WORKFLOW_TIER = speckit`**: "Run
-     `/speckit.clarify` to refine and iterate"
-   - **If `WORKFLOW_TIER = openspec`**: "Update the
-     artifacts under `openspec/changes/<name>/` to
-     refine and iterate"
+4. **Next Steps**: the tool renders the two prescribed
+   options -- the fixed `/uf.finale` option and the
+   tier-selected refinement option.
 
    **Note**: The pre-PR `/uf.review-council` requirement
    is already satisfied by Step 8 (Code Review). Do NOT
    re-suggest `/uf.review-council` or hand-roll git
    commit/push/PR steps in the demo output.
 
-Format the output as:
+Render the demo block by calling `format_unleash_demo`
+with the composed values (the tool auto-checkpoints
+`demo` on success):
+
+```
+format_unleash_demo
+  tier: WORKFLOW_TIER
+  whatWasBuilt: [What Was Built summary]
+  howToVerify: [How to Verify steps]
+  testResults: [Test Results summary]
+  changeName: [change name]
+```
+
+Emit the returned `{text}` verbatim. Rendered shape:
 
 ```
 ## What Was Built
@@ -957,17 +1020,31 @@ Format the output as:
 - [tier-specific refinement option selected above]
 ```
 
-After presenting the demo output, call the
-`persist_unleash_summary` tool with `whatWasBuilt`,
-`howToVerify`, and `testResults` — the markdown bodies
-of the What Was Built, How to Verify, and Test Results
-sections you presented, excluding their `##` headers.
-If the tool fails, warn the developer and continue to
-the CHECKPOINT; never abort the pipeline.
+Then persist the summary for `/uf.finale` by calling
+`write_unleash_summary` with the same demo values plus
+the review-gate verdicts recorded in Steps 6 and 8 and
+the learnings stored in Step 9:
 
-> CHECKPOINT: Call `checkpoint` with `command:
-> "uf.unleash"` and `step: "demo"`. Then call
-> `clear_progress` with `command: "uf.unleash"` to
+```
+write_unleash_summary
+  change_name: [change name]
+  tier: WORKFLOW_TIER
+  feature_dir: FEATURE_DIR
+  review_verdicts: {spec_review?: {verdict, iterations},
+                    code_review?: {verdict, iterations}}
+  learnings_stored: [learning identifiers or file paths]
+  whatWasBuilt: [same value as the demo call]
+  howToVerify: [same value as the demo call]
+  testResults: [same value as the demo call]
+```
+
+The demo values are the markdown bodies of the three
+presented sections, excluding their `##` headers. If
+the tool fails, warn the developer and continue —
+never abort the demo step or the pipeline; `/uf.finale`
+retains its no-artifact fallback.
+
+> Call `clear_progress` with `command: "uf.unleash"` to
 > clean up progress state. Pipeline complete.
 
 ## Guardrails
@@ -1007,8 +1084,10 @@ the CHECKPOINT; never abort the pipeline.
 - **NEVER hardcode build/test commands** -- load the
   `pre-flight` skill to derive them from
   `.github/workflows/` and local tool configs
-- **NEVER improvise Demo exit text** -- the "Next Steps"
-  section in Step 10 prescribes the exact output; re-read
-  and reproduce it verbatim
+- **NEVER improvise exit or demo text** -- exit output
+  MUST be produced by calling `format_unleash_exit` and
+  demo output by calling `format_unleash_demo`, emitting
+  the returned text verbatim; never reconstruct it from
+  memory or paraphrase it
 
 </protect>

@@ -177,50 +177,56 @@ func TestUnleashCommand_WorkflowTierBranching(t *testing.T) {
 		return value[:endIndex]
 	}
 
-	sections := []struct {
-		name           string
-		content        string
-		speckit        string
-		openspec       string
-		requiresReread bool
-	}{
-		{
-			name:           "spec review exit",
-			content:        between(t, command, "- If HIGH or CRITICAL findings remain", "> CHECKPOINT: Call `checkpoint` with `command:"),
-			speckit:        "`/speckit.clarify` to address the findings",
-			openspec:       "artifacts under `openspec/changes/<name>/` to\n    address the findings",
-			requiresReread: true,
-		},
-		{
-			name:     "demo next steps",
-			content:  between(t, command, "4. **Next Steps**:", "Format the output as:"),
-			speckit:  "`/speckit.clarify` to refine and iterate",
-			openspec: "artifacts under `openspec/changes/<name>/` to\n     refine and iterate",
-		},
-	}
+	specReviewExit := between(t, command, "- If HIGH or CRITICAL findings remain", "Rendered shape:")
+	demoNextSteps := between(t, command, "4. **Next Steps**:", "Then persist the summary")
 
-	for _, section := range sections {
-		t.Run(section.name, func(t *testing.T) {
-			speckitBlock := between(t, section.content, "**If `WORKFLOW_TIER = speckit`**", "**If `WORKFLOW_TIER = openspec`**")
-			openspecBlock := between(t, section.content, "**If `WORKFLOW_TIER = openspec`**", "\n\n")
+	t.Run("spec review exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(specReviewExit, "format_unleash_exit") {
+			t.Error("spec review exit missing format_unleash_exit call")
+		}
+		if !strings.Contains(specReviewExit, `variant: "spec-review"`) {
+			t.Error("spec review exit missing spec-review variant")
+		}
+		if !strings.Contains(specReviewExit, "tier: WORKFLOW_TIER") {
+			t.Error("spec review exit does not pass tier to the formatter tool")
+		}
+		if !strings.Contains(specReviewExit, "The tool selects the tier-specific recovery guidance") {
+			t.Error("spec review exit missing tool-selected tier guidance note")
+		}
+	})
 
-			if !strings.Contains(speckitBlock, section.speckit) {
-				t.Errorf("speckit branch missing guidance %q", section.speckit)
-			}
-			if strings.Contains(speckitBlock, "openspec/changes/") {
-				t.Error("speckit branch contains OpenSpec guidance")
-			}
-			if !strings.Contains(openspecBlock, section.openspec) {
-				t.Errorf("openspec branch missing guidance %q", section.openspec)
-			}
-			if strings.Contains(openspecBlock, "/speckit.clarify") {
-				t.Error("openspec branch contains Speckit guidance")
-			}
-			if section.requiresReread && !strings.Contains(section.content, "Before composing this exit message, re-read the") {
-				t.Error("spec review exit missing JIT re-read instruction")
-			}
-		})
-	}
+	t.Run("demo routes through format_unleash_demo", func(t *testing.T) {
+		if !strings.Contains(demoNextSteps, "format_unleash_demo") {
+			t.Error("demo missing format_unleash_demo call")
+		}
+		if !strings.Contains(demoNextSteps, "tier: WORKFLOW_TIER") {
+			t.Error("demo does not pass tier to the formatter tool")
+		}
+		if !strings.Contains(demoNextSteps, "- Run `/uf.finale` to create PR and watch CI") {
+			t.Error("demo example missing fixed /uf.finale option")
+		}
+		if !strings.Contains(demoNextSteps, "[tier-specific refinement option selected above]") {
+			t.Error("demo example missing tier-selected refinement option")
+		}
+	})
+
+	t.Run("tier guidance no longer enumerated inline", func(t *testing.T) {
+		if strings.Contains(specReviewExit, "`/speckit.clarify` to address the findings") {
+			t.Error("spec review exit still enumerates speckit guidance inline")
+		}
+		if strings.Contains(specReviewExit, "artifacts under `openspec/changes/<name>/` to") {
+			t.Error("spec review exit still enumerates openspec guidance inline")
+		}
+	})
+
+	t.Run("hand-rolled output templates removed", func(t *testing.T) {
+		if strings.Contains(command, "Before composing this exit message, re-read the") {
+			t.Error("command still carries the spec review re-read instruction")
+		}
+		if strings.Contains(command, "Format the output as:") {
+			t.Error("command still carries the hand-rolled demo output template")
+		}
+	})
 }
 
 func TestPluginPackageInputs_ExactVersionsAndLockIntegrity(t *testing.T) {
@@ -771,11 +777,14 @@ var expectedAssetPaths = []string{
 	"opencode/lib/uf-workflow-types.ts",
 	// UF finale plugin (1)
 	"opencode/plugins/uf-finale/index.ts",
-	// Shared lib modules (4)
+	// Shared lib modules (7)
 	"opencode/lib/agent-executor.ts",
+	"opencode/lib/branch-classification.ts",
+	"opencode/lib/review-dispatch-artifact.ts",
 	"opencode/lib/review-dispatch-lesson-proposal.ts",
 	"opencode/lib/review-dispatch-sibling-evidence.ts",
 	"opencode/lib/reviewer-manifest.ts",
+	"opencode/lib/unleash-templates.ts",
 	// Reproducible plugin package inputs (2)
 	"opencode/package-lock.json",
 	"opencode/package.json",
@@ -810,9 +819,12 @@ var task42CanonicalAssets = []struct {
 	{asset: "opencode/plugins/uf-finale/index.ts", source: ".opencode/plugins/uf-finale/index.ts"},
 	{asset: "opencode/lib/uf-workflow-types.ts", source: ".opencode/lib/uf-workflow-types.ts"},
 	{asset: "opencode/lib/agent-executor.ts", source: ".opencode/lib/agent-executor.ts"},
+	{asset: "opencode/lib/branch-classification.ts", source: ".opencode/lib/branch-classification.ts"},
+	{asset: "opencode/lib/review-dispatch-artifact.ts", source: ".opencode/lib/review-dispatch-artifact.ts"},
 	{asset: "opencode/lib/review-dispatch-lesson-proposal.ts", source: ".opencode/lib/review-dispatch-lesson-proposal.ts"},
 	{asset: "opencode/lib/review-dispatch-sibling-evidence.ts", source: ".opencode/lib/review-dispatch-sibling-evidence.ts"},
 	{asset: "opencode/lib/reviewer-manifest.ts", source: ".opencode/lib/reviewer-manifest.ts"},
+	{asset: "opencode/lib/unleash-templates.ts", source: ".opencode/lib/unleash-templates.ts"},
 	{asset: "opencode/package-lock.json", source: ".opencode/package-lock.json"},
 	{asset: "opencode/package.json", source: ".opencode/package.json"},
 	{asset: "uf/review-matrix.yaml", source: ".uf/review-matrix.yaml"},
@@ -1566,11 +1578,14 @@ func TestIsToolOwned(t *testing.T) {
 		{ufWorkflowPluginAsset, true},
 		// Tool-owned: shared agent executor library
 		{"opencode/lib/agent-executor.ts", true},
+		{"opencode/lib/branch-classification.ts", true},
+		{"opencode/lib/review-dispatch-artifact.ts", true},
 		// Tool-owned: review-dispatch acquisition module
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
+		{"opencode/lib/unleash-templates.ts", true},
 		// Tool-owned: canonical review policy
 		{"uf/reviewer-capabilities.yaml", true},
 		// User-owned: model policy is a supported project extension point
@@ -2218,11 +2233,14 @@ func TestIsDivisorAsset(t *testing.T) {
 		{"opencode/package-lock.json", true},
 		// Shared agent executor library
 		{"opencode/lib/agent-executor.ts", true},
+		{"opencode/lib/branch-classification.ts", true},
+		{"opencode/lib/review-dispatch-artifact.ts", true},
 		// Divisor acquisition implementation
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
+		{"opencode/lib/unleash-templates.ts", true},
 		// Divisor review eligibility policy
 		{"uf/reviewer-capabilities.yaml", true},
 		{"uf/review-matrix.yaml", true},

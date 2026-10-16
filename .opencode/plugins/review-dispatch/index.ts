@@ -25,6 +25,10 @@ import {
   type InvokeAgentResult,
   type ModelIdentity,
 } from "../../lib/agent-executor.js"
+import {
+  DISPATCH_ARTIFACT_DIRECTORY,
+  REVIEW_DISPATCH_ARTIFACT_TYPE,
+} from "../../lib/review-dispatch-artifact.js"
 import { createPrepareLessonLearningTool } from "../../lib/review-dispatch-lesson-proposal.js"
 export {
   createPrepareLessonLearningTool,
@@ -85,7 +89,6 @@ const PLAN_VERSION = 1
 const REVIEW_DISPATCH_SCHEMA_VERSION = "1.0.0"
 const REVIEW_VERDICT_SCHEMA_VERSION = "2.0.0"
 const PRODUCER_VERSION = "1.0.0"
-const DISPATCH_ARTIFACT_DIRECTORY = ".uf/artifacts/dispatch"
 const MAX_CORRELATION_ATTEMPTS = 32
 
 const DEFAULT_TIER_CAPS = {
@@ -2325,7 +2328,7 @@ function envelopeFor(
     hero: "the-divisor",
     version: PRODUCER_VERSION,
     timestamp,
-    artifact_type: "review-dispatch",
+    artifact_type: REVIEW_DISPATCH_ARTIFACT_TYPE,
     schema_version: REVIEW_DISPATCH_SCHEMA_VERSION,
     context: {
       branch: provenance.branch,

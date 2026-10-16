@@ -11,6 +11,7 @@ it does not replace the canonical downstream review decision.
 | Producer | The Divisor | Emits dispatch provenance |
 | Consumer | The Divisor | Diagnoses and reruns dispatches |
 | Consumer | Mx F | Observes coverage, cost, and failures |
+| Consumer | uf-workflow | Parses envelopes for `uf_unleash_detect_resume` freshness rules |
 
 The Divisor emits this artifact in addition to `review-verdict` 2.0.0.
 Mx F, Cobalt-Crush, and Muti-Mind continue to consume

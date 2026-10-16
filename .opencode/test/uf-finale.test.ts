@@ -3,6 +3,8 @@ import { execSync } from "node:child_process"
 import {
   readFileSync,
   existsSync,
+  lstatSync,
+  mkdirSync,
   mkdtempSync,
   writeFileSync,
   rmSync,
@@ -23,6 +25,10 @@ import {
   type GitExec,
 } from "../plugins/uf-finale/index.js"
 import UfFinalePlugin from "../plugins/uf-finale/index.js"
+import {
+  createWriteUnleashSummaryTool,
+  type UnleashSummary,
+} from "../plugins/uf-workflow/index.js"
 
 // ---------------------------------------------------------------------------
 // Module-level mocks (hoisted by vitest)
@@ -41,6 +47,8 @@ vi.mock("node:fs", async (importOriginal) => {
     mkdtempSync: vi.fn(),
     rmSync: vi.fn(),
     existsSync: vi.fn(),
+    lstatSync: vi.fn(),
+    mkdirSync: vi.fn(),
   }
 })
 
@@ -170,6 +178,48 @@ describe("uf_finale_startup", () => {
     expect(result.status).toBe("ok")
     if (result.status === "ok") {
       expect(result.data?.isMain).toBe(true)
+    }
+  })
+
+  it("reports branchType other with changeName for main branch", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "main"
+      if (cmd.includes("--porcelain")) return ""
+      throw new Error("no upstream")
+    }
+    const result = await invokeTool<{
+      branchType: string
+      changeName: string
+      isMain: boolean
+    }>(createUfFinaleStartupTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.branchType).toBe("other")
+      expect(result.data?.isMain).toBe(true)
+      expect(result.data?.changeName).toBe("main")
+    }
+  })
+
+  it("reports branchType other with changeName for master branch", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "master"
+      if (cmd.includes("--porcelain")) return ""
+      throw new Error("no upstream")
+    }
+    const result = await invokeTool<{
+      branchType: string
+      changeName: string
+      isMain: boolean
+    }>(createUfFinaleStartupTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.branchType).toBe("other")
+      expect(result.data?.isMain).toBe(true)
+      expect(result.data?.changeName).toBe("master")
     }
   })
 
@@ -742,7 +792,12 @@ describe("uf_finale_pr_context", () => {
     expect(openspecCall![0]).toBe(resolve("/fake", ".openspec.yaml"))
   })
 
-  it("reads unleash summary artifact", async () => {
+  it("serves a write_unleash_summary artifact through uf_finale_pr_context (#707 writer-reader contract)", async () => {
+    // Connecting test for the cross-plugin artifact contract (#707): the
+    // artifact write_unleash_summary persists is the artifact this reader
+    // returns. A hand-written fixture could drift from the writer's shape;
+    // running the real writer against the same mocked filesystem and branch
+    // cannot.
     const mockExec: GitExec = (args: string[]) => {
       const cmd = args.join(" ")
       if (cmd.includes("merge-base")) throw new Error("skip")
@@ -752,24 +807,68 @@ describe("uf_finale_pr_context", () => {
     vi.mocked(execSync).mockImplementation(() => {
       throw new Error("skip gh")
     })
+
+    // Phase 1 — write. lstat reports both artifact paths absent (first
+    // write), the directory creation is a no-op, and the write itself is
+    // captured for phase 2.
+    const enoent = Object.assign(
+      new Error("ENOENT: no such file or directory"),
+      { code: "ENOENT" },
+    )
+    vi.mocked(lstatSync).mockImplementation(() => {
+      throw enoent
+    })
+    const writerInput = {
+      change_name: "my-change",
+      tier: "openspec",
+      feature_dir: "openspec/changes/my-change/",
+      review_verdicts: {
+        spec_review: { verdict: "APPROVE", iterations: 1 },
+        code_review: { verdict: "APPROVE WITH ADVISORIES", iterations: 2 },
+      },
+      learnings_stored: [
+        ".uf/dewey/learnings/uf-workflow-20261016T135617-jay-flowers.md",
+      ],
+      whatWasBuilt:
+        "Deterministic /uf.unleash tools replace the command's LLM-judgment mechanics.",
+      howToVerify: "cd .opencode && npx vitest run, then make check from the repository root.",
+      testResults: "make plugin-test green: every vitest suite passing, 0 failed.",
+    }
+    const writeResult = await invokeTool<{ path: string; bytes: number }>(
+      createWriteUnleashSummaryTool(mockExec, "/fake"),
+      writerInput,
+    )
+    expect(writeResult.status).toBe("ok")
+    expect(writeFileSync).toHaveBeenCalledTimes(1)
+    const [writePath, writeRaw] = vi.mocked(writeFileSync).mock.calls[0]
+    if (writeResult.status === "ok") {
+      expect(writeResult.data.path).toBe(String(writePath))
+    }
+
+    // Phase 2 — read. The reader is served only at the exact path the
+    // writer wrote; if either side's branch-slug derivation drifted, the
+    // read would miss and unleashSummary would stay null.
     vi.mocked(readFileSync).mockImplementation((pathArg) => {
-      const p = String(pathArg)
-      if (p.includes("unleash-summary")) {
-        return JSON.stringify({ steps: ["s1", "s2"], verdict: "APPROVE" })
-      }
+      if (String(pathArg) === String(writePath)) return writeRaw as string
       throw new Error("ENOENT")
     })
 
     const result = await invokeTool<{
-      unleashSummary: Record<string, unknown> | null
+      unleashSummary: UnleashSummary | null
     }>(createUfFinalePrContextTool(mockExec, "/fake"), {})
 
     expect(result.status).toBe("ok")
     if (result.status === "ok") {
-      expect(result.data?.unleashSummary).toStrictEqual({
-        steps: ["s1", "s2"],
-        verdict: "APPROVE",
-      })
+      // The three finale contract fields populate from the writer's
+      // artifact (#707), with the writer's snake_case-to-camelCase mapping.
+      expect(result.data?.unleashSummary?.whatWasBuilt).toBe(writerInput.whatWasBuilt)
+      expect(result.data?.unleashSummary?.howToVerify).toBe(writerInput.howToVerify)
+      expect(result.data?.unleashSummary?.testResults).toBe(writerInput.testResults)
+      expect(result.data?.unleashSummary?.changeName).toBe("my-change")
+      expect(result.data?.unleashSummary?.tier).toBe("openspec")
+      expect(result.data?.unleashSummary?.reviewVerdicts.codeReview?.verdict).toBe(
+        "APPROVE WITH ADVISORIES",
+      )
     }
   })
 

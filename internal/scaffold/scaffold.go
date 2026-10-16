@@ -656,10 +656,13 @@ func isToolOwned(relPath string) bool {
 		return true
 	}
 	if relPath == "opencode/lib/agent-executor.ts" ||
+		relPath == "opencode/lib/branch-classification.ts" ||
+		relPath == "opencode/lib/review-dispatch-artifact.ts" ||
 		relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
 		relPath == "opencode/lib/reviewer-manifest.ts" ||
-		relPath == "opencode/lib/uf-workflow-types.ts" {
+		relPath == "opencode/lib/uf-workflow-types.ts" ||
+		relPath == "opencode/lib/unleash-templates.ts" {
 		return true
 	}
 	if relPath == "uf/reviewer-capabilities.yaml" {
@@ -723,10 +726,13 @@ func isDivisorAsset(relPath string) bool {
 		return true
 	}
 	if relPath == "opencode/lib/agent-executor.ts" ||
+		relPath == "opencode/lib/branch-classification.ts" ||
+		relPath == "opencode/lib/review-dispatch-artifact.ts" ||
 		relPath == "opencode/lib/review-dispatch-sibling-evidence.ts" ||
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
 		relPath == "opencode/lib/reviewer-manifest.ts" ||
-		relPath == "opencode/lib/uf-workflow-types.ts" {
+		relPath == "opencode/lib/uf-workflow-types.ts" ||
+		relPath == "opencode/lib/unleash-templates.ts" {
 		return true
 	}
 	if relPath == "uf/review-matrix.yaml" || relPath == "uf/reviewer-capabilities.yaml" ||

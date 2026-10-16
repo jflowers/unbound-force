@@ -9,6 +9,7 @@ import {
 import { resolve, join } from "node:path"
 import { tmpdir } from "node:os"
 import { tool, type PluginModule } from "@opencode-ai/plugin"
+import { classifyBranch } from "../../lib/branch-classification.js"
 import {
   defaultGitExec,
   failure,
@@ -61,21 +62,11 @@ export function createUfFinaleStartupTool(exec: GitExec, cwd: string) {
     execute: async () => {
       try {
         const branch = exec(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
-        const isMain = branch === "main" || branch === "master"
-
-        // Determine branch type and extract change name.
-        let branchType: "opsx" | "speckit" | "other"
-        let changeName: string
-        if (branch.startsWith("opsx/")) {
-          branchType = "opsx"
-          changeName = branch.slice("opsx/".length)
-        } else if (/^\d+-/.test(branch)) {
-          branchType = "speckit"
-          changeName = branch.replace(/^\d+-/, "")
-        } else {
-          branchType = "other"
-          changeName = branch
-        }
+        // Delegates to the shared pure classifier (lib/branch-classification)
+        // so the branch gate and this tool cannot drift apart (DRY; OpenSpec
+        // change unleash-deterministic-tools). The output contract is
+        // unchanged, including main/master -> branchType "other" + isMain.
+        const { branchType, changeName, isMain } = classifyBranch(branch)
 
         // Check for uncommitted changes.
         let porcelainOutput = ""

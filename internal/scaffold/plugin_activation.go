@@ -209,10 +209,14 @@ func stageReviewPluginSources(opts *Options, stageRoot string) error {
 		reviewDispatchPluginAsset,
 		ufWorkflowPluginAsset,
 		ufFinalePluginAsset,
+		"opencode/lib/agent-executor.ts",
+		"opencode/lib/branch-classification.ts",
+		"opencode/lib/review-dispatch-artifact.ts",
 		"opencode/lib/review-dispatch-lesson-proposal.ts",
 		"opencode/lib/review-dispatch-sibling-evidence.ts",
 		"opencode/lib/reviewer-manifest.ts",
 		"opencode/lib/uf-workflow-types.ts",
+		"opencode/lib/unleash-templates.ts",
 	}
 	for _, assetPath := range assetPaths {
 		content, err := assetContent(assetPath)

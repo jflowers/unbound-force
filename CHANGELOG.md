@@ -6,6 +6,38 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- unleash-deterministic-tools: Migrated `/uf.unleash`'s
+  remaining deterministic procedures into 11 tested
+  uf-workflow plugin tools (uf_unleash_branch_gate,
+  uf_delegate_command, uf_unleash_detect_resume,
+  scan_clarifications, resolve_clarification,
+  format_unleash_exit, format_unleash_demo,
+  write_unleash_summary, parse_tasks, mark_task_complete,
+  scan_conflict_markers) plus shared
+  lib/branch-classification.ts (consumed by the refactored
+  uf_finale_startup; legacy output shape preserved) and
+  lib/unleash-templates.ts. Step tools auto-record
+  checkpoints (13 ceremony blockquotes removed; the two
+  review-loop iteration checkpoints remain explicit);
+  every exit and the demo render through formatter tools
+  with verbatim emission (OUTPUT FIDELITY GUARD and
+  re-read instructions deleted; guardrail amended).
+  Resumability is artifact-authoritative:
+  uf_unleash_detect_resume derives review completion from
+  .uf/artifacts/dispatch/ verdicts (branch-scoped,
+  per-mode freshness) over checkpoint state.
+  write_unleash_summary persists the unleash summary
+  (.uf/artifacts/unleash-summary/<branch>.json) in the
+  exact shape /uf.finale reads, closing the
+  finale-token-reduction contract
+  (whatWasBuilt/howToVerify/testResults; implements #707).
+  Command markdown + Go/TS test updates only; scaffold
+  mirrors byte-identical. Includes the
+  maintainer-approved review-matrix per-run timeout bump
+  600s → 1200s (mirrors synced). Increment 2 of the
+  deterministic-instruction migration. (Spec:
+  openspec/changes/unleash-deterministic-tools/, Refs:
+  #716, #707)
 - persist-unleash-summary: `/uf.unleash` Step 10 (Demo) now
   persists the presented demo output via a new
   `persist_unleash_summary` uf-workflow tool: the What Was

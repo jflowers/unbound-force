@@ -70,5 +70,5 @@ limits:
   max_runs_per_persona: 3
   max_total_runs: 24
   max_parallel_runs: 4
-  per_run_timeout_seconds: 600
+  per_run_timeout_seconds: 1200
   max_reported_cost_usd: 25

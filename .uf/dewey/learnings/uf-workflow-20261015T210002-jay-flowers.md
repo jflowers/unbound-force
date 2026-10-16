@@ -1,0 +1,10 @@
+---
+tag: uf-workflow
+author: jay-flowers
+category: gotcha
+created_at: 2026-10-15T21:00:02Z
+identity: uf-workflow-20261015T210002-jay-flowers
+tier: draft
+---
+
+Testing uf_unleash_detect_resume (task 3.3 of unleash-deterministic-tools): the tool factory is createUnleashDetectResumeTool(exec, cwd, deps) with DetectResumeDependencies {readText, fileExists, readDir} — readDir returns bare file NAMES (string[]), and dispatch-artifact recency is ordered by the envelope's internal timestamp field (epoch-0 fallback, filename tie-break), NOT file mtime, so fakes serve artifact JSON through readText keyed on resolve(cwd, ".uf/artifacts/dispatch", name). GitExec contract for specs-mode ancestry: "merge-base --is-ancestor <sha> HEAD" exit 0 = ancestor-or-equal (return value), exit 1 = diverged (fake must throw Object.assign(new Error(...), { status: 1 }) — hasExitStatus checks .status), anything else = fail-closed RESUME_DETECT_ERROR; a plain new Error from the fake therefore simulates a genuine git failure. The specs dirty check runs "status --porcelain -- <featureDir>" (trailing slash accepted) and excludes ONLY featureDir+"tasks.md" by exact path equality after porcelainEntryPath parsing (slice(3), rename " -> " new path, quote strip) — untracked dirs collapse to "?? dir/" and count as DIRTY. Code-mode freshness is a pure string compare (head_sha === "rev-parse HEAD" result) — no merge-base call. Payload step keys are spec_review/code_review (underscore) but checkpoint-claim reconciliation checks the command's hyphenated completed_steps names "spec-review"/"code-review"; state I/O (readState + recordAutoCheckpoint) needs the vi.mock("node:fs") pattern from unleash-branch-gate.test.ts (lstatSync ENOENT default). The tool calls "rev-parse --abbrev-ref HEAD" twice (branch filter + resolveKey) and "rev-parse HEAD" once. Clarify marker probe is a substring includes("[NEEDS CLARIFICATION") — backticked prose references in completed specs (e.g. specs/018-unleash-command/spec.md) count as markers, reporting clarify not-done (fail-safe).

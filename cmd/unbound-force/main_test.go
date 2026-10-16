@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -29,26 +31,39 @@ func TestRunInit_FreshDir(t *testing.T) {
 		t.Errorf("expected output to contain 'files processed', got:\n%s", output)
 	}
 
-// Verify the summary includes a non-trivial, correct file count.
+	// Verify the summary includes a non-trivial, correct file count.
 	// The exact count is environment-dependent: review plugin activation
-	// appends up to 3 plugin sources to the created set only when
-	// Node/npm/OpenCode are present and the install plus probes succeed.
-	// With 70 total embedded assets, minus 1 non-deployed (devcontainer)
-	// and 4 activation-gated plugins, the base count is 65. Each
-	// successful activation probe adds one file, yielding [65-69].
+	// appends the activation-gated plugin sources to the created set only
+	// when Node/npm/OpenCode are present and the install plus probes
+	// succeed. With 73 total embedded assets, minus 1 non-deployed
+	// (devcontainer) and 4 activation-gated plugins, the base count is 68.
+	// Each successful activation probe adds one file, yielding [68-72].
 	// The scaffold-level asset inventory and drift tests pin the exact
-	// asset list, so this CLI check asserts either valid count.
+	// asset list, so this CLI check asserts any count in that range.
 	// (devcontainer excluded — OS-specific, generated per-user by
 	// uf sandbox init.)
-	var fileCountOK bool
-	for _, count := range []string{"65", "66", "67", "68", "69"} {
-		if strings.Contains(output, count+" files processed") {
-			fileCountOK = true
+	//
+	// The count is parsed from a line-anchored match and range-checked as
+	// an integer: a plain substring test would let "167 files processed"
+	// satisfy the "67" case.
+	filesProcessed := regexp.MustCompile(`(\d+) files processed$`)
+	var fileCount int
+	var found bool
+	for _, line := range strings.Split(output, "\n") {
+		if m := filesProcessed.FindStringSubmatch(line); m != nil {
+			n, err := strconv.Atoi(m[1])
+			if err != nil {
+				t.Fatalf("parse files-processed count %q: %v", m[1], err)
+			}
+			fileCount = n
+			found = true
 			break
 		}
 	}
-	if !fileCountOK {
-		t.Errorf("expected N files processed [65-69] in output, got:\n%s", output)
+	if !found {
+		t.Errorf("expected 'N files processed' line in output, got:\n%s", output)
+	} else if fileCount < 68 || fileCount > 72 {
+		t.Errorf("expected files processed in [68-72], got %d:\n%s", fileCount, output)
 	}
 
 	// Verify a user-owned file was created

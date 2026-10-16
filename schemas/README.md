@@ -8,7 +8,7 @@ schema, samples, and producer and consumer documentation.
 
 | Type | Producer | Consumers | Purpose |
 | --- | --- | --- | --- |
-| `review-dispatch` | Divisor | Divisor, Mx F | Provenance |
+| `review-dispatch` | Divisor | Divisor, Mx F, uf-workflow | Provenance |
 | `review-verdict` | Divisor | Mx F, Cobalt, Muti-Mind | Decision |
 
 The Divisor emits both artifacts for advisor-backed workflows.
