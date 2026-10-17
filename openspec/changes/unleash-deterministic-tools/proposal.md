@@ -162,7 +162,11 @@ deterministic surface to plugin tools.
   contradiction at archive time; task 9.3 defers the
   reconciliation (annotating the sibling's stale requirement
   lines with superseded-by references before it archives),
-  mirroring the task 9.2 pattern.
+  mirroring the task 9.2 pattern. The sibling MUST be archived
+  after this change — archiving it first would let its stale
+  requirement text land in the main spec with nothing to
+  reconcile against, so task 9.3 fires at this change's archive
+  gate, not the sibling's.
 - **Metrics**: before/after line and token deltas for the rewritten
   command sections are recorded during implementation per
   Principle VI (target: majority of procedural section text
