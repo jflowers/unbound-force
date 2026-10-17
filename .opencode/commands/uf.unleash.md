@@ -35,8 +35,9 @@ off on re-run.
 > command after context compression or a session restart,
 > STOP and re-read this entire template before continuing.
 > Do NOT infer which steps are complete from compressed
-> context summaries. Only checkpoint state is
-> authoritative for resumability.
+> context summaries. Only the `uf_unleash_detect_resume`
+> result (checkpoint state plus dispatch artifacts, with
+> artifact evidence authoritative) determines resumability.
 
 Step tools checkpoint automatically as they complete; the
 review-loop iteration checkpoints and the completion
@@ -818,9 +819,21 @@ text.
   For each iteration (up to 3 total):
   a. Address the findings by making code fixes --
      delegate the code-fix application to the
-     `cobalt-crush-dev` agent via the Task tool (fix
-     application is content work, not review driving --
-     code fixes proceed without a human decision).
+     `cobalt-crush-dev` agent via `uf_delegate_command`,
+     prompt-only (fix application is content work, not
+     review driving -- code fixes proceed without a human
+     decision):
+
+     ```
+     uf_delegate_command
+       prompt: [the findings to fix, exactly as reported]
+       feature_dir: FEATURE_DIR
+     ```
+
+     The code-fix call omits `command_path` and records no
+     `checkpoint_step`; the iteration CHECKPOINT below
+     remains the review-loop record. On failure, emit the
+     envelope's error and **STOP**.
   b. Re-run the review: re-resolve the immutable input,
      re-validate the full plan, and rerun every included
      reviewer (not just failing or content-affected
