@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -408,6 +409,69 @@ func TestRun_IdempotentRetryAfterPluginFailure(t *testing.T) {
 		}
 		if !containsPath(second.Created, mapAssetPath(assetPath)) {
 			t.Errorf("retry did not record activated plugin %s in result.Created", assetPath)
+		}
+	}
+}
+
+func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
+	stageRoot := t.TempDir()
+	opts := &Options{
+		MkdirAll:  os.MkdirAll,
+		WriteFile: os.WriteFile,
+	}
+	if err := stageReviewPluginSources(opts, stageRoot); err != nil {
+		t.Fatalf("stageReviewPluginSources() error: %v", err)
+	}
+
+	pluginLibSpecifier := regexp.MustCompile(`["']\.\./\.\./lib/([A-Za-z0-9._-]+)\.js["']`)
+	libLocalSpecifier := regexp.MustCompile(`["']\./([A-Za-z0-9._-]+)\.js["']`)
+
+	stagedPluginAssets := []string{
+		invokeAgentPluginAsset,
+		reviewDispatchPluginAsset,
+		ufWorkflowPluginAsset,
+		ufFinalePluginAsset,
+	}
+
+	// requiredModules is the transitive closure of lib modules referenced by
+	// the staged plugin sources and their staged lib imports.
+	requiredModules := make(map[string]bool)
+	var requireModule func(name string)
+	requireModule = func(name string) {
+		if requiredModules[name] {
+			return
+		}
+		requiredModules[name] = true
+		content, err := assetContent("opencode/lib/" + name + ".ts")
+		if err != nil {
+			return
+		}
+		for _, match := range libLocalSpecifier.FindAllStringSubmatch(string(content), -1) {
+			requireModule(match[1])
+		}
+	}
+
+	for _, assetPath := range stagedPluginAssets {
+		content, err := assetContent(assetPath)
+		if err != nil {
+			t.Fatalf("read embedded plugin %s: %v", assetPath, err)
+		}
+		for _, match := range pluginLibSpecifier.FindAllStringSubmatch(string(content), -1) {
+			requireModule(match[1])
+		}
+	}
+
+	if len(requiredModules) == 0 {
+		t.Fatal("no lib modules derived from staged plugin sources; closure extraction found no specifiers")
+	}
+
+	for module := range requiredModules {
+		if _, err := assetContent("opencode/lib/" + module + ".ts"); err != nil {
+			t.Errorf("lib module %s referenced by staged sources has no embedded asset opencode/lib/%s.ts: %v", module, module, err)
+		}
+		stagedPath := filepath.Join(stageRoot, "lib", module+".ts")
+		if _, err := os.Stat(stagedPath); err != nil {
+			t.Errorf("lib module %s referenced by staged sources is missing from the staging list (%s): %v", module, stagedPath, err)
 		}
 	}
 }

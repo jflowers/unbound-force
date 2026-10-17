@@ -156,7 +156,7 @@ func TestEmbeddedAssets_MatchSource(t *testing.T) {
 	}
 }
 
-func TestUnleashCommand_WorkflowTierBranching(t *testing.T) {
+func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	content, err := assetContent("opencode/commands/uf.unleash.md")
 	if err != nil {
 		t.Fatalf("read embedded unleash command: %v", err)
@@ -179,6 +179,7 @@ func TestUnleashCommand_WorkflowTierBranching(t *testing.T) {
 
 	specReviewExit := between(t, command, "- If HIGH or CRITICAL findings remain", "Rendered shape:")
 	demoNextSteps := between(t, command, "4. **Next Steps**:", "Then persist the summary")
+	stepTenPersistence := between(t, command, "Then persist the summary", "## Guardrails")
 
 	t.Run("spec review exit routes through format_unleash_exit", func(t *testing.T) {
 		if !strings.Contains(specReviewExit, "format_unleash_exit") {
@@ -207,6 +208,32 @@ func TestUnleashCommand_WorkflowTierBranching(t *testing.T) {
 		}
 		if !strings.Contains(demoNextSteps, "[tier-specific refinement option selected above]") {
 			t.Error("demo example missing tier-selected refinement option")
+		}
+	})
+
+	t.Run("step 10 persists the summary through write_unleash_summary", func(t *testing.T) {
+		if !strings.Contains(stepTenPersistence, "write_unleash_summary") {
+			t.Error("step 10 missing write_unleash_summary invocation")
+		}
+		for _, param := range []string{
+			"change_name:",
+			"tier: WORKFLOW_TIER",
+			"feature_dir:",
+			"review_verdicts:",
+			"learnings_stored:",
+		} {
+			if !strings.Contains(stepTenPersistence, param) {
+				t.Errorf("step 10 write_unleash_summary invocation missing %s", param)
+			}
+		}
+		if strings.Contains(stepTenPersistence, "persist_unleash_summary") {
+			t.Error("step 10 still references the superseded persist_unleash_summary tool name")
+		}
+	})
+
+	t.Run("ceremony reduced to the two checkpoint calls", func(t *testing.T) {
+		if got := strings.Count(command, "CHECKPOINT: Call"); got != 2 {
+			t.Errorf("unleash command checkpoint ceremony count = %d, want 2", got)
 		}
 	})
 
