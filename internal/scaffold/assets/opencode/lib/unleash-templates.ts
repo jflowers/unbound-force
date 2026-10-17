@@ -21,9 +21,10 @@
 
 /**
  * Workflow tier value set. Single source for the tier union: the
- * UnleashTier type here and the WorkflowTier type plus the ExitTierSchema
- * z.enum in plugins/uf-workflow/index.ts all derive from this list, so a
- * value added or renamed in one declaration cannot drift from the rest.
+ * UnleashTier type here and the WorkflowTier type plus every tier
+ * z.enum in plugins/uf-workflow/index.ts (ExitTierSchema,
+ * DetectResumeInputSchema) all derive from this list, so a value
+ * added or renamed in one declaration cannot drift from the rest.
  */
 export const WORKFLOW_TIERS = ["speckit", "openspec"] as const
 

@@ -1511,7 +1511,7 @@ export interface DetectResumeDependencies {
 const DetectResumeInputSchema = z
   .object({
     feature_dir: z.string().min(1).max(1024),
-    workflow_tier: z.enum(["openspec", "speckit"]),
+    workflow_tier: z.enum(WORKFLOW_TIERS),
   })
   .strict()
 
