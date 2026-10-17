@@ -423,8 +423,10 @@ func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
 		t.Fatalf("stageReviewPluginSources() error: %v", err)
 	}
 
-	pluginLibSpecifier := regexp.MustCompile(`["']\.\./\.\./lib/([A-Za-z0-9._-]+)\.js["']`)
-	libLocalSpecifier := regexp.MustCompile(`["']\./([A-Za-z0-9._-]+)\.js["']`)
+	// [A-Za-z0-9._/-] also admits nested lib paths (lib/sub/mod.js); the
+	// assertion loop below fails any derived module that is not staged.
+	pluginLibSpecifier := regexp.MustCompile(`["']\.\./\.\./lib/([A-Za-z0-9._/-]+)\.js["']`)
+	libLocalSpecifier := regexp.MustCompile(`["']\./([A-Za-z0-9._/-]+)\.js["']`)
 
 	stagedPluginAssets := []string{
 		invokeAgentPluginAsset,
@@ -444,6 +446,9 @@ func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
 		requiredModules[name] = true
 		content, err := assetContent("opencode/lib/" + name + ".ts")
 		if err != nil {
+			// assetContent failures are reported by the assertion loop
+			// below; the walk cannot traverse a module with no
+			// embedded asset.
 			return
 		}
 		for _, match := range libLocalSpecifier.FindAllStringSubmatch(string(content), -1) {
