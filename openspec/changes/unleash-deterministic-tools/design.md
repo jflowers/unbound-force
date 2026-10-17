@@ -279,6 +279,16 @@ exact templates, replacing the OUTPUT FIDELITY GUARD and the
 each rendered shape is preserved in the command near the decision
 points that consume them.
 
+**As-built (2026-10-17)**: the shipped interfaces differ from the
+signatures above. `format_unleash_exit` selects its body block through a
+`variant` enum (`UNLEASH_EXIT_VARIANTS`: `clarify`, `spec-review`,
+`implement-worker-failed`, `implement-merge-conflict`,
+`implement-phase-checkpoint`, `code-review-preflight`,
+`code-review-no-success`, `code-review-iterations-exhausted`) rather
+than the flat step/reason/findings argument set, and `format_unleash_demo`
+takes camelCase `whatWasBuilt`, `howToVerify`, and `testResults` (plus
+optional `changeName`), not the snake_case names recorded above.
+
 ### D7: `write_unleash_summary` — defect 1
 
 Called at the demo step. Writes
@@ -332,6 +342,10 @@ failure-stop, comms reservations, and the pre-flight hard gate
 remain prose (MCP interleaving and skill boundaries; whole-phase
 tools would risk the 30-minute tool bound while phases run
 longer).
+
+**As-built (2026-10-17)**: the shipped parameter names are `tasks_path`
+(`parse_tasks`, `mark_task_complete`) and `paths` (`scan_conflict_markers`)
+rather than the `feature_dir`/`files` names recorded above.
 
 ### D10: Mirrors and verification
 
