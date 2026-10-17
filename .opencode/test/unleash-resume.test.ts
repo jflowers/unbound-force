@@ -1228,6 +1228,51 @@ describe("uf_unleash_detect_resume unchecked-box counting", () => {
     expect(data.resume_from).toBe("code_review")
   })
 
+  it("counts unchecked boxes in CRLF tasks.md the same as LF", async () => {
+    const { exec } = fakeGit()
+    const { deps } = fakeDeps({
+      featureDir: FEATURE_DIR,
+      // CRLF lines must survive the trailing-\r strip: without it every
+      // checkbox line fails the task pattern and the count silently
+      // reports zero open tasks (implement reported complete).
+      tasks: TASKS_WITH_OPEN_WORK.split("\n").join("\r\n"),
+      artifacts: {
+        "specs-approve.json": artifactJson({ mode: "specs", headSha: HEAD_SHA, verdict: "APPROVE" }),
+      },
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: FEATURE_DIR,
+      workflow_tier: "openspec",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses.implement).toBe(false)
+    expect(data.unchecked_count).toBe(1)
+    expect(data.resume_from).toBe("implement")
+  })
+
+  it("marks implement done at zero unchecked boxes in CRLF tasks.md", async () => {
+    const { exec } = fakeGit()
+    const { deps } = fakeDeps({
+      featureDir: FEATURE_DIR,
+      tasks: TASKS_COMPLETE.split("\n").join("\r\n"),
+      artifacts: {
+        "specs-approve.json": artifactJson({ mode: "specs", headSha: HEAD_SHA, verdict: "APPROVE" }),
+      },
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: FEATURE_DIR,
+      workflow_tier: "openspec",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses.implement).toBe(true)
+    expect(data.unchecked_count).toBe(0)
+    expect(data.resume_from).toBe("code_review")
+  })
+
   it("reports implement not done with a null count when tasks.md is missing", async () => {
     const { exec } = fakeGit()
     const { deps, readTextCalls } = fakeDeps({ featureDir: FEATURE_DIR })

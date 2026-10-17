@@ -1,9 +1,10 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { parseReviewDispatchArtifact } from "../lib/review-dispatch-artifact.js"
 import {
   createFinalizationDependencies,
   finalizeReviewDispatch,
@@ -436,6 +437,31 @@ describe("finalize review dispatch persistence", () => {
     expect((await stat(join(directory, ".uf/artifacts/dispatch"))).mode & 0o777).toBe(0o750)
     expect((await stat(result.artifact_path!)).mode & 0o777).toBe(0o600)
     expect((await readdir(join(directory, ".uf/artifacts/dispatch"))).some((name) => name.endsWith(".tmp"))).toBe(false)
+  })
+
+  it("round-trips the persisted envelope through the resume consumer parser", async () => {
+    const directory = await scratchDirectory()
+    const payload = payloadFixture()
+
+    const result = await finalize(payload, dependencies(directory))
+
+    expect(result.status).toBe("success")
+    expect(result.artifact_path).not.toBeNull()
+    // Read the published bytes — the same view the uf-workflow consumer has.
+    const raw = await readFile(result.artifact_path!, "utf8")
+    const summary = parseReviewDispatchArtifact(raw, basename(result.artifact_path!))
+    expect(summary).not.toBeNull()
+    expect(summary).toMatchObject({
+      source: basename(result.artifact_path!),
+      mode: payload.mode,
+      branch: "feature/review-fanout",
+      headSha: payload.input_context.head_sha,
+      verdict: payload.verdict,
+    })
+    // The envelope is stamped through the real now() dependency, not a
+    // fixture: a producer-side rename that breaks this seam fails here
+    // instead of fail-opening resume detection to "not done".
+    expect(summary!.writtenAt).toBe(Date.parse("2026-10-01T12:00:04Z"))
   })
 
   it("flushes, closes, and chmods before exclusive publication", async () => {
