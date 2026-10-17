@@ -423,10 +423,15 @@ func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
 		t.Fatalf("stageReviewPluginSources() error: %v", err)
 	}
 
-	// [A-Za-z0-9._/-] also admits nested lib paths (lib/sub/mod.js); the
-	// assertion loop below fails any derived module that is not staged.
-	pluginLibSpecifier := regexp.MustCompile(`["']\.\./\.\./lib/([A-Za-z0-9._/-]+)\.js["']`)
-	libLocalSpecifier := regexp.MustCompile(`["']\./([A-Za-z0-9._/-]+)\.js["']`)
+	// The lib layout is flat: every module lives at opencode/lib/<name>.ts and
+	// imports siblings as "./<name>.js". Specifiers that escape the flat
+	// grammars below — parent-relative "../x.js" imports or nested "./x/y.js"
+	// paths — would silently skip the closure walk, so they fail the test
+	// loudly through the non-flat scans instead.
+	pluginLibSpecifier := regexp.MustCompile(`["']\.\./\.\./lib/([A-Za-z0-9._-]+)\.js["']`)
+	libLocalSpecifier := regexp.MustCompile(`["']\./([A-Za-z0-9._-]+)\.js["']`)
+	nonFlatPluginLibSpecifier := regexp.MustCompile(`["']\.\./\.\./lib/[A-Za-z0-9._-]*/[^"']*\.js["']`)
+	nonFlatLibSpecifier := regexp.MustCompile(`["']\.\./[^"']*\.js["']|["']\./[A-Za-z0-9._-]*/[^"']*\.js["']`)
 
 	stagedPluginAssets := []string{
 		invokeAgentPluginAsset,
@@ -454,6 +459,9 @@ func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
 		for _, match := range libLocalSpecifier.FindAllStringSubmatch(string(content), -1) {
 			requireModule(match[1])
 		}
+		for _, match := range nonFlatLibSpecifier.FindAllString(string(content), -1) {
+			t.Errorf("lib module %s contains a non-flat local import %s; the closure walk covers only the flat opencode/lib layout", name, match)
+		}
 	}
 
 	for _, assetPath := range stagedPluginAssets {
@@ -463,6 +471,9 @@ func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
 		}
 		for _, match := range pluginLibSpecifier.FindAllStringSubmatch(string(content), -1) {
 			requireModule(match[1])
+		}
+		for _, match := range nonFlatPluginLibSpecifier.FindAllString(string(content), -1) {
+			t.Errorf("plugin %s contains a non-flat lib import %s; the closure walk covers only the flat opencode/lib layout", assetPath, match)
 		}
 	}
 

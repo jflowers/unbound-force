@@ -209,6 +209,11 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		if !strings.Contains(demoNextSteps, "[tier-specific refinement option selected above]") {
 			t.Error("demo example missing tier-selected refinement option")
 		}
+		for _, param := range []string{"whatWasBuilt:", "howToVerify:", "testResults:"} {
+			if !strings.Contains(demoNextSteps, param) {
+				t.Errorf("demo format_unleash_demo invocation missing %s", param)
+			}
+		}
 	})
 
 	t.Run("step 10 persists the summary through write_unleash_summary", func(t *testing.T) {
@@ -221,6 +226,9 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 			"feature_dir:",
 			"review_verdicts:",
 			"learnings_stored:",
+			"whatWasBuilt:",
+			"howToVerify:",
+			"testResults:",
 		} {
 			if !strings.Contains(stepTenPersistence, param) {
 				t.Errorf("step 10 write_unleash_summary invocation missing %s", param)
@@ -234,6 +242,22 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	t.Run("ceremony reduced to the two checkpoint calls", func(t *testing.T) {
 		if got := strings.Count(command, "CHECKPOINT: Call"); got != 2 {
 			t.Errorf("unleash command checkpoint ceremony count = %d, want 2", got)
+		}
+	})
+
+	t.Run("code-review fix loop delegates through uf_delegate_command", func(t *testing.T) {
+		fixLoop := between(t, command, "enter the fix loop", "If the verdict is INCONCLUSIVE or UNAVAILABLE")
+		if !strings.Contains(fixLoop, "uf_delegate_command") {
+			t.Error("fix loop missing uf_delegate_command delegation")
+		}
+		if !strings.Contains(fixLoop, "prompt:") {
+			t.Error("fix loop delegation missing prompt-only call shape")
+		}
+		if strings.Contains(fixLoop, "command_path:") {
+			t.Error("fix loop delegation must be prompt-only (no command_path)")
+		}
+		if strings.Contains(fixLoop, "via the Task tool") {
+			t.Error("fix loop still delegates via the Task tool")
 		}
 	})
 
