@@ -364,12 +364,7 @@ export function createCheckpointTool(exec: GitExec, cwd: string) {
         )
         return { output: JSON.stringify(success(state)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "CHECKPOINT_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "CHECKPOINT_ERROR") }
       }
     },
   })
@@ -544,12 +539,7 @@ export function createGitFetchTool(exec: GitExec, cwd: string) {
         exec(gitArgs, cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: true, code: "GIT_FETCH_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "GIT_FETCH_ERROR", true) }
       }
     },
   })
@@ -580,12 +570,7 @@ export function createGitPushTool(exec: GitExec, cwd: string) {
         exec(gitArgs, cwd)
         return { output: JSON.stringify(success({ success: true })) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: true, code: "GIT_PUSH_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "GIT_PUSH_ERROR", true) }
       }
     },
   })
@@ -992,12 +977,7 @@ export function createUnleashBranchGateTool(exec: GitExec, cwd: string, fileExis
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "BRANCH_GATE_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "BRANCH_GATE_ERROR") }
       }
     },
   })
@@ -1112,6 +1092,57 @@ function resolveRepoRelative(cwd: string, relativePath: string): string | null {
   return resolved
 }
 
+/** Standard INVALID_INPUT failure envelope for zod validation issues. */
+function invalidInputOutput(error: z.ZodError): string {
+  const details = error.issues
+    .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+    .join("; ")
+  return JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" }))
+}
+
+/** Parse tool input against a zod schema. Returns the parsed value, or the
+ * standard INVALID_INPUT failure-envelope JSON when validation fails. */
+function parseToolInput<T extends z.ZodTypeAny>(
+  schema: T,
+  args: unknown,
+): { ok: true; value: z.infer<T> } | { ok: false; failureOutput: string } {
+  const parsed = schema.safeParse(args)
+  if (parsed.success) {
+    return { ok: true, value: parsed.data }
+  }
+  return { ok: false, failureOutput: invalidInputOutput(parsed.error) }
+}
+
+/** Resolve a repo-relative tool parameter with the standard
+ * traversal-failure envelope: the absolute path, or the failure-output JSON
+ * when the resolved path escapes the repository root. */
+function resolveToolParam(
+  cwd: string,
+  value: string,
+  subject: string,
+  code: string,
+): { ok: true; abs: string } | { ok: false; failureOutput: string } {
+  const abs = resolveRepoRelative(cwd, value)
+  if (abs === null) {
+    return {
+      ok: false,
+      failureOutput: JSON.stringify(
+        failure(`Path traversal blocked: ${subject} resolves outside the repository root`, {
+          retryable: false,
+          code,
+        }),
+      ),
+    }
+  }
+  return { ok: true, abs }
+}
+
+/** Standard catch-all failure envelope from a thrown unknown error. */
+function failureFromError(err: unknown, code: string, retryable = false): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  return JSON.stringify(failure(msg, { retryable, code }))
+}
+
 /**
  * STOP message for a missing expected artifact. plan.md and tasks.md carry
  * the /uf.unleash Step 2/Step 3 STOP text verbatim; every other artifact
@@ -1215,12 +1246,7 @@ export function createDelegateCommandTool(
               ),
             }
           }
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+          return { output: invalidInputOutput(parsed.error) }
         }
         const input = parsed.data
 
@@ -1229,17 +1255,16 @@ export function createDelegateCommandTool(
         // pattern: read, then check bytes).
         let commandText: string | undefined
         if (input.command_path !== undefined) {
-          const commandAbs = resolveRepoRelative(cwd, input.command_path)
-          if (commandAbs === null) {
-            return {
-              output: JSON.stringify(
-                failure(
-                  "Path traversal blocked: command_path resolves outside the repository root",
-                  { retryable: false, code: "COMMAND_PATH_TRAVERSAL" },
-                ),
-              ),
-            }
+          const commandPathParam = resolveToolParam(
+            cwd,
+            input.command_path,
+            "command_path",
+            "COMMAND_PATH_TRAVERSAL"
+          )
+          if (!commandPathParam.ok) {
+            return { output: commandPathParam.failureOutput }
           }
+          const commandAbs = commandPathParam.abs
           let text: string
           try {
             text = await deps.readText(commandAbs)
@@ -1271,17 +1296,16 @@ export function createDelegateCommandTool(
         // fails fast instead of wasting a child session run.
         let artifact: { relative: string; absolute: string } | null = null
         if (input.expected_artifact !== undefined) {
-          const artifactAbs = resolveRepoRelative(cwd, input.expected_artifact)
-          if (artifactAbs === null) {
-            return {
-              output: JSON.stringify(
-                failure(
-                  "Path traversal blocked: expected_artifact resolves outside the repository root",
-                  { retryable: false, code: "EXPECTED_ARTIFACT_TRAVERSAL" },
-                ),
-              ),
-            }
+          const artifactPathParam = resolveToolParam(
+            cwd,
+            input.expected_artifact,
+            "expected_artifact",
+            "EXPECTED_ARTIFACT_TRAVERSAL"
+          )
+          if (!artifactPathParam.ok) {
+            return { output: artifactPathParam.failureOutput }
           }
+          const artifactAbs = artifactPathParam.abs
           artifact = { relative: input.expected_artifact, absolute: artifactAbs }
         }
 
@@ -1323,12 +1347,7 @@ export function createDelegateCommandTool(
               ),
             }
           }
-          const msg = err instanceof Error ? err.message : String(err)
-          return {
-            output: JSON.stringify(
-              failure(msg, { retryable: true, code: "HOST_MODEL_UNAVAILABLE" }),
-            ),
-          }
+          return { output: failureFromError(err, "HOST_MODEL_UNAVAILABLE", true) }
         }
 
         // Content delegation writes files (plans, tasks, code), so the
@@ -1428,12 +1447,7 @@ export function createDelegateCommandTool(
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "DELEGATE_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "DELEGATE_ERROR") }
       }
     },
   })
@@ -1510,7 +1524,13 @@ export interface DetectResumeDependencies {
 /** zod-validated input contract for uf_unleash_detect_resume. */
 const DetectResumeInputSchema = z
   .object({
-    feature_dir: z.string().min(1).max(1024),
+    feature_dir: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine((value) => !value.startsWith(":"), {
+        message: "must not start with ':' (git pathspec magic)",
+      }),
     workflow_tier: z.enum(WORKFLOW_TIERS),
   })
   .strict()
@@ -1527,9 +1547,8 @@ const DetectResumeInputSchema = z
 function countUncheckedCheckboxes(tasksText: string): number {
   return tasksText
     .split("\n")
-    .map((rawLine) => (rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine))
-    .filter((line) => {
-      const match = matchTaskLine(line)
+    .filter((rawLine) => {
+      const match = matchTaskLine(rawLine)
       return match !== null && match.indent === "" && !match.checked
     })
     .length
@@ -1797,30 +1816,24 @@ export function createUnleashDetectResumeTool(
     },
     async execute(args) {
       try {
-        const parsed = DetectResumeInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(DetectResumeInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
         // feature_dir is repo-relative with the same traversal guard the
         // delegation tool applies to command paths.
-        const featureDirAbs = resolveRepoRelative(cwd, input.feature_dir)
-        if (featureDirAbs === null) {
-          return {
-            output: JSON.stringify(
-              failure(
-                "Path traversal blocked: feature_dir resolves outside the repository root",
-                { retryable: false, code: "FEATURE_DIR_TRAVERSAL" },
-              ),
-            ),
-          }
+        const featureDirParam = resolveToolParam(
+          cwd,
+          input.feature_dir,
+          "feature_dir",
+          "FEATURE_DIR_TRAVERSAL"
+        )
+        if (!featureDirParam.ok) {
+          return { output: featureDirParam.failureOutput }
         }
+        const featureDirAbs = featureDirParam.abs
         // Normalize to a trailing slash so file joins and the git pathspec
         // compose identically whether or not the caller passed one.
         const featureDir = input.feature_dir.endsWith("/")
@@ -1928,12 +1941,7 @@ export function createUnleashDetectResumeTool(
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "RESUME_DETECT_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "RESUME_DETECT_ERROR") }
       }
     },
   })
@@ -2013,14 +2021,26 @@ export interface ResolveClarificationDependencies extends ScanClarificationsDepe
 /** zod-validated input contract for scan_clarifications. */
 const ScanClarificationsInputSchema = z
   .object({
-    feature_dir: z.string().min(1).max(1024),
+    feature_dir: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine((value) => !value.startsWith(":"), {
+        message: "must not start with ':' (git pathspec magic)",
+      }),
   })
   .strict()
 
 /** zod-validated input contract for resolve_clarification. */
 const ResolveClarificationInputSchema = z
   .object({
-    feature_dir: z.string().min(1).max(1024),
+    feature_dir: z
+      .string()
+      .min(1)
+      .max(1024)
+      .refine((value) => !value.startsWith(":"), {
+        message: "must not start with ':' (git pathspec magic)",
+      }),
     question: z.string().min(1).max(4096),
     answer: z.string().min(1).max(16384),
     source: z.string().min(1).max(1024),
@@ -2192,30 +2212,24 @@ export function createScanClarificationsTool(
     },
     async execute(args) {
       try {
-        const parsed = ScanClarificationsInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(ScanClarificationsInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
         // feature_dir is repo-relative with the same traversal guard the
         // delegation and resume tools apply.
-        const featureDirAbs = resolveRepoRelative(cwd, input.feature_dir)
-        if (featureDirAbs === null) {
-          return {
-            output: JSON.stringify(
-              failure(
-                "Path traversal blocked: feature_dir resolves outside the repository root",
-                { retryable: false, code: "FEATURE_DIR_TRAVERSAL" },
-              ),
-            ),
-          }
+        const featureDirParam = resolveToolParam(
+          cwd,
+          input.feature_dir,
+          "feature_dir",
+          "FEATURE_DIR_TRAVERSAL"
+        )
+        if (!featureDirParam.ok) {
+          return { output: featureDirParam.failureOutput }
         }
+        const featureDirAbs = featureDirParam.abs
 
         const specRead = await readSpecText(deps, resolve(featureDirAbs, "spec.md"))
         if (!specRead.ok) {
@@ -2240,12 +2254,7 @@ export function createScanClarificationsTool(
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "SCAN_CLARIFICATIONS_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "SCAN_CLARIFICATIONS_ERROR") }
       }
     },
   })
@@ -2301,30 +2310,24 @@ export function createResolveClarificationTool(
     },
     async execute(args) {
       try {
-        const parsed = ResolveClarificationInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(ResolveClarificationInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
         // feature_dir is repo-relative with the same traversal guard the
         // delegation and resume tools apply.
-        const featureDirAbs = resolveRepoRelative(cwd, input.feature_dir)
-        if (featureDirAbs === null) {
-          return {
-            output: JSON.stringify(
-              failure(
-                "Path traversal blocked: feature_dir resolves outside the repository root",
-                { retryable: false, code: "FEATURE_DIR_TRAVERSAL" },
-              ),
-            ),
-          }
+        const featureDirParam = resolveToolParam(
+          cwd,
+          input.feature_dir,
+          "feature_dir",
+          "FEATURE_DIR_TRAVERSAL"
+        )
+        if (!featureDirParam.ok) {
+          return { output: featureDirParam.failureOutput }
         }
+        const featureDirAbs = featureDirParam.abs
 
         const specPath = resolve(featureDirAbs, "spec.md")
         const specRead = await readSpecText(deps, specPath)
@@ -2376,12 +2379,7 @@ export function createResolveClarificationTool(
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "RESOLVE_CLARIFICATION_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "RESOLVE_CLARIFICATION_ERROR") }
       }
     },
   })
@@ -2569,7 +2567,8 @@ interface TaskLineMatch {
  * parse_tasks and mark_task_complete consume this so the two tools cannot
  * disagree about what counts as a task.
  */
-function matchTaskLine(line: string): TaskLineMatch | null {
+function matchTaskLine(rawLine: string): TaskLineMatch | null {
+  const line = normalizeLine(rawLine)
   const match = TASK_LINE_PATTERN.exec(line)
   if (match === null) return null
   return {
@@ -2578,6 +2577,14 @@ function matchTaskLine(line: string): TaskLineMatch | null {
     id: match[3],
     rest: match[4] ?? "",
   }
+}
+
+/** Strip one trailing carriage return (CRLF tolerance) — the single
+ * point of line normalization for tasks.md parsing: matchTaskLine folds
+ * it in, consumers pass raw lines, and offset arithmetic stays on raw
+ * line lengths so flipAt remains byte-correct. */
+function normalizeLine(rawLine: string): string {
+  return rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine
 }
 
 /**
@@ -2643,7 +2650,7 @@ function parseTasksText(tasksText: string): ParseTasksData {
   const phases: { phase: string; tasks: ParsedTask[] }[] = []
   let current: { phase: string; tasks: ParsedTask[] } | null = null
   for (const rawLine of tasksText.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine
+    const line = normalizeLine(rawLine)
     const heading = PHASE_HEADING_PATTERN.exec(line)
     if (heading !== null) {
       current = { phase: heading[1].trim(), tasks: [] }
@@ -2690,8 +2697,7 @@ function findTaskLine(
   let lineStart = 0
   let alreadyComplete = false
   for (const rawLine of tasksText.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine
-    const match = matchTaskLine(line)
+    const match = matchTaskLine(rawLine)
     if (match !== null && match.indent === "" && match.id === taskId) {
       if (!match.checked) {
         // Top-level "- [ ]" — the space to flip sits at offset 3.
@@ -2805,30 +2811,24 @@ export function createParseTasksTool(
     },
     async execute(args) {
       try {
-        const parsed = ParseTasksInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(ParseTasksInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
         // tasks_path is repo-relative with the same traversal guard the
         // delegation and clarify tools apply.
-        const tasksAbs = resolveRepoRelative(cwd, input.tasks_path)
-        if (tasksAbs === null) {
-          return {
-            output: JSON.stringify(
-              failure(
-                "Path traversal blocked: tasks_path resolves outside the repository root",
-                { retryable: false, code: "TASKS_PATH_TRAVERSAL" },
-              ),
-            ),
-          }
+        const tasksPathParam = resolveToolParam(
+          cwd,
+          input.tasks_path,
+          "tasks_path",
+          "TASKS_PATH_TRAVERSAL"
+        )
+        if (!tasksPathParam.ok) {
+          return { output: tasksPathParam.failureOutput }
         }
+        const tasksAbs = tasksPathParam.abs
 
         const tasksRead = await readTasksText(deps, tasksAbs)
         if (!tasksRead.ok) {
@@ -2889,28 +2889,22 @@ export function createMarkTaskCompleteTool(
     },
     async execute(args) {
       try {
-        const parsed = MarkTaskCompleteInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(MarkTaskCompleteInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
-        const tasksAbs = resolveRepoRelative(cwd, input.tasks_path)
-        if (tasksAbs === null) {
-          return {
-            output: JSON.stringify(
-              failure(
-                "Path traversal blocked: tasks_path resolves outside the repository root",
-                { retryable: false, code: "TASKS_PATH_TRAVERSAL" },
-              ),
-            ),
-          }
+        const tasksPathParam = resolveToolParam(
+          cwd,
+          input.tasks_path,
+          "tasks_path",
+          "TASKS_PATH_TRAVERSAL"
+        )
+        if (!tasksPathParam.ok) {
+          return { output: tasksPathParam.failureOutput }
         }
+        const tasksAbs = tasksPathParam.abs
 
         const tasksRead = await readTasksText(deps, tasksAbs)
         if (!tasksRead.ok) {
@@ -3016,32 +3010,26 @@ export function createScanConflictMarkersTool(
     },
     async execute(args) {
       try {
-        const parsed = ScanConflictMarkersInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(ScanConflictMarkersInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
         // Traversal is fail-closed: one escaping path rejects the whole
         // call before any file is read.
         const roots: string[] = []
         for (const scanPath of input.paths) {
-          const abs = resolveRepoRelative(cwd, scanPath)
-          if (abs === null) {
-            return {
-              output: JSON.stringify(
-                failure(
-                  `Path traversal blocked: ${scanPath} resolves outside the repository root`,
-                  { retryable: false, code: "PATHS_TRAVERSAL" },
-                ),
-              ),
-            }
+          const pathParam = resolveToolParam(
+            cwd,
+            scanPath,
+            scanPath,
+            "PATHS_TRAVERSAL"
+          )
+          if (!pathParam.ok) {
+            return { output: pathParam.failureOutput }
           }
+          const abs = pathParam.abs
           roots.push(abs)
         }
 
@@ -3086,12 +3074,7 @@ export function createScanConflictMarkersTool(
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "SCAN_CONFLICT_MARKERS_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "SCAN_CONFLICT_MARKERS_ERROR") }
       }
     },
   })
@@ -3321,25 +3304,15 @@ export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool
     },
     async execute(args) {
       try {
-        const parsed = UnleashExitInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(UnleashExitInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const { variant, ...data } = parsed.data
+        const { variant, ...data } = parsedInput.value
         const rendered: UnleashRenderedTextData = { text: formatUnleashExit(variant, data) }
         return { output: JSON.stringify(success(rendered)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "FORMAT_UNLEASH_EXIT_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "FORMAT_UNLEASH_EXIT_ERROR") }
       }
     },
   })
@@ -3408,16 +3381,11 @@ export function createFormatUnleashDemoTool(exec: GitExec, cwd: string): ReturnT
     },
     async execute(args) {
       try {
-        const parsed = UnleashDemoInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(UnleashDemoInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
         const rendered: UnleashRenderedTextData = { text: formatUnleashDemo(input) }
 
         // D5: auto-checkpoint through the same state path the checkpoint
@@ -3432,12 +3400,7 @@ export function createFormatUnleashDemoTool(exec: GitExec, cwd: string): ReturnT
 
         return { output: JSON.stringify(success(rendered)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "FORMAT_UNLEASH_DEMO_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "FORMAT_UNLEASH_DEMO_ERROR") }
       }
     },
   })
@@ -3670,16 +3633,11 @@ export function createWriteUnleashSummaryTool(exec: GitExec, cwd: string): Retur
           }
         }
 
-        const parsed = WriteUnleashSummaryInputSchema.safeParse(args)
-        if (!parsed.success) {
-          const details = parsed.error.issues
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-          return {
-            output: JSON.stringify(failure(details, { retryable: false, code: "INVALID_INPUT" })),
-          }
+        const parsedInput = parseToolInput(WriteUnleashSummaryInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
         }
-        const input = parsed.data
+        const input = parsedInput.value
 
         // Branch-derived file name, sanitized through the progress-store
         // slug rules — the same derivation the finale consumer applies
@@ -3797,12 +3755,7 @@ export function createWriteUnleashSummaryTool(exec: GitExec, cwd: string): Retur
         }
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          output: JSON.stringify(
-            failure(msg, { retryable: false, code: "SUMMARY_WRITE_ERROR" }),
-          ),
-        }
+        return { output: failureFromError(err, "SUMMARY_WRITE_ERROR") }
       }
     },
   })
