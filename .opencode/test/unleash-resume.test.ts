@@ -820,6 +820,31 @@ describe("uf_unleash_detect_resume spec_review rerun triggers", () => {
     expect(gitCommands(calls)).toContain(`status --porcelain -- ${FEATURE_DIR}`)
   })
 
+  it("normalizes a slash-less feature_dir onto the porcelain pathspec", async () => {
+    simulateExistingState(claimedReviewState(["spec-review"]))
+    const { exec, calls } = fakeGit({ porcelain: PORCELAIN_UNTRACKED_DIR })
+    const { deps } = fakeDeps({
+      featureDir: FEATURE_DIR,
+      tasks: TASKS_COMPLETE,
+      artifacts: {
+        "specs-approve.json": artifactJson({ mode: "specs", headSha: ANCESTOR_SHA, verdict: "APPROVE" }),
+      },
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: "openspec/changes/unleash-deterministic-tools",
+      workflow_tier: "openspec",
+    })
+
+    // The same contradiction as the trailing-slash fixture: the checkpoint
+    // claims spec-review, but the only artifact predates the current head.
+    const data = okData(result)
+    expect(data.step_statuses.spec_review).toBe(false)
+    // The slash-less input is normalized on: the porcelain call carries the
+    // trailing-slash pathspec every other fixture asserts against.
+    expect(gitCommands(calls)).toContain(`status --porcelain -- ${FEATURE_DIR}`)
+  })
+
   it("reruns when an untracked directory appears under the feature dir", async () => {
     simulateExistingState(claimedReviewState(["spec-review"]))
     const { exec } = fakeGit({ porcelain: PORCELAIN_UNTRACKED_DIR })
@@ -1689,6 +1714,25 @@ describe("uf_unleash_detect_resume input validation", () => {
     expect(envelope.code).toBe("INVALID_INPUT")
     expect(envelope.retryable).toBe(false)
     expect(envelope.message).toContain("feature_dir")
+  })
+
+  it("rejects a leading-':' feature_dir with INVALID_INPUT before any git call", async () => {
+    const { exec, calls } = fakeGit()
+    const { deps } = fakeDeps({ featureDir: FEATURE_DIR, tasks: TASKS_COMPLETE })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: ":(glob)openspec/changes/*",
+      workflow_tier: "openspec",
+    })
+
+    const envelope = errorEnvelope(result)
+    expect(envelope.code).toBe("INVALID_INPUT")
+    expect(envelope.retryable).toBe(false)
+    // The zod issue details name the field and the pathspec-magic rule.
+    expect(envelope.message).toContain("feature_dir")
+    expect(envelope.message).toContain("pathspec")
+    // Rejected at the schema boundary — the git executor never runs.
+    expect(calls).toEqual([])
   })
 
   it("rejects unknown input keys with INVALID_INPUT (strict schema)", async () => {

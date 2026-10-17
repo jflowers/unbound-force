@@ -482,12 +482,34 @@ func TestStageReviewPluginSources_CoversImportedLibModules(t *testing.T) {
 	}
 
 	for module := range requiredModules {
-		if _, err := assetContent("opencode/lib/" + module + ".ts"); err != nil {
-			t.Errorf("lib module %s referenced by staged sources has no embedded asset opencode/lib/%s.ts: %v", module, module, err)
+		assetPath := "opencode/lib/" + module + ".ts"
+		embedded, err := assetContent(assetPath)
+		if err != nil {
+			t.Errorf("lib module %s referenced by staged sources has no embedded asset %s: %v", module, assetPath, err)
+			continue
 		}
 		stagedPath := filepath.Join(stageRoot, "lib", module+".ts")
-		if _, err := os.Stat(stagedPath); err != nil {
+		staged, err := os.ReadFile(stagedPath)
+		if err != nil {
 			t.Errorf("lib module %s referenced by staged sources is missing from the staging list (%s): %v", module, stagedPath, err)
+			continue
+		}
+		// Content lockstep: staged sources must stay byte-identical to the
+		// embedded assets the closure walk derives from. A divergence would
+		// deploy review plugins whose staged copy silently drifts from the
+		// embedded registry.
+		if !bytes.Equal(staged, embedded) {
+			t.Errorf("staged lib module %s (%s) differs from embedded asset %s", module, stagedPath, assetPath)
+		}
+		// Ownership lockstep: every module the staged plugins import must be
+		// tool-owned so uf init overwrites it in generated projects, and a
+		// Divisor asset so DivisorOnly deployments stage it. A module missing
+		// from either registry would stage once and then drift.
+		if !isToolOwned(assetPath) {
+			t.Errorf("lib module %s is imported by staged plugin sources but isToolOwned(%s) is false; uf init would never update it", module, assetPath)
+		}
+		if !isDivisorAsset(assetPath) {
+			t.Errorf("lib module %s is imported by staged plugin sources but isDivisorAsset(%s) is false; DivisorOnly deployments would not stage it", module, assetPath)
 		}
 	}
 }

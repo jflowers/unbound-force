@@ -784,6 +784,7 @@ describe("clarify tools failure paths", () => {
     ["an extra key", { feature_dir: FEATURE_DIR, unexpected: "value" }, "unexpected"],
     ["an empty feature_dir", { feature_dir: "" }, "feature_dir"],
     ["a missing feature_dir", {}, "feature_dir"],
+    ["a pathspec-magic feature_dir", { feature_dir: ":(glob)specs/*" }, "feature_dir"],
   ])("scan rejects %s with INVALID_INPUT before any read", async (_description, args, messagePart) => {
     const { deps, readTextCalls } = fakeSpecDeps({ files: { [SPEC_PATH]: SPEC_SECTION_ABSENT } })
 
@@ -803,6 +804,7 @@ describe("clarify tools failure paths", () => {
     ["an empty answer", { ...RESOLVE_ARGS, answer: "" }, "answer"],
     ["an empty source", { ...RESOLVE_ARGS, source: "" }, "source"],
     ["a missing question", { feature_dir: FEATURE_DIR }, "question"],
+    ["a pathspec-magic feature_dir", { ...RESOLVE_ARGS, feature_dir: ":" }, "feature_dir"],
   ])("resolve rejects %s with INVALID_INPUT before any read", async (_description, args, messagePart) => {
     const { deps, readTextCalls } = fakeSpecDeps({ files: { [SPEC_PATH]: SPEC_SECTION_ABSENT } })
 
@@ -813,5 +815,41 @@ describe("clarify tools failure paths", () => {
     expect(failureEnvelope.retryable).toBe(false)
     expect(failureEnvelope.message).toContain(messagePart)
     expect(readTextCalls).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Catch-all fail-closed behavior (round-5 review advisory)
+// ---------------------------------------------------------------------------
+
+describe("clarify tools fail closed on unexpected runtime failures", () => {
+  it("scan_clarifications wraps a contract-breaking reader as SCAN_CLARIFICATIONS_ERROR", async () => {
+    // readSpecText converts a throwing reader to NO_SPEC / SPEC_READ_FAILED;
+    // a reader that resolves a non-string breaks the contract past those
+    // specific handlers, exercising the tool's catch-all envelope.
+    const deps: ScanClarificationsDependencies = {
+      readText: async () => 42 as unknown as string,
+    }
+
+    const result = await invokeScan(deps, { feature_dir: FEATURE_DIR })
+
+    const failureEnvelope = errorEnvelope(result)
+    expect(failureEnvelope.code).toBe("SCAN_CLARIFICATIONS_ERROR")
+    expect(failureEnvelope.retryable).toBe(false)
+    expect(failureEnvelope.message).toBeTruthy()
+  })
+
+  it("resolve_clarification wraps a contract-breaking reader as RESOLVE_CLARIFICATION_ERROR", async () => {
+    const deps: ResolveClarificationDependencies = {
+      readText: async () => 42 as unknown as string,
+      writeText: async () => {},
+    }
+
+    const result = await invokeResolve(deps, { ...RESOLVE_ARGS })
+
+    const failureEnvelope = errorEnvelope(result)
+    expect(failureEnvelope.code).toBe("RESOLVE_CLARIFICATION_ERROR")
+    expect(failureEnvelope.retryable).toBe(false)
+    expect(failureEnvelope.message).toBeTruthy()
   })
 })

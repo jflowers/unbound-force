@@ -261,6 +261,54 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		}
 	})
 
+	t.Run("step 2 plan delegates through uf_delegate_command", func(t *testing.T) {
+		planStep := between(t, command, "### 4. Step 2 -- Plan", "### 5. Step 3 -- Tasks")
+		if !strings.Contains(planStep, "uf_delegate_command") {
+			t.Error("plan step missing uf_delegate_command delegation")
+		}
+		if !strings.Contains(planStep, `command_path: ".opencode/commands/speckit.plan.md"`) {
+			t.Error("plan step delegation missing speckit.plan command path")
+		}
+		if !strings.Contains(planStep, `checkpoint_step: "plan"`) {
+			t.Error("plan step delegation missing plan checkpoint step")
+		}
+		if strings.Contains(planStep, "via the Task tool") {
+			t.Error("plan step still delegates via the Task tool")
+		}
+	})
+
+	t.Run("step 3 tasks delegates through uf_delegate_command", func(t *testing.T) {
+		tasksStep := between(t, command, "### 5. Step 3 -- Tasks", "### 6. Step 4 -- Spec Review")
+		if !strings.Contains(tasksStep, "uf_delegate_command") {
+			t.Error("tasks step missing uf_delegate_command delegation")
+		}
+		if !strings.Contains(tasksStep, `command_path: ".opencode/commands/speckit.tasks.md"`) {
+			t.Error("tasks step delegation missing speckit.tasks command path")
+		}
+		if !strings.Contains(tasksStep, `checkpoint_step: "tasks"`) {
+			t.Error("tasks step delegation missing tasks checkpoint step")
+		}
+		if strings.Contains(tasksStep, "via the Task tool") {
+			t.Error("tasks step still delegates via the Task tool")
+		}
+	})
+
+	t.Run("step 5 implement delegates through uf_delegate_command", func(t *testing.T) {
+		implementStep := between(t, command, "### 7. Step 5 -- Implement", "### 8. Step 6 -- Code Review")
+		if !strings.Contains(implementStep, "uf_delegate_command") {
+			t.Error("implement step missing uf_delegate_command delegation")
+		}
+		if !strings.Contains(implementStep, "prompt:") {
+			t.Error("implement step delegation missing prompt-only call shape")
+		}
+		if strings.Contains(implementStep, "command_path:") {
+			t.Error("implement step per-task delegation must be prompt-only (no command_path)")
+		}
+		if strings.Contains(implementStep, "via the Task tool") {
+			t.Error("implement step still delegates via the Task tool")
+		}
+	})
+
 	t.Run("tier guidance no longer enumerated inline", func(t *testing.T) {
 		if strings.Contains(specReviewExit, "`/speckit.clarify` to address the findings") {
 			t.Error("spec review exit still enumerates speckit guidance inline")

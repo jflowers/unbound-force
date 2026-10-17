@@ -728,6 +728,31 @@ describe("format_unleash_demo tool", () => {
     expect(existsSync).not.toHaveBeenCalled()
   })
 
+  it("fails closed with FORMAT_UNLEASH_DEMO_ERROR when the auto-checkpoint write fails", async () => {
+    const { exec } = recordingExec()
+    // The renderer succeeds; the checkpoint write fails. recordAutoCheckpoint
+    // throws on state I/O failure so the tool fails closed instead of
+    // half-reporting success with a missing checkpoint.
+    vi.mocked(writeFileSync).mockImplementation(() => {
+      throw new Error("simulated checkpoint write failure")
+    })
+    const input: UnleashDemoData = {
+      tier: "openspec",
+      whatWasBuilt: "The demo block renders through pure template functions.",
+      howToVerify: "Run `npx vitest run` from .opencode.",
+      testResults: "All plugin tests pass.",
+    }
+
+    const result = await invokeDemoTool(exec, { ...input })
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("FORMAT_UNLEASH_DEMO_ERROR")
+      expect(result.retryable).toBe(false)
+      expect(result.message).toContain("simulated checkpoint write failure")
+    }
+  })
+
   it("records change_name as checkpoint data when supplied and routes it through the renderer", async () => {
     const { exec } = recordingExec()
     const input: UnleashDemoData = {
