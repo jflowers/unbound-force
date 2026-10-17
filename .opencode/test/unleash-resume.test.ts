@@ -140,6 +140,13 @@ const PORCELAIN_DESIGN_DIRTY = `M  ${FEATURE_DIR}design.md`
 const PORCELAIN_RENAME_TO_TASKS = `R  ${FEATURE_DIR}tasks-old.md -> ${FEATURE_DIR}tasks.md`
 const PORCELAIN_UNTRACKED_DIR = `?? ${FEATURE_DIR}scratch/`
 
+// Git quotes non-ASCII paths and octal-escapes their bytes C-style; the
+// decoder must recover the real path before the tasks.md exclusion match
+// (otherwise the spec review reruns on a false-positive dirty check).
+const NON_ASCII_FEATURE_DIR = "openspec/changes/caf\u00e9-change/"
+const PORCELAIN_QUOTED_NON_ASCII_TASKS = 'M  "openspec/changes/caf\\303\\251-change/tasks.md"'
+const PORCELAIN_QUOTED_RENAME_TO_TASKS = 'R  "openspec/changes/caf\\303\\251-change/tasks-old.md" -> "openspec/changes/caf\\303\\251-change/tasks.md"'
+
 /** Node-shaped ENOENT error so state/deps readers treat a path as absent. */
 function enoent(what: string): NodeJS.ErrnoException {
   return Object.assign(new Error(`ENOENT: no such file or directory, ${what}`), { code: "ENOENT" })
@@ -651,6 +658,47 @@ describe("uf_unleash_detect_resume spec_review ancestor acceptance", () => {
 
     // Porcelain renames report "XY <old> -> <new>"; the new path is the one
     // in the tree, and here it is the excluded tasks.md.
+    expect(okData(result).step_statuses.spec_review).toBe(true)
+  })
+
+  it("decodes octal-escaped quoted porcelain paths before the tasks.md exclusion match", async () => {
+    const { exec } = fakeGit({ porcelain: PORCELAIN_QUOTED_NON_ASCII_TASKS })
+    const { deps } = fakeDeps({
+      featureDir: NON_ASCII_FEATURE_DIR,
+      tasks: TASKS_COMPLETE,
+      artifacts: {
+        "specs-approve.json": artifactJson({ mode: "specs", headSha: ANCESTOR_SHA, verdict: "APPROVE" }),
+      },
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: NON_ASCII_FEATURE_DIR,
+      workflow_tier: "openspec",
+    })
+
+    // Git quotes non-ASCII paths with C-style octal byte escapes; without
+    // decoding, the exclusion match fails and the spec review reruns on a
+    // checkbox edit (false-positive dirty).
+    expect(okData(result).step_statuses.spec_review).toBe(true)
+  })
+
+  it("decodes quoted rename new-paths with escaped characters", async () => {
+    const { exec } = fakeGit({ porcelain: PORCELAIN_QUOTED_RENAME_TO_TASKS })
+    const { deps } = fakeDeps({
+      featureDir: NON_ASCII_FEATURE_DIR,
+      tasks: TASKS_COMPLETE,
+      artifacts: {
+        "specs-approve.json": artifactJson({ mode: "specs", headSha: ANCESTOR_SHA, verdict: "APPROVE" }),
+      },
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: NON_ASCII_FEATURE_DIR,
+      workflow_tier: "openspec",
+    })
+
+    // A rename whose quoted new-path decodes to the feature tasks.md is an
+    // excluded checkbox edit, not a spec-artifact change.
     expect(okData(result).step_statuses.spec_review).toBe(true)
   })
 })

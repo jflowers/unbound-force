@@ -1589,6 +1589,9 @@ async function readDispatchArtifacts(
   const candidates: ReviewDispatchArtifactSummary[] = []
   for (const name of names) {
     if (!name.endsWith(".json")) continue
+    // Defense-in-depth: the store is tool-written, but a crafted entry
+    // name containing a path separator would resolve outside storeDir.
+    if (name.includes("/") || name.includes("\\")) continue
     let raw: string
     try {
       raw = await deps.readText(resolve(storeDir, name))
@@ -1639,10 +1642,63 @@ function isAncestorOrEqual(exec: GitExec, cwd: string, sha: string, head: string
 }
 
 /**
+ * Decode git's C-style escaping for quoted porcelain paths: backslash and
+ * double-quote escapes yield the literal characters, \t / \n / \r are
+ * control characters, and \NNN is an octal byte escape. Git escapes every
+ * byte of a multi-byte UTF-8 character, so consecutive octal escapes are
+ * buffered and decoded as UTF-8 to recover the original path text.
+ * Anything else passes through unchanged (git does not emit other escapes
+ * here).
+ */
+function decodeQuotedPath(quoted: string): string {
+  const escapedBytes: number[] = []
+  let out = ""
+  const flushBytes = () => {
+    if (escapedBytes.length > 0) {
+      out += new TextDecoder().decode(new Uint8Array(escapedBytes))
+      escapedBytes.length = 0
+    }
+  }
+  for (let i = 0; i < quoted.length; i++) {
+    const ch = quoted[i]
+    if (ch !== "\\" || i + 1 >= quoted.length) {
+      flushBytes()
+      out += ch
+      continue
+    }
+    const next = quoted[++i]
+    if (next === "t") {
+      flushBytes()
+      out += "\t"
+    } else if (next === "n") {
+      flushBytes()
+      out += "\n"
+    } else if (next === "r") {
+      flushBytes()
+      out += "\r"
+    } else if (next === '"' || next === "\\") {
+      flushBytes()
+      out += next
+    } else if (next >= "0" && next <= "7") {
+      let digits = next
+      while (digits.length < 3 && i + 1 < quoted.length && quoted[i + 1] >= "0" && quoted[i + 1] <= "7") {
+        digits += quoted[++i]
+      }
+      escapedBytes.push(parseInt(digits, 8))
+    } else {
+      flushBytes()
+      out += next
+    }
+  }
+  flushBytes()
+  return out
+}
+
+/**
  * Extract the tree path from one `git status --porcelain` line. Lines are
  * `XY <path>`; renames report `XY <old> -> <new>` where the new path is
- * the one present in the tree. Surrounding quotes (porcelain quotes paths
- * containing special characters) are stripped.
+ * the one present in the tree. Quoted paths (porcelain quotes paths
+ * containing special characters, escaping bytes C-style) are decoded.
  */
 function porcelainEntryPath(line: string): string {
   let rest = line.slice(3)
@@ -1651,7 +1707,7 @@ function porcelainEntryPath(line: string): string {
     rest = rest.slice(arrow + 4)
   }
   if (rest.startsWith('"') && rest.endsWith('"')) {
-    rest = rest.slice(1, -1)
+    return decodeQuotedPath(rest.slice(1, -1))
   }
   return rest
 }
