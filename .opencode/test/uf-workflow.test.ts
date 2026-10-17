@@ -1764,8 +1764,13 @@ describe("tool args schema exposure", () => {
     const definition = createPersistUnleashSummaryTool(branchExec, "/fake")
 
     expect(Object.keys(definition.args).sort()).toEqual([
+      "change_name",
+      "feature_dir",
       "howToVerify",
+      "learnings_stored",
+      "review_verdicts",
       "testResults",
+      "tier",
       "whatWasBuilt",
     ])
   })
