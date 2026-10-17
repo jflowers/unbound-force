@@ -42,7 +42,15 @@ Each entry follows the format: `- <change-name>: <summary>`.
   will be revisited once
   openspec/changes/persist-unleash-summary/ archives.
   Command markdown + Go/TS test updates only; scaffold
-  mirrors byte-identical. Includes the
+  mirrors byte-identical. The tool layer is fail-closed
+  end to end: every tool validates input through shared
+  glue (parseToolInput/resolveToolParam/failureFromError),
+  rejects git pathspec magic in feature_dir, and converts
+  unexpected runtime failures into *_ERROR envelopes,
+  with each catch-all path carrying a regression test
+  (scan/resolve/demo); delegation pins for Steps 2/3/5
+  and staged lib-module lockstep (content, tool-ownership,
+  Divisor staging) guard the scaffold side. Includes the
   maintainer-approved review-matrix per-run timeout bump
   600s → 1200s (mirrors synced). Increment 2 of the
   deterministic-instruction migration. (Spec:
