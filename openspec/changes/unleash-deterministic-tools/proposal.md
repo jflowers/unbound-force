@@ -147,7 +147,22 @@ deterministic surface to plugin tools.
   (`openspec/changes/unleash-direct-review-dispatch/`); this
   change MUST be validated and archived after Increment 1
   archives — task 9.2 encodes the deferred validation and anchor
-  re-verification.
+  re-verification. The `write_unleash_summary` tool also
+  supersedes the second unarchived sibling
+  (`openspec/changes/persist-unleash-summary/`): after the merge,
+  `write_unleash_summary` is the mechanism of record and
+  `persist_unleash_summary` survives only as a compatibility
+  registration aliasing it. That sibling's `unleash-summary`
+  delta still carries its original requirement text — FR-004
+  pins "All three tool parameters MUST be non-empty" against a
+  tool that now takes eight parameters, and FR-006 names
+  `persist_unleash_summary` in command prose the rewritten
+  command no longer contains. The two changes modify different
+  capabilities, so strict validation cannot flag the
+  contradiction at archive time; task 9.3 defers the
+  reconciliation (annotating the sibling's stale requirement
+  lines with superseded-by references before it archives),
+  mirroring the task 9.2 pattern.
 - **Metrics**: before/after line and token deltas for the rewritten
   command sections are recorded during implementation per
   Principle VI (target: majority of procedural section text

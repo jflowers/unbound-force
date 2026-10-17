@@ -31,6 +31,16 @@ Each entry follows the format: `- <change-name>: <summary>`.
   exact shape /uf.finale reads, closing the
   finale-token-reduction contract
   (whatWasBuilt/howToVerify/testResults; implements #707).
+  The legacy persist_unleash_summary name remains
+  registered as a compatibility alias of
+  write_unleash_summary, but it now carries the
+  write_unleash_summary contract (change_name, tier,
+  feature_dir, review_verdicts, learnings_stored, plus the
+  three demo bodies) — callers of the sibling change's
+  three-parameter contract (whatWasBuilt/howToVerify/
+  testResults only) receive INVALID_INPUT; alias removal
+  will be revisited once
+  openspec/changes/persist-unleash-summary/ archives.
   Command markdown + Go/TS test updates only; scaffold
   mirrors byte-identical. Includes the
   maintainer-approved review-matrix per-run timeout bump
