@@ -20,11 +20,15 @@
  */
 
 /**
- * Workflow tier selecting tier-specific template options. Mirrors the
- * WorkflowTier type in plugins/uf-workflow/index.ts — the lib stays
- * import-free, and structural typing bridges the two declarations.
+ * Workflow tier value set. Single source for the tier union: the
+ * UnleashTier type here and the WorkflowTier type plus the ExitTierSchema
+ * z.enum in plugins/uf-workflow/index.ts all derive from this list, so a
+ * value added or renamed in one declaration cannot drift from the rest.
  */
-export type UnleashTier = "speckit" | "openspec"
+export const WORKFLOW_TIERS = ["speckit", "openspec"] as const
+
+/** Workflow tier selecting tier-specific template options. */
+export type UnleashTier = (typeof WORKFLOW_TIERS)[number]
 
 /**
  * The eight exit scenarios /uf.unleash pauses at, matching the paused-at

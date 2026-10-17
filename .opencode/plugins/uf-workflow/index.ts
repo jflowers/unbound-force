@@ -29,6 +29,7 @@ import {
 } from "../../lib/uf-workflow-types.js"
 import {
   UNLEASH_EXIT_VARIANTS,
+  WORKFLOW_TIERS,
   formatUnleashDemo,
   formatUnleashExit,
 } from "../../lib/unleash-templates.js"
@@ -846,8 +847,12 @@ export function createGitCommitNoEditTool(exec: GitExec, cwd: string) {
 // uf_unleash_branch_gate tool
 // ---------------------------------------------------------------------------
 
-/** Workflow tier a gated feature branch belongs to. */
-export type WorkflowTier = "openspec" | "speckit"
+/**
+ * Workflow tier a gated feature branch belongs to. Derived from the shared
+ * WORKFLOW_TIERS list in lib/unleash-templates.ts, the single source shared
+ * with UnleashTier and ExitTierSchema.
+ */
+export type WorkflowTier = (typeof WORKFLOW_TIERS)[number]
 
 /**
  * File-existence checker signature for testability (mirrors GitExec):
@@ -3077,7 +3082,7 @@ const ExitQuestionsSchema = z.array(ExitClarifyQuestionSchema).min(1).max(MAX_EX
 const ExitConflictingFilesSchema = z.array(z.string().min(1).max(1024)).min(1).max(1000)
 
 /** Workflow tier (shared by the spec-review exit and the demo input). */
-const ExitTierSchema = z.enum(["speckit", "openspec"])
+const ExitTierSchema = z.enum(WORKFLOW_TIERS)
 
 /** Change name interpolated into openspec guidance paths. */
 const ExitChangeNameSchema = z.string().min(1).max(1024)
