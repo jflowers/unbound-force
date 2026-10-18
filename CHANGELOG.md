@@ -199,6 +199,26 @@ Each entry follows the format: `- <change-name>: <summary>`.
   has a dedicated mapping in `mapAssetPath`; schemas/ paths now
   use the default pass-through branch. (Spec:
   openspec/changes/move-schemas-to-uf/, Fixes: #649)
+- command-prose-pilot: Rewrote `/uf.run-pipeline-plan`
+  (both the `.opencode/commands/` copy and its
+  byte-identical scaffold mirror) to a new house prose
+  standard for agent instruction files: ten canonical
+  control verbs (STOP, EXIT, PROCEED, RELAY, RESUME,
+  SKIP, DELEGATE, ANNOUNCE, ASK, VERIFY) with a ban
+  list, reference by name, one numbering axis, a
+  20-word procedural sentence limit, decision tables
+  for branching, and the Action/On-failure/Next step
+  template. Behavioral contract preserved (three-
+  subagent pipeline, gate relay, disk handoff
+  verification, guardrails, tracking); three documented
+  prose defects corrected: the "Step 8 (code review)"
+  cross-command reference, the Gate Relay STOP collision
+  (now RELAY), and the session-resume guard recast as a
+  precondition. Before/after static metrics and
+  comprehension A/B evidence recorded in the change's
+  metrics.md. No CI gate added (conformance validated
+  with change-time rg checks). (Spec:
+  openspec/changes/command-prose-pilot/)
 
 ### Fixed
 - fix-tool-args-schema-mismatch: uf-workflow (8) and uf-finale
