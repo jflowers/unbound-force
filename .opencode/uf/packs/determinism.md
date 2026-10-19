@@ -1,7 +1,7 @@
 ---
 pack_id: determinism
 language: Any
-version: 1.0.0
+version: 1.1.0
 ---
 
 <!-- repo-local governance pack (not a scaffold asset);
@@ -17,8 +17,8 @@ execute in tools rather than be re-reasoned from prose.
 
 Rules carry RFC 2119 markers with severity mapping to the
 severity pack. Violations of the [MUST] rules (DE-001,
-DE-003) are CRITICAL findings; the [SHOULD] rules (DE-002,
-DE-004) are guidance that is valuable but not universally
+DE-003, DE-005) are CRITICAL findings; the [SHOULD] rules (DE-002,
+DE-004, DE-006) are guidance that is valuable but not universally
 applicable. The rules govern new and modified instruction;
 existing prose is migrated opportunistically at review time,
 not retroactively.
@@ -60,3 +60,31 @@ not retroactively.
   measurable line/token deltas when instruction text changes,
   so efficiency claims are backed by before/after counts
   rather than impressions.
+
+---
+
+## Intent-Level Orchestration
+
+Sequence-level collapse, known externally as the Router Pattern: the
+agent outputs a single intent, and deterministic tool code maps it to
+the required sequence of calls. Shipped precedent:
+`uf_unleash_branch_gate`, `uf_unleash_detect_resume`,
+`uf_delegate_command`, `dispatch_review_runs`.
+
+- **DE-005** [MUST] A fixed sequence of tool calls with no judgment
+  between steps — each next call and its arguments fully determined
+  by the previous call's structured result — is itself mechanical
+  instruction and MUST be collapsed into a single intent-level tool.
+  The agent expresses the intent and passes judgment products
+  (composed text, human gate decisions) as parameters; ordering,
+  batching, retry, failure-stop, and branching on structured results
+  belong to the tool. Instructing an agent to chain tools through a
+  judgment-free sequence is a DE-001-class violation.
+
+- **DE-006** [SHOULD] Intent-level tools SHOULD keep judgment at
+  their boundary: judgment products arrive as validated parameters,
+  and routing decisions (verdict mapping, severity sorting,
+  exit-variant selection, batch scheduling, failure-stop) execute
+  inside the tool as constants or pure functions. A tool whose
+  contract requires the agent to pre-compute its internal routing
+  re-introduces the orchestration DE-005 removes.
