@@ -4289,6 +4289,262 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
   })
 }
 
+// ── read_assessment_fields ───────────────────────────────────
+
+/** Constitution V bound: category is a non-empty string of at most 128 characters (FR-003). */
+const MAX_ASSESSMENT_CATEGORY_LENGTH = 128
+/** Constitution V bound: objectivity is a string of at most 64 characters (FR-003). */
+const MAX_ASSESSMENT_OBJECTIVITY_LENGTH = 64
+/** Constitution V bound: reasoning is a string of at most 4096 characters (FR-003). */
+const MAX_ASSESSMENT_REASONING_LENGTH = 4096
+/** Constitution V bound: at most 16 split recommendations per run (FR-003). */
+const MAX_SPLIT_RECOMMENDATIONS = 16
+/** Constitution V bound: each split recommendation is at most 512 characters (FR-003). */
+const MAX_SPLIT_RECOMMENDATION_LENGTH = 512
+/** Upper bound on requested run identifiers per call, matching run_ids caps elsewhere. */
+const MAX_ASSESSMENT_RUN_IDS = 64
+
+const AssessmentCategorySchema = z.string().min(1).max(MAX_ASSESSMENT_CATEGORY_LENGTH)
+const AssessmentObjectivitySchema = z.string().max(MAX_ASSESSMENT_OBJECTIVITY_LENGTH)
+const AssessmentReasoningSchema = z.string().max(MAX_ASSESSMENT_REASONING_LENGTH)
+const SplitRecommendationsSchema = z
+  .array(z.string().max(MAX_SPLIT_RECOMMENDATION_LENGTH))
+  .max(MAX_SPLIT_RECOMMENDATIONS)
+
+const ReadAssessmentFieldsInputSchema = z
+  .object({
+    run_ids: uniqueArray(UUIDSchema, MAX_ASSESSMENT_RUN_IDS)
+      .min(1)
+      .describe("Run identifiers (the run_id values from the consolidate payload's runs) to read assessment fields for."),
+  })
+  .strict()
+
+/** Validated triage assessment fields for one run; null fields are unavailable. */
+export interface RunAssessmentFields {
+  readonly run_id: string
+  readonly agent: string | null
+  readonly category: string | null
+  readonly objectivity: string | null
+  readonly reasoning: string | null
+  readonly split_recommendations: readonly string[] | null
+  readonly unavailable_reason: string | null
+}
+
+/** Assessment fields parsed from one run's child text; null fields failed extraction or validation. */
+export interface ParsedAssessmentFields {
+  readonly category: string | null
+  readonly objectivity: string | null
+  readonly reasoning: string | null
+  readonly split_recommendations: readonly string[] | null
+}
+
+/**
+ * A line that starts a new labeled field (markdown bold label, optionally
+ * bulleted or backtick-wrapped) terminates the previous field's value region.
+ * Structured response contract fields and the `**Model**` self-report line
+ * both match, so multi-line values never swallow the following field.
+ */
+const LABELED_FIELD_LINE_PATTERN = /^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?`?\*\*[A-Za-z0-9_ -]+\*\*`?[ \t]*:/m
+
+/** Build the value-marker pattern for one structured response contract field. */
+function assessmentFieldMarker(fieldName: string): RegExp {
+  return new RegExp("`?\\*\\*" + fieldName + "\\*\\*`?\\s*:")
+}
+
+/** Unwrap a single pair of surrounding backticks left by contract-style formatting. */
+function unwrapBackticks(value: string): string {
+  const match = /^`([^`]*)`$/.exec(value)
+  return match !== null ? match[1]!.trim() : value
+}
+
+/**
+ * Extract one field's raw value region from untrusted child text. The region
+ * starts after the field's marker and ends at the next labeled-field line, so
+ * single-line values, multi-line reasoning, and multi-line JSON split arrays
+ * are all captured without swallowing subsequent fields.
+ * Returns null when the marker is absent.
+ */
+function extractAssessmentFieldValue(text: string, fieldName: string): string | null {
+  const marker = assessmentFieldMarker(fieldName)
+  const match = marker.exec(text)
+  if (match === null) return null
+  const rest = text.slice(match.index + match[0].length)
+  const boundary = rest.search(LABELED_FIELD_LINE_PATTERN)
+  const region = boundary === -1 ? rest : rest.slice(0, boundary)
+  return region.trim()
+}
+
+/** Validate one extracted scalar region against its bound schema; unavailable on any failure. */
+function boundedAssessmentField(schema: z.ZodString, region: string | null): string | null {
+  if (region === null) return null
+  const parsed = schema.safeParse(unwrapBackticks(region))
+  return parsed.success ? parsed.data : null
+}
+
+/**
+ * Serialize one split-recommendation entry to its bounded string form.
+ * Contract entries are `{title, description}` objects serialized as
+ * `title: description`; plain string entries pass through unchanged.
+ * Returns null when the entry does not match the contract shape.
+ */
+function splitRecommendationToString(entry: unknown): string | null {
+  if (typeof entry === "string") return entry
+  if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+    const record = entry as Record<string, unknown>
+    if (typeof record.title === "string" && typeof record.description === "string") {
+      return `${record.title}: ${record.description}`
+    }
+  }
+  return null
+}
+
+/**
+ * Parse and validate split recommendations from the field's raw value region.
+ * The structured response contract admits `null` (no split recommended,
+ * returned as an available empty array) or an array whose entries are
+ * `{title, description}` objects or plain strings. Returns null when the
+ * region is not parseable as the contract shape or fails the array bounds.
+ */
+function parseSplitRecommendations(region: string | null): readonly string[] | null {
+  if (region === null) return null
+  let value: unknown
+  try {
+    value = JSON.parse(unwrapBackticks(region)) as unknown
+  } catch {
+    return null
+  }
+  if (value === null) return []
+  if (!Array.isArray(value)) return null
+  const entries: string[] = []
+  for (const entry of value) {
+    const serialized = splitRecommendationToString(entry)
+    if (serialized === null) return null
+    entries.push(serialized)
+  }
+  const validated = SplitRecommendationsSchema.safeParse(entries)
+  return validated.success ? validated.data : null
+}
+
+/**
+ * Parse the structured response contract assessment fields (category,
+ * objectivity, reasoning, split recommendations) from one run's untrusted
+ * child final text and enforce the Constitution V bounds (FR-003):
+ * category a non-empty string of at most 128 characters; objectivity at
+ * most 64; reasoning at most 4096; split recommendations at most 16
+ * strings of at most 512 characters each. Validation is per-field: values
+ * that fail extraction, type-checking, or bounds are returned as null
+ * (unavailable) without affecting the other fields.
+ * @param text Untrusted persisted child final text.
+ * @returns Per-field validated values or null where unavailable.
+ */
+export function parseAssessmentFields(text: string): ParsedAssessmentFields {
+  return {
+    category: boundedAssessmentField(AssessmentCategorySchema, extractAssessmentFieldValue(text, "category")),
+    objectivity: boundedAssessmentField(AssessmentObjectivitySchema, extractAssessmentFieldValue(text, "objectivity")),
+    reasoning: boundedAssessmentField(AssessmentReasoningSchema, extractAssessmentFieldValue(text, "reasoning")),
+    split_recommendations: parseSplitRecommendations(extractAssessmentFieldValue(text, "split_recommendation")),
+  }
+}
+
+/** Build one run's per-field unavailable result. */
+function unavailableRunAssessment(runId: string, reason: string): RunAssessmentFields {
+  return {
+    run_id: runId,
+    agent: null,
+    category: null,
+    objectivity: null,
+    reasoning: null,
+    split_recommendations: null,
+    unavailable_reason: reason,
+  }
+}
+
+/**
+ * Creates the read_assessment_fields tool for extracting validated triage
+ * assessment fields from persisted child final text (FR-003).
+ *
+ * Reads each requested run's persisted child final text from the dispatch
+ * store (never the session database), parses the structured response
+ * contract fields, and enforces the untrusted-input validation as
+ * executable code so commands prescribe no extraction procedure as prose
+ * (determinism pack DE-001). Missing runs and missing, empty, or
+ * unparseable child text degrade to per-run unavailable results.
+ */
+export function createReadAssessmentFieldsTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Read validated triage assessment fields (category, objectivity, reasoning, split recommendations) " +
+      "from the persisted child final text of dispatch runs. Given the dispatch's run identifiers " +
+      "(the run_id values from the consolidate payload's runs), reads each run's persisted text from the " +
+      "dispatch store, parses the structured response contract fields, and enforces untrusted-input " +
+      "validation (Constitution V): category a non-empty string of at most 128 characters; objectivity " +
+      "at most 64; reasoning at most 4096; split recommendations at most 16 strings of at most 512 " +
+      "characters each. Per-field values that fail validation are skipped as unavailable (null); missing " +
+      "runs and missing, empty, or unparseable child text report that run's fields as unavailable rather " +
+      "than failing. Returns per-run validated fields or unavailable markers.",
+    args: ReadAssessmentFieldsInputSchema.shape,
+    async execute(args, context): Promise<{ readonly output: string }> {
+      // Validate with the full schema (including uniqueness checks)
+      const parsed = ReadAssessmentFieldsInputSchema.safeParse(args)
+      if (!parsed.success) {
+        return { output: JSON.stringify({ status: "error", code: "validation_error", error: formatValidationError(parsed.error) }) }
+      }
+
+      const correlationId = sessionCorrelationMap.get(context.sessionID)
+
+      // Index persisted runs by run_id, best-effort: run files are named for
+      // the agent, so every run-*.json file is read and matched on run_id.
+      const runsById = new Map<string, PersistedRunData>()
+      if (correlationId !== undefined) {
+        try {
+          const dir = dispatchSessionDir(correlationId)
+          const entries = await readdir(dir)
+          const runFiles = entries.filter((name: string) => name.startsWith("run-") && name.endsWith(".json")).sort()
+          for (const file of runFiles) {
+            try {
+              const content = await readFile(join(dir, file), "utf8")
+              const run = JSON.parse(content) as PersistedRunData
+              if (typeof run.run_id === "string" && !runsById.has(run.run_id)) {
+                runsById.set(run.run_id, run)
+              }
+            } catch {
+              // Best-effort: an unreadable run file cannot match a requested run_id.
+            }
+          }
+        } catch {
+          // No dispatch session directory: every requested run is unavailable.
+        }
+      }
+
+      const runs = parsed.data.run_ids.map((runId): RunAssessmentFields => {
+        if (correlationId === undefined) {
+          return unavailableRunAssessment(runId, "no dispatch session for this session")
+        }
+        const run = runsById.get(runId)
+        if (run === undefined) {
+          return unavailableRunAssessment(runId, "run not found in dispatch store")
+        }
+        const agent = typeof run.agent === "string" ? run.agent : null
+        if (typeof run.text !== "string") {
+          return { ...unavailableRunAssessment(runId, "child text missing"), agent }
+        }
+        if (run.text.trim() === "") {
+          return { ...unavailableRunAssessment(runId, "child text empty"), agent }
+        }
+        return { run_id: runId, agent, ...parseAssessmentFields(run.text), unavailable_reason: null }
+      })
+
+      return {
+        output: JSON.stringify(
+          { status: correlationId === undefined ? "not_found" : "ok", correlation_id: correlationId ?? null, runs },
+          null,
+          2,
+        ),
+      }
+    },
+  })
+}
+
 // ── fetch_pr_review_context ──────────────────────────────────
 
 /** Lines-of-diff threshold above which `exceeds_threshold` is set. */
@@ -4721,6 +4977,7 @@ export const ReviewDispatchPlugin = {
           projectRoot,
         ),
         dispatch_status: createDispatchStatusTool(),
+        read_assessment_fields: createReadAssessmentFieldsTool(),
         fetch_pr_review_context: createFetchPrReviewContextTool(),
       },
     }

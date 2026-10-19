@@ -154,6 +154,7 @@ describe("plugin integration with a fake OpenCode client", () => {
         "finalize_review_dispatch",
         "plan_review_dispatch",
         "prepare_lesson_learning",
+        "read_assessment_fields",
         "submit_lesson_proposal",
         "submit_review_findings",
       ])

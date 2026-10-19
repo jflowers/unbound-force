@@ -49,6 +49,16 @@ asset-prefix contract test.
 
 **ID: SC-FR-003** This requirement MUST be satisfied.
 
+> **SUPERSEDED-BY** (repo-wide pin): the `@opencode-ai/plugin`
+> 1.4.10 pin mandated below is superseded by the
+> `fix-triage-issue-dispatch-docs` change (maintainer-approved
+> 1.4.10 → 1.19.0 update with its full lockstep set —
+> `openspec/changes/fix-triage-issue-dispatch-docs/`, FR-007,
+> dedicated commit 0868c22d). The remainder of this requirement
+> (lockstep manifest tracking, MIT licenses, exact versions,
+> lock integrity hashes, verification gates, rollback) remains
+> in force against the current pin.
+
 The repository and scaffold MUST track `.opencode/package.json` and
 `.opencode/package-lock.json`. Direct dependencies MUST pin
 `@opencode-ai/plugin` 1.4.10 and Zod 4.1.8.

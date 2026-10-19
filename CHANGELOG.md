@@ -937,6 +937,41 @@ Each entry follows the format: `- <change-name>: <summary>`.
   install path. Fixes #214.
   (Spec: openspec/changes/setup-auto-native-fallback/)
 
+### Changed
+- fix-triage-issue-dispatch-docs: Corrected the dispatch
+  data-flow documentation across the four dispatch-driving
+  commands. `/uf.triage-issue` §2.3/§2.4 (and the mirrored
+  §4/§5 sections in `/uf.review-council`, §2.3.7/§2.3.8 in
+  `/uf.address-feedback`, §5a in `/uf.review-pr`) now
+  document the counts-only `dispatch_review_runs` output
+  contract, the single sanctioned no-provenance
+  `consolidate_dispatch` retrieval (side-effect-free; the
+  exact same payload feeds proposal storage, verdict
+  resolution, and finalization), the validated
+  `{agent, information, tag, category}` proposal shape
+  (there is no `reference` field), the dual-mode
+  exactly-once scoping, and FR-001 transient/permanent/all-
+  skip failure behavior. `/uf.triage-issue` §3.1 verdict
+  resolution now names run-recorded `workflow_verdict` as
+  the governing vote source and sources assessment fields
+  (category, objectivity, reasoning, split recommendations)
+  exclusively from the new additive `read_assessment_fields`
+  review-dispatch plugin tool (258 lines, +31 tests, bounds:
+  128/64/4096 chars, 16x512 split entries; DE-001
+  extraction), which reads persisted child text from the
+  dispatch store with tool-owned untrusted-input validation.
+  Adopted the maintainer-approved `@opencode-ai/plugin`
+  1.4.10 -> 1.19.0 pin with its full lockstep set (manifests
+  + scaffold mirrors, test expectations, provenance/
+  rollback testdata, Node >= 22.22.2 engine floor declared
+  in `engines` fields, AGENTS.md/README documentation) as
+  dedicated commit 0868c22d, separate from the command-doc
+  and plugin-tool commits. `make check` green (903 plugin
+  tests, coverage 94.55%/86.98%). Supersedes the repo-wide
+  1.4.10 pin from review-council-multi-model-fanout.
+  (Spec: openspec/changes/fix-triage-issue-dispatch-docs/,
+  Fixes: #735)
+
 ## Recent Changes
 
 - 036-subtool-error-reporting: Show actual error output from sub-tool failures in `uf init` and `uf setup`. Captures `CombinedOutput()` at all `ExecCmd` call sites, adds `TruncateOutput` helper (20-line threshold) in `internal/textutil`, decomposes `printSummary`/`printStepResult` to fix CRAP regressions. 22 new tests. Fixes #215.

@@ -318,15 +318,24 @@ human review.
 
 ### 4. Store Lesson Proposals
 
-Only the parent command stores lesson proposals. The `proposals` array
-returned by `dispatch_review_runs` contains validated proposals already
-submitted by child agents via `submit_lesson_proposal`.
+Only the parent command stores lesson proposals. Immediately after
+the `dispatch_review_runs` call in Section 2 completes, retrieve the
+dispatch payload: call `consolidate_dispatch` exactly once WITHOUT
+provenance. The no-provenance call is the side-effect-free retrieval
+mode — no finalization occurs and no finalization artifacts are
+written. The top-level `proposals` array of that retrieval payload
+contains validated proposals already submitted by child agents via
+`submit_lesson_proposal`. Use this single payload — do not re-fetch
+it. Never source the proposals from `dispatch_review_runs`.
 
-For each proposal in the `proposals` array, call `dewey_store_learning`
-exactly once using the proposal's `information`, `tag`, and `reference`
-as the category. If Dewey is unavailable, record an informational skip
-and do not change the review verdict. Never store raw `> learn:` text
-or child-supplied tags, categories, or hashes.
+Each proposal carries the validated shape `{agent, information, tag,
+category}` as defined by the review-dispatch dispatch artifact schema —
+there is no `reference` field. For each proposal in the `proposals`
+array, call `dewey_store_learning` exactly once using the proposal's
+`information` and `tag`, with the proposal's `category` as the learning
+category. If Dewey is unavailable, record an informational skip and do
+not change the review verdict. Never store raw `> learn:` text or
+child-supplied tags, categories, or hashes.
 
 ### 5. Finalize Every Iteration
 
@@ -357,6 +366,14 @@ if either command fails to resolve, **STOP** with an explicit error
 naming the resolution -- check out a named branch, or supply the branch
 explicitly. Never proceed with a fabricated, defaulted, or omitted
 branch.
+
+`consolidate_dispatch` is dual-mode. Without provenance it is the
+side-effect-free retrieval mode documented in Section 4: no
+finalization occurs and no finalization artifacts are written. With
+provenance it finalizes. The exactly-once-per-finalization-attempt
+bound applies only to the provenance-bearing finalization call; the
+Section 4 no-provenance retrieval call does not count against it,
+and the finalization call remains available after retrieval.
 
 Then call `consolidate_dispatch` exactly once per finalization attempt,
 with provenance as its only argument:
