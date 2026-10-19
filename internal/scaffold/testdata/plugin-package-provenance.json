@@ -1,8 +1,8 @@
 {
-  "verified_at": "2026-10-01",
+  "verified_at": "2026-10-19",
   "packages": {
     "@opencode-ai/plugin": {
-      "version": "1.4.10",
+      "version": "1.19.0",
       "license": "MIT",
       "maintained_by": "OpenCode",
       "project_url": "https://opencode.ai",

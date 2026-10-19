@@ -168,9 +168,11 @@ imported externally.
   `vitest` 5.0.3 + `@vitest/coverage-v8` 5.0.3 (dev), managed
   by `.opencode/package.json` / `package-lock.json`.
 - **Node runtime floor** (plugin suite): transitive `ini@7.0.0`
-  requires ^22.22.2 || ^24.15.0 || >=26.0.0; CI `node-version: 22`
-  resolves to v22.23.3 (in range, verified 2026-10-19); older Node
-  sees npm EBADENGINE warnings, not hard failures
+  requires ^22.22.2 || ^24.15.0 || >=26.0.0, declared in the
+  `engines` field of `.opencode/package.json` and its scaffold
+  mirror; CI `node-version: 22` resolves to v22.23.3 (in range,
+  verified 2026-10-19); older Node sees npm EBADENGINE warnings,
+  not hard failures
 
 ## Behavioral Rules
 

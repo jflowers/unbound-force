@@ -501,13 +501,13 @@ func TestPluginPackageInputs_ApprovedMaintenanceProvenance(t *testing.T) {
 		version string
 		project string
 	}{
-		"@opencode-ai/plugin": {version: "1.4.10", project: "OpenCode"},
+		"@opencode-ai/plugin": {version: "1.19.0", project: "OpenCode"},
 		"zod":                 {version: "4.1.8", project: "Zod"},
 		"vitest":              {version: "5.0.3", project: "Vitest"},
 		"@vitest/coverage-v8": {version: "5.0.3", project: "Vitest"},
 	}
-	if provenance.VerifiedAt != "2026-10-01" {
-		t.Errorf("provenance verification date = %q, want 2026-10-01", provenance.VerifiedAt)
+	if provenance.VerifiedAt != "2026-10-19" {
+		t.Errorf("provenance verification date = %q, want 2026-10-19", provenance.VerifiedAt)
 	}
 	if len(provenance.Packages) != len(expectedPackages) {
 		t.Errorf("provenance has %d packages, want %d", len(provenance.Packages), len(expectedPackages))
@@ -725,7 +725,7 @@ func TestPluginPackageInputs_RollbackPrerequisites(t *testing.T) {
 	}
 	readJSONFile(t, filepath.Join(root, "internal", "scaffold", "testdata", "plugin-package-rollback.json"), &rollback)
 
-	const baselineLockSHA256 = "5ebee4af68d7a6125f5d0f52ecca7c419bbfbd9beff13503f3d5d6f36a09f965"
+	const baselineLockSHA256 = "1ac9cdf171a743c69b18498e15711d628280a4748defd6334cd4276e194d32dc"
 	if rollback.BaselineLockSHA256 != baselineLockSHA256 {
 		t.Errorf("baseline lock SHA256 = %q, want %q", rollback.BaselineLockSHA256, baselineLockSHA256)
 	}
