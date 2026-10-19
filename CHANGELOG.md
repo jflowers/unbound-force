@@ -6,6 +6,36 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- router-pattern-codification: Extended the determinism
+  policy one level, from step-level extraction to
+  sequence-level collapse (the Router Pattern: the agent
+  outputs a single intent; deterministic tool code maps it
+  to the required sequence of calls). Determinism pack
+  `.opencode/uf/packs/determinism.md` bumped 1.0.0 → 1.1.0,
+  adding a terminal "Intent-Level Orchestration" section
+  with DE-005 [MUST] (a fixed sequence of tool calls with
+  no judgment between steps — each next call and its
+  arguments fully determined by the previous call's
+  structured result — MUST collapse into a single
+  intent-level tool; ordering, batching, retry, failure-stop,
+  and branching on structured results belong to the tool)
+  and DE-006 [SHOULD] (intent-level tools keep judgment at
+  their boundary: judgment products arrive as validated
+  parameters, routing decisions execute inside the tool as
+  constants or pure functions). Severity mapping updated to
+  (DE-001, DE-003, DE-005) / (DE-002, DE-004, DE-006);
+  DE-001..DE-004 rule text byte-unchanged (append-only IDs).
+  Determinism-first skill
+  `.opencode/skills/determinism-first/SKILL.md` gained
+  chain-collapse guidance: new "Chains Without Judgment
+  Collapse Too" section plus five prose updates (frontmatter
+  description second sentence, twice-test extension, two
+  mechanical-procedure bullets, extraction step 4, "DE-001
+  through DE-006"). Rules enter every Divisor review prompt
+  via existing pack auto-discovery. Both files remain
+  repo-local (no constitution, AGENTS.md, scaffold, or
+  plugin changes).
+  (Spec: openspec/changes/router-pattern-codification/, Refs: #758)
 - gaze-ai-report: Added a push-to-main Gaze AI report job to Local CI
   (`ci_local.yml`) consuming the SHA-pinned unbound-force/gaze reusable
   workflow with thresholds 30/12/55; `build-and-test` now uploads
