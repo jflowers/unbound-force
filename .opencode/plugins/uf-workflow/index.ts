@@ -1426,9 +1426,6 @@ export function createDelegateCommandTool(
 // uf_unleash_detect_resume tool
 // ---------------------------------------------------------------------------
 
-/** Clarification marker prefix probed in speckit spec.md (command Step 2). */
-const CLARIFICATION_MARKER_PREFIX = "[NEEDS CLARIFICATION"
-
 /** `## Clarifications` section heading in speckit spec.md. */
 const CLARIFICATIONS_SECTION_PATTERN = /^##\s+Clarifications\s*$/m
 
@@ -1833,7 +1830,10 @@ export function createUnleashDetectResumeTool(
             // Missing/unreadable spec.md — clarify cannot be verified done.
           }
           if (specText !== null) {
-            const hasMarkers = specText.includes(CLARIFICATION_MARKER_PREFIX)
+            // Marker presence derives from the shared grammar via
+            // countClarificationMarkers, so the probe and the clarify
+            // tools cannot disagree about what blocks clarify.
+            const hasMarkers = countClarificationMarkers(specText) > 0
             const hasClarifications = CLARIFICATIONS_SECTION_PATTERN.test(specText)
             clarifyDone = !hasMarkers && (hasClarifications || planDone)
           }
@@ -1921,15 +1921,47 @@ export function createUnleashDetectResumeTool(
 // ---------------------------------------------------------------------------
 
 /**
- * Full `[NEEDS CLARIFICATION: <question>]` marker pattern (command Step 1).
- * The detect_resume prefix probe (`CLARIFICATION_MARKER_PREFIX`) treats any
- * marker text as unresolved; this pattern additionally captures the question
- * between the colon and the closing bracket so the clarify tools can extract
- * and replace it. Markers are matched per line — the single-line syntax
- * speckit.specify emits — and the question cannot contain `]`, both inherent
- * to the marker syntax.
+ * Shared clarification-marker grammar (command Step 1) — the single pattern
+ * every clarify path consumes. Three alternation branches, in order:
+ *
+ * 1. `:\s*([^\]]*?)\s*` — colon form (`[NEEDS CLARIFICATION: <question>]`);
+ *    the scoped question is captured in group 1.
+ * 2. `\s+([^\]]*?)\s*` — bare-with-text (`[NEEDS CLARIFICATION <text>]`);
+ *    the leading `\s+` requires whitespace, so a pluralized
+ *    `[NEEDS CLARIFICATIONS]` cannot match; the unscoped text is captured
+ *    in group 2.
+ * 3. `\s*` — completely bare (`[NEEDS CLARIFICATION]`); no capture group.
+ *
+ * The question text cannot contain `]` (the character class excludes it),
+ * and unterminated marker-like prose (no closing `]`) does not match, so
+ * both stay outside the grammar. A malformed spaced colon
+ * (`[NEEDS CLARIFICATION : q]`) degrades to the bare-with-text branch and
+ * extracts `: q` rather than failing. Flanking whitespace is trimmed;
+ * internal whitespace is preserved. Markers are matched per line — the
+ * single-line syntax speckit.specify emits — and the `g` flag is safe
+ * because the pattern is used only via per-line `String.matchAll`, which
+ * does not leak `lastIndex` state across lines. Question text for a match
+ * is derived through extractClarificationQuestion so every extractor path
+ * agrees.
  */
-const CLARIFICATION_MARKER_PATTERN = /\[NEEDS CLARIFICATION:\s*([^\]]*?)\s*\]/g
+const CLARIFICATION_MARKER_PATTERN = /\[NEEDS CLARIFICATION(?::\s*([^\]]*?)\s*|\s+([^\]]*?)\s*|\s*)\]/g
+
+/**
+ * Extract the question text from one CLARIFICATION_MARKER_PATTERN match:
+ * trimmed group 1 (colon form), else trimmed group 2 (bare-with-text),
+ * else empty — and an empty result falls back to the trimmed raw marker
+ * text (`match[0]`), so extracted questions are never empty: a completely
+ * bare marker scans as its own raw text, and the empty colon form
+ * (`[NEEDS CLARIFICATION: ]`) becomes resolvable instead of reporting an
+ * unresolvable empty question.
+ */
+function extractClarificationQuestion(match: RegExpExecArray): string {
+  const scoped = (match[1] ?? "").trim()
+  if (scoped !== "") return scoped
+  const unscoped = (match[2] ?? "").trim()
+  if (unscoped !== "") return unscoped
+  return match[0].trim()
+}
 
 /**
  * Context window around a marker (command Step 1: "Read 3-5 surrounding
@@ -2082,7 +2114,7 @@ function replaceClarificationMarker(
   const updated = [...lines]
   for (const [index, line] of updated.entries()) {
     for (const match of line.matchAll(CLARIFICATION_MARKER_PATTERN)) {
-      if (match[1] !== question) continue
+      if (extractClarificationQuestion(match) !== question) continue
       const start = match.index ?? 0
       updated[index] = line.slice(0, start) + answer + line.slice(start + match[0].length)
       return updated
@@ -2150,8 +2182,12 @@ function countClarificationMarkers(specText: string): number {
  * and answer-sufficiency judgment stay in command prose):
  * - reads <feature_dir>spec.md; a missing file fails NO_SPEC with the
  *   branch gate's exact message, an unreadable one SPEC_READ_FAILED
- * - extracts every `[NEEDS CLARIFICATION: <question>]` marker in document
- *   order, returning {question, context, line} per marker — context is the
+ * - extracts every clarification marker in document order. Markers
+ *   take three forms: colon (`[NEEDS CLARIFICATION: <question>]`),
+ *   bare-with-text (`[NEEDS CLARIFICATION <text>]`), and completely
+ *   bare (`[NEEDS CLARIFICATION]`); bare/empty forms extract as
+ *   unscoped questions with the raw marker text as fallback —
+ *   returning {question, context, line} per marker; context is the
  *   marker line plus two lines on each side (Step 1's "3-5 surrounding
  *   lines"), line is the 1-based marker line number
  * - returns {questions, count}; an empty questions array means no markers
@@ -2169,11 +2205,13 @@ export function createScanClarificationsTool(
 ): ReturnType<typeof tool> {
   return tool({
     description:
-      "Scan spec.md in a feature directory for [NEEDS CLARIFICATION: ...] markers " +
-      "(the /uf.unleash clarify step). Returns {questions: [{question, context, line}], " +
-      "count} — each question extracted from inside its marker with the surrounding spec " +
-      "lines (marker line ± 2) and its 1-based line number. An empty questions array " +
-      "means no markers remain.",
+      "Scan spec.md in a feature directory for clarification markers (the /uf.unleash " +
+      "clarify step). Markers take three forms: colon [NEEDS CLARIFICATION: <question>], " +
+      "bare-with-text [NEEDS CLARIFICATION <text>], and completely bare [NEEDS CLARIFICATION]. " +
+      "Bare/empty forms extract as unscoped questions using the raw marker text as " +
+      "fallback. Returns {questions: [{question, context, line}], count} — each question " +
+      "with the surrounding spec lines (marker line ± 2) and its 1-based line number. " +
+      "An empty questions array means no markers remain.",
     args: {
       feature_dir: ScanClarificationsInputSchema.shape.feature_dir.describe(
         "Feature directory relative to the repo root (e.g. openspec/changes/name/ or specs/018-name/), as returned by uf_unleash_branch_gate.",
@@ -2210,7 +2248,7 @@ export function createScanClarificationsTool(
         for (const [index, line] of lines.entries()) {
           for (const match of line.matchAll(CLARIFICATION_MARKER_PATTERN)) {
             questions.push({
-              question: match[1],
+              question: extractClarificationQuestion(match),
               context: clarificationContext(lines, index),
               line: index + 1,
             })
@@ -2257,8 +2295,11 @@ export function createResolveClarificationTool(
 ): ReturnType<typeof tool> {
   return tool({
     description:
-      "Resolve one spec.md clarification marker (the /uf.unleash clarify step): removes the " +
-      "[NEEDS CLARIFICATION: <question>] marker, writes the answer inline where the marker " +
+      "Resolve one spec.md clarification marker (the /uf.unleash clarify step). Markers " +
+      "take three forms: colon [NEEDS CLARIFICATION: <question>], " +
+      "bare-with-text [NEEDS CLARIFICATION <text>], and completely bare [NEEDS CLARIFICATION]. " +
+      "Bare/empty forms extract as unscoped questions using the raw marker text as " +
+      "fallback. Resolving removes the marker, writes the answer inline where the marker " +
       "was, appends the - Q: ... -> A: ... (Dewey-resolved from ...) entry to ## " +
       "Clarifications (creating the section at the bottom when absent), and writes spec.md " +
       "back. Returns {feature_dir, question, remaining}. A missing marker fails " +

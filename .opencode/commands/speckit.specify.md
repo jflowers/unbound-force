@@ -132,6 +132,8 @@ Given that feature description, do this:
          - No reasonable default exists
        - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
        - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
+       - **Marker grammar**: all three bracketed forms extract as clarification questions — `[NEEDS CLARIFICATION: question]`, `[NEEDS CLARIFICATION text]` (unscoped), and bare `[NEEDS CLARIFICATION]` (unscoped, falls back to the raw marker text); pluralized or unterminated marker-like text is ignored by design
+       - **Mention extraction**: well-formed marker syntax extracts as a question wherever it appears in the spec — quoted syntax, fenced examples, or prose — and holds clarify open until resolved; avoid writing literal marker syntax as documentation, describe the syntax instead
     4. Fill User Scenarios & Testing section
        If no clear user flow: ERROR "Cannot determine user scenarios"
     5. Generate Functional Requirements
@@ -202,7 +204,7 @@ Given that feature description, do this:
         4. If still failing after 3 iterations, document remaining issues in checklist notes and warn user
 
       - **If [NEEDS CLARIFICATION] markers remain**:
-        1. Extract all [NEEDS CLARIFICATION: ...] markers from the spec
+        1. Extract all clarification markers from the spec — colon, bare-with-text, and completely bare forms
         2. **LIMIT CHECK**: If more than 3 markers exist, keep only the 3 most critical (by scope/security/UX impact) and make informed guesses for the rest
         3. For each clarification needed (max 3), present options to user in this format:
 

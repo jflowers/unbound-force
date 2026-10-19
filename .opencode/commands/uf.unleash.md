@@ -188,7 +188,16 @@ and proceed to step 2.
    combining the question's topic keywords with the
    project domain (from the spec title and description).
    Do NOT use the raw `[NEEDS CLARIFICATION]` text
-   verbatim as the query.
+   verbatim as the query. For bare-marker and empty-colon
+   questions -- whose question text is the raw marker itself
+   because the marker carried no question text -- the query
+   MUST be formulated from the surrounding context (the
+   marker line's neighboring spec lines) rather than the
+   marker text. A Clarifications log entry that quotes a
+   fallback-form marker is a self-generated mention, not a
+   new question: resolving it via the tool appends a fresh
+   mention and cannot terminate -- terminate by editing the
+   log entry to remove the literal marker syntax.
 
 2. **If Dewey is available** (`dewey_semantic_search`
    tool exists): call `dewey_semantic_search` with the

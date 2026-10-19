@@ -97,6 +97,54 @@ const SPEC_WITH_MARKER = [
   "- Q: Prior question -> A: Prior answer.",
 ].join("\n")
 
+const SPEC_WITH_BARE_MARKER = [
+  "# Spec: example-change",
+  "",
+  "## Overview",
+  "",
+  "- [NEEDS CLARIFICATION](See the overview context.)",
+  "",
+  "## Clarifications",
+  "",
+  "- Q: Prior question -> A: Prior answer.",
+].join("\n")
+
+// Marker-like text outside the shared grammar (design D4): pluralized and
+// unterminated forms have no resolution path, so the probe must not hold
+// clarify open on them. The unterminated line carries no `]` — a closing
+// bracket later on that line would let the bare-with-text branch match the
+// span and turn the prose into a grammar-matched marker.
+const SPEC_WITH_MARKER_LIKE_TEXT = [
+  "# Spec: example-change",
+  "",
+  "## Overview",
+  "",
+  "Prose mentioning [NEEDS CLARIFICATIONS] pluralized and an",
+  "unterminated [NEEDS CLARIFICATION string with no closing bracket.",
+  "",
+  "## Clarifications",
+  "",
+  "- Q: Prior question -> A: Prior answer.",
+].join("\n")
+
+// A Clarifications log entry quoting a fallback-form marker: the entry's
+// raw marker text is itself a grammar match, so the probe holds clarify
+// open on the mention (design D4's self-generated log mention — resolving
+// a fallback form writes the marker text into the log). Pins probe and
+// extractor agreement: a Clarifications-section exclusion added to one but
+// not the other would re-wedge the pipeline.
+const SPEC_WITH_CLARIFICATIONS_LOG_MENTION = [
+  "# Spec: example-change",
+  "",
+  "## Overview",
+  "",
+  "An overview paragraph.",
+  "",
+  "## Clarifications",
+  "",
+  "- Q: [NEEDS CLARIFICATION] -> A: some answer (Dewey-resolved from test)",
+].join("\n")
+
 const SPEC_WITHOUT_CLARIFICATIONS = [
   "# Spec: example-change",
   "",
@@ -1419,6 +1467,83 @@ describe("uf_unleash_detect_resume Speckit clarify/plan/tasks semantics", () => 
     expect(data.step_statuses.plan).toBe(true)
     expect(data.step_statuses.tasks).toBe(true)
     expect(data.resume_from).toBe("clarify")
+  })
+
+  it("reports clarify not done when a bare closed-bracket NEEDS CLARIFICATION marker is present even with a Clarifications section and plan.md", async () => {
+    const { exec } = fakeGit({ branch: SPECKIT_BRANCH })
+    const { deps } = fakeDeps({
+      featureDir: SPECKIT_FEATURE_DIR,
+      spec: SPEC_WITH_BARE_MARKER,
+      plan: true,
+      tasks: TASKS_COMPLETE,
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: SPECKIT_FEATURE_DIR,
+      workflow_tier: "speckit",
+    })
+
+    // The completely-bare branch of the shared grammar matches, so the
+    // probe holds clarify open (fail-safe: every closed-bracket form
+    // blocks until resolved, and scan_clarifications can offer it).
+    const data = okData(result)
+    expect(data.step_statuses.clarify).toBe(false)
+    expect(data.step_statuses.plan).toBe(true)
+    expect(data.step_statuses.tasks).toBe(true)
+    expect(data.resume_from).toBe("clarify")
+  })
+
+  it("reports clarify not done when a Clarifications log entry quotes a fallback-form marker (probe covers self-generated log mentions)", async () => {
+    const { exec } = fakeGit({ branch: SPECKIT_BRANCH })
+    const { deps } = fakeDeps({
+      featureDir: SPECKIT_FEATURE_DIR,
+      spec: SPEC_WITH_CLARIFICATIONS_LOG_MENTION,
+      plan: true,
+      tasks: TASKS_COMPLETE,
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: SPECKIT_FEATURE_DIR,
+      workflow_tier: "speckit",
+    })
+
+    // The log entry's raw marker text is the file's only grammar match, and
+    // it sits inside the Clarifications section — the probe counts it
+    // anyway (the shared grammar has no section awareness), holding clarify
+    // open exactly as scan_clarifications would report it. A future
+    // Clarifications-section exclusion added to the probe but not the
+    // extractor (or vice versa) fails here.
+    const data = okData(result)
+    expect(data.step_statuses.clarify).toBe(false)
+    expect(data.step_statuses.plan).toBe(true)
+    expect(data.step_statuses.tasks).toBe(true)
+    expect(data.resume_from).toBe("clarify")
+  })
+
+  it("no longer holds clarify open on pluralized and unterminated marker-like text, completing via the Clarifications section with plan.md absent", async () => {
+    const { exec } = fakeGit({ branch: SPECKIT_BRANCH })
+    const { deps } = fakeDeps({
+      featureDir: SPECKIT_FEATURE_DIR,
+      spec: SPEC_WITH_MARKER_LIKE_TEXT,
+      plan: false,
+      tasks: TASKS_COMPLETE,
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: SPECKIT_FEATURE_DIR,
+      workflow_tier: "speckit",
+    })
+
+    // Design D4 precision trade-off: text outside the grammar has no
+    // resolution path, so it must not block. plan.md is absent so the
+    // completion attributes to the Clarifications section alone — under
+    // the deleted substring probe, both marker-like strings kept clarify
+    // wedged open with no way to resolve them.
+    const data = okData(result)
+    expect(data.step_statuses.clarify).toBe(true)
+    expect(data.step_statuses.plan).toBe(false)
+    expect(data.step_statuses.tasks).toBe(true)
+    expect(data.resume_from).toBe("plan")
   })
 
   it("accepts a ## Clarifications section as clarification evidence without plan.md", async () => {

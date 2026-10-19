@@ -1,5 +1,5 @@
 {
-  "baseline_lock_sha256": "b628c764236019785a620deadc06373949236ce84fb38bc68a39f619411874e3",
+  "baseline_lock_sha256": "5ebee4af68d7a6125f5d0f52ecca7c419bbfbd9beff13503f3d5d6f36a09f965",
   "prior_gitignore": "node_modules\npackage.json\nbun.lock\n.gitignore\n",
   "security_override_rollback": {
     "lock_sha256": "fef6f7f145d9dc8398233566934ff7a4e36d9505dbcb662660c773c03c1cdcba",

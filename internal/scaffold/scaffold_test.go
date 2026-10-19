@@ -335,7 +335,7 @@ func TestPluginPackageInputs_ExactVersionsAndLockIntegrity(t *testing.T) {
 	}
 
 	expectedRuntime := map[string]string{
-		"@opencode-ai/plugin": "1.4.10",
+		"@opencode-ai/plugin": "1.19.0",
 		"zod":                 "4.1.8",
 	}
 	expectedDevelopment := map[string]string{
@@ -725,7 +725,7 @@ func TestPluginPackageInputs_RollbackPrerequisites(t *testing.T) {
 	}
 	readJSONFile(t, filepath.Join(root, "internal", "scaffold", "testdata", "plugin-package-rollback.json"), &rollback)
 
-	const baselineLockSHA256 = "b628c764236019785a620deadc06373949236ce84fb38bc68a39f619411874e3"
+	const baselineLockSHA256 = "5ebee4af68d7a6125f5d0f52ecca7c419bbfbd9beff13503f3d5d6f36a09f965"
 	if rollback.BaselineLockSHA256 != baselineLockSHA256 {
 		t.Errorf("baseline lock SHA256 = %q, want %q", rollback.BaselineLockSHA256, baselineLockSHA256)
 	}

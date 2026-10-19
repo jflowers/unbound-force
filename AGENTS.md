@@ -134,6 +134,12 @@ imported externally.
 - **CLI**: `github.com/spf13/cobra` for commands and flags
 - **Spec writing**: RFC 2119 language (MUST/SHOULD/MAY),
   Given/When/Then scenarios, FR-NNN numbering, line length < 72
+- **Clarification markers**: one shared grammar for spec.md —
+  colon, bare-with-text, and completely bare forms all extract
+  as questions; pluralized or unterminated marker-like text is
+  ignored by design. Well-formed marker syntax extracts as a
+  question even in documentation (quoted, fenced, or prose) —
+  avoid literal marker syntax in prose
 
 ## Testing Conventions
 
@@ -158,9 +164,13 @@ imported externally.
 - **TypeScript plugins**: `.opencode/plugins/` review plugins
   (registered via the `opencode.json` `plugin` array) and the
   `.opencode/lib/` shared library use
-  `@opencode-ai/plugin` 1.4.10 and `zod` 4.1.8 (runtime), and
+  `@opencode-ai/plugin` 1.19.0 and `zod` 4.1.8 (runtime), and
   `vitest` 5.0.3 + `@vitest/coverage-v8` 5.0.3 (dev), managed
   by `.opencode/package.json` / `package-lock.json`.
+- **Node runtime floor** (plugin suite): transitive `ini@7.0.0`
+  requires ^22.22.2 || ^24.15.0 || >=26.0.0; CI `node-version: 22`
+  resolves to v22.23.3 (in range, verified 2026-10-19); older Node
+  sees npm EBADENGINE warnings, not hard failures
 
 ## Behavioral Rules
 

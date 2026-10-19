@@ -95,6 +95,8 @@
 - **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
 - **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
+*Marker grammar: all three bracketed NEEDS CLARIFICATION forms (colon-terminated, bare with trailing text, completely bare) extract as clarification questions; pluralized or unterminated marker-like text is ignored by design. Well-formed marker syntax extracts as a question even when written as documentation (quoted, fenced, or prose) — avoid literal marker syntax in prose, describe the syntax instead.*
+
 ### Key Entities *(include if feature involves data)*
 
 - **[Entity 1]**: [What it represents, key attributes without implementation]

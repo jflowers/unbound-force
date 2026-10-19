@@ -164,6 +164,52 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- clarification-marker-superset: Single-sourced the
+  superset clarification-marker grammar: one shared
+  `CLARIFICATION_MARKER_PATTERN` is consumed by
+  `scan_clarifications`, `resolve_clarification`, and
+  the `uf_unleash_detect_resume` clarify probe — the
+  divergent dual-constant grammar (colon-only extractor
+  pattern plus bare-substring `CLARIFICATION_MARKER_PREFIX`
+  probe) is gone. The grammar accepts three forms —
+  colon (`[NEEDS CLARIFICATION: q]`, scoped), bare with
+  text (`[NEEDS CLARIFICATION text]`, unscoped), and
+  completely bare (`[NEEDS CLARIFICATION]`) — bare and
+  empty forms extract as unscoped questions whose text
+  falls back to the raw marker text, so a hand-written
+  bare marker resolves instead of wedging clarify
+  (detector firing while the extractor returns nothing).
+  The completely-bare and empty-colon fallback forms
+  leave a self-matching Clarifications log mention;
+  terminate by removing the literal marker syntax from
+  that log entry. Pluralized (`[NEEDS CLARIFICATIONS]`) and unterminated
+  marker-like text no longer holds clarify open; the
+  probe now derives from the grammar per line,
+  replacing the substring match. Command prose, lib doc
+  comments, and scaffold mirrors updated. Includes the
+  declared dependency update (design D7):
+  `@opencode-ai/plugin` 1.4.10 → 1.19.0 in
+  `.opencode/package.json` and `package-lock.json`,
+  maintainer-directed — the gatekeeping exception's
+  justification condition is unsatisfied, so the update
+  is declared for the review council to judge.
+  Pin-enforcement gates moved to the new pin: scaffold
+  manifest mirrors, exact-version test constants,
+  rollback baseline lock SHA256, the SC-FR-003
+  "Reproducible Plugin Dependencies" spec record
+  (specs/scaffold/spec.md delta), and the AGENTS.md
+  Technology Stack pin. Nine transitive packages
+  refreshed and two new transitives (`@ai-sdk/provider`
+  3.0.8, `json-schema` 0.4.0); the `toml`/`uuid`
+  security overrides hold; npm audit reports zero
+  known vulnerabilities. Node engine floor recorded:
+  `ini@7.0.0` requires ^22.22.2 || ^24.15.0 ||
+  >=26.0.0, and CI's node-version: 22 resolves to
+  v22.23.3, which satisfies it. The manifests are
+  scaffold assets deployed via `uf init`, so the bump
+  is changelog-relevant for scaffold consumers. (Spec:
+  openspec/changes/clarification-marker-superset/,
+  Refs: #743)
 - address-feedback-model-normalization: `/uf.address-feedback`
   Phase 4.2 (Commit Changes) now instructs agents to call the
   existing tested `normalize_model_name` MCP tool with their

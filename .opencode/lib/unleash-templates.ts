@@ -52,7 +52,13 @@ export type UnleashExitVariant = (typeof UNLEASH_EXIT_VARIANTS)[number]
 
 /** One unanswerable clarification question with its surrounding spec context. */
 export interface ClarifyQuestion {
-  /** Question text from inside the [NEEDS CLARIFICATION: ...] marker. */
+  /**
+   * Question text extracted from the marker. Markers take three forms:
+   * colon ([NEEDS CLARIFICATION: <question>]), bare-with-text
+   * ([NEEDS CLARIFICATION <text>]), and completely bare
+   * ([NEEDS CLARIFICATION]); bare/empty forms extract as unscoped
+   * questions with the raw marker text as fallback.
+   */
   readonly question: string
   /** Surrounding spec.md lines, as scan_clarifications extracted them. */
   readonly context: string
