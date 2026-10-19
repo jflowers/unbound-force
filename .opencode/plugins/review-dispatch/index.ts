@@ -2977,6 +2977,42 @@ function createSubmitLessonProposalTool(): ReturnType<typeof tool> {
   })
 }
 
+/** One dispatch-session run file's read outcome; `run` is null when unreadable. */
+interface RunFileReadResult {
+  readonly file: string
+  readonly run: PersistedRunData | null
+  readonly error: string | null
+}
+
+/**
+ * Read every run-*.json file in a dispatch session directory (sorted by file
+ * name), returning one result per file. Shared by consolidate_dispatch,
+ * dispatch_review_runs, dispatch_status, and read_assessment_fields (DRY:
+ * the loop is identical at every site). Returns null when the directory
+ * cannot be read; callers own their error semantics for that case. Unreadable
+ * files are returned with `run` null and the read error — callers decide
+ * whether to fail closed, degrade, or report.
+ */
+async function readRunFiles(dir: string): Promise<ReadonlyArray<RunFileReadResult> | null> {
+  let runFiles: string[]
+  try {
+    const entries = await readdir(dir)
+    runFiles = entries.filter((name: string) => name.startsWith("run-") && name.endsWith(".json")).sort()
+  } catch {
+    return null
+  }
+  const results: RunFileReadResult[] = []
+  for (const file of runFiles) {
+    try {
+      const content = await readFile(join(dir, file), "utf8")
+      results.push({ file, run: JSON.parse(content) as PersistedRunData, error: null })
+    } catch (error: unknown) {
+      results.push({ file, run: null, error: errorText(error) })
+    }
+  }
+  return results
+}
+
 // ── consolidate_dispatch ─────────────────────────────────────
 
 const ConsolidateDispatchInputSchema = z
@@ -3211,27 +3247,22 @@ export function createConsolidateDispatchTool(
       }
 
       // Read all run files from the dispatch session directory.
-      let runFiles: string[]
-      try {
-        const entries = await readdir(dir)
-        runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
-      } catch {
+      const readResults = await readRunFiles(dir)
+      if (readResults === null) {
         return { output: `consolidate_dispatch error: no dispatch session directory found for correlation_id ${correlationId}` }
       }
 
-      if (runFiles.length === 0) {
+      if (readResults.length === 0) {
         return { output: "consolidate_dispatch error: no run files found in dispatch session directory" }
       }
 
-      // Parse all run files.
+      // Parse all run files; fail closed on any unreadable run.
       const runs: PersistedRunData[] = []
-      for (const file of runFiles) {
-        try {
-          const content = await readFile(join(dir, file), "utf8")
-          runs.push(JSON.parse(content) as PersistedRunData)
-        } catch (error: unknown) {
-          return { output: `consolidate_dispatch error: failed to read ${file}: ${errorText(error)}` }
+      for (const result of readResults) {
+        if (result.run === null) {
+          return { output: `consolidate_dispatch error: failed to read ${result.file}: ${result.error}` }
         }
+        runs.push(result.run)
       }
 
       // Collect lesson proposals from all runs, tagged with agent name.
@@ -4162,22 +4193,17 @@ async function dispatchReviewRuns(
   const allProposals: Array<{ information: string; tag: string; category?: string }> = []
   const resolvedCorrelationId = sessionCorrelationMap.get(context.sessionID)
   if (resolvedCorrelationId) {
-    try {
-      const dir = dispatchSessionDir(resolvedCorrelationId)
-      const dirEntries = await readdir(dir)
-      const runFiles = dirEntries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
-      for (const file of runFiles) {
-        try {
-          const content = await readFile(join(dir, file), "utf8")
-          const runData = JSON.parse(content) as PersistedRunData
-          allFindings.push(...runData.findings)
-          allProposals.push(...runData.proposals)
-        } catch {
-          // Best-effort collection.
-        }
-      }
-    } catch {
+    const readResults = await readRunFiles(dispatchSessionDir(resolvedCorrelationId))
+    if (readResults === null) {
       warnings.push("could not read dispatch session directory for findings collection")
+    }
+    for (const result of readResults ?? []) {
+      if (result.run === null) {
+        // Best-effort collection.
+        continue
+      }
+      allFindings.push(...result.run.findings)
+      allProposals.push(...result.run.proposals)
     }
   }
 
@@ -4239,11 +4265,8 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
       }
       const dir = dispatchSessionDir(correlationId)
 
-      let runFiles: string[]
-      try {
-        const entries = await readdir(dir)
-        runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
-      } catch {
+      const readResults = await readRunFiles(dir)
+      if (readResults === null) {
         return { output: JSON.stringify({ status: "not_found", correlation_id: correlationId, runs: [] }) }
       }
 
@@ -4254,19 +4277,17 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
         proposals: number
       }> = []
 
-      for (const file of runFiles) {
-        try {
-          const content = await readFile(join(dir, file), "utf8")
-          const run = JSON.parse(content) as PersistedRunData
-          runSummaries.push({
-            agent: run.agent,
-            status: run.status,
-            findings: run.findings.length,
-            proposals: run.proposals.length,
-          })
-        } catch {
-          runSummaries.push({ agent: file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0 })
+      for (const result of readResults) {
+        if (result.run === null) {
+          runSummaries.push({ agent: result.file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0 })
+          continue
         }
+        runSummaries.push({
+          agent: result.run.agent,
+          status: result.run.status,
+          findings: result.run.findings.length,
+          proposals: result.run.proposals.length,
+        })
       }
 
       // Check for any pending submissions in the store.
@@ -4346,9 +4367,14 @@ export interface ParsedAssessmentFields {
  */
 const LABELED_FIELD_LINE_PATTERN = /^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)?`?\*\*[A-Za-z0-9_ -]+\*\*`?[ \t]*:/m
 
+/** Escape regex metacharacters so a field name matches literally (Constitution V). */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
 /** Build the value-marker pattern for one structured response contract field. */
 function assessmentFieldMarker(fieldName: string): RegExp {
-  return new RegExp("`?\\*\\*" + fieldName + "\\*\\*`?\\s*:")
+  return new RegExp("`?\\*\\*" + escapeRegExp(fieldName) + "\\*\\*`?\\s*:")
 }
 
 /** Unwrap a single pair of surrounding backticks left by contract-style formatting. */
@@ -4495,26 +4521,20 @@ export function createReadAssessmentFieldsTool(): ReturnType<typeof tool> {
       // Index persisted runs by run_id, best-effort: run files are named for
       // the agent, so every run-*.json file is read and matched on run_id.
       const runsById = new Map<string, PersistedRunData>()
-      if (correlationId !== undefined) {
-        try {
-          const dir = dispatchSessionDir(correlationId)
-          const entries = await readdir(dir)
-          const runFiles = entries.filter((name: string) => name.startsWith("run-") && name.endsWith(".json")).sort()
-          for (const file of runFiles) {
-            try {
-              const content = await readFile(join(dir, file), "utf8")
-              const run = JSON.parse(content) as PersistedRunData
-              if (typeof run.run_id === "string" && !runsById.has(run.run_id)) {
-                runsById.set(run.run_id, run)
-              }
-            } catch {
-              // Best-effort: an unreadable run file cannot match a requested run_id.
-            }
-          }
-        } catch {
-          // No dispatch session directory: every requested run is unavailable.
+      const warnings: string[] = []
+      const readResults = correlationId !== undefined ? await readRunFiles(dispatchSessionDir(correlationId)) : null
+      for (const result of readResults ?? []) {
+        if (result.run === null) {
+          // Best-effort: an unreadable run file cannot match a requested run_id.
+          warnings.push(`skipped unreadable run file: ${result.file}`)
+          continue
+        }
+        if (typeof result.run.run_id === "string" && !runsById.has(result.run.run_id)) {
+          runsById.set(result.run.run_id, result.run)
         }
       }
+      // A missing dispatch session directory (readResults null) leaves every
+      // requested run unavailable below.
 
       const runs = parsed.data.run_ids.map((runId): RunAssessmentFields => {
         if (correlationId === undefined) {
@@ -4536,7 +4556,7 @@ export function createReadAssessmentFieldsTool(): ReturnType<typeof tool> {
 
       return {
         output: JSON.stringify(
-          { status: correlationId === undefined ? "not_found" : "ok", correlation_id: correlationId ?? null, runs },
+          { status: correlationId === undefined ? "not_found" : "ok", correlation_id: correlationId ?? null, runs, warnings },
           null,
           2,
         ),
