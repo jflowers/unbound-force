@@ -933,7 +933,7 @@ Each entry follows the format: `- <change-name>: <summary>`.
   the governing vote source and sources assessment fields
   (category, objectivity, reasoning, split recommendations)
   exclusively from the new additive `read_assessment_fields`
-  review-dispatch plugin tool (+257 lines, +31 tests, bounds:
+  review-dispatch plugin tool (+257 lines, +36 tests, bounds:
   128/64/4096 chars, 16x512 split entries; DE-001
   extraction), which reads persisted child text from the
   dispatch store with tool-owned untrusted-input validation.
@@ -944,8 +944,8 @@ Each entry follows the format: `- <change-name>: <summary>`.
   ^24.15.0 || >=26.0.0) declared in `engines` fields,
   AGENTS.md/README documentation) as
   dedicated commit c3b24ca6, separate from the command-doc
-  and plugin-tool commits. `make check` green (903 plugin
-  tests, coverage 94.55%/86.98%). Supersedes the repo-wide
+  and plugin-tool commits. `make check` green (924 plugin
+  tests, coverage 94.62%/87.2%). Supersedes the repo-wide
   1.4.10 pin from review-council-multi-model-fanout.
   (Spec: openspec/changes/fix-triage-issue-dispatch-docs/,
   Fixes: #735)

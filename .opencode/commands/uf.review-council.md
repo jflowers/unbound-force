@@ -274,8 +274,9 @@ included plan runs in parallel batches:
 - `review_context`: spec artifacts or other context (when available).
 
 The tool returns a counts-only summary: `status`, `runs_completed`,
-`runs_failed`, `runs_skipped`, and any `warnings`. It returns no findings
-or proposals arrays. Route all array data through the no-provenance
+`runs_failed`, and `runs_skipped`. The `findings`, `proposals`, and
+`warnings` arrays exist only in tool metadata, which never reaches the
+calling model. Route all array data through the no-provenance
 `consolidate_dispatch` retrieval in Section 4.
 
 Sibling evidence is acquired exactly once and reused for every run and
