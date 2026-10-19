@@ -472,6 +472,96 @@ describe("read_assessment_fields tool", () => {
       unavailable_reason: "child text empty",
     })
   })
+
+  it("returns validation_error for an empty run_ids array", async () => {
+    const result = await createReadAssessmentFieldsTool().execute({ run_ids: [] }, noopContext())
+    const data = JSON.parse(result.output)
+    expect(data.status).toBe("error")
+    expect(data.code).toBe("validation_error")
+  })
+
+  it("returns not_found when no dispatch session exists for the session", async () => {
+    const runId = randomUUID()
+
+    const result = await createReadAssessmentFieldsTool().execute({ run_ids: [runId] }, noopContext())
+    const data = JSON.parse(result.output)
+    expect(data.status).toBe("not_found")
+    expect(data.correlation_id).toBeNull()
+    expect(data.runs).toHaveLength(1)
+    expect(data.runs[0]).toEqual({
+      run_id: runId,
+      agent: null,
+      category: null,
+      objectivity: null,
+      reasoning: null,
+      split_recommendations: null,
+      unavailable_reason: "no dispatch session for this session",
+    })
+  })
+
+  it("reports the run unavailable for an unknown run_id", async () => {
+    const runId = randomUUID()
+    await setupDispatchSession([
+      runFixture({ agent: "divisor-guard", run_id: randomUUID(), text: contractText() }),
+    ])
+
+    const result = await createReadAssessmentFieldsTool().execute({ run_ids: [runId] }, noopContext())
+    const data = JSON.parse(result.output)
+    expect(data.status).toBe("ok")
+    expect(data.runs).toHaveLength(1)
+    expect(data.runs[0]).toEqual({
+      run_id: runId,
+      agent: null,
+      category: null,
+      objectivity: null,
+      reasoning: null,
+      split_recommendations: null,
+      unavailable_reason: "run not found in dispatch store",
+    })
+  })
+
+  it("skips an unreadable run file and still returns the valid run", async () => {
+    const runId = randomUUID()
+    await setupDispatchSession([
+      runFixture({ agent: "divisor-guard", run_id: runId, text: contractText() }),
+    ])
+    const correlationId = _getSessionCorrelationMap().get(TOOL_SESSION_ID)
+    expect(correlationId).toBeDefined()
+    const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
+    await writeFile(join(dir, "run-divisor-corrupt.json"), "{ not valid json", "utf8")
+
+    const result = await createReadAssessmentFieldsTool().execute({ run_ids: [runId] }, noopContext())
+    const data = JSON.parse(result.output)
+    expect(data.status).toBe("ok")
+    expect(data.runs).toHaveLength(1)
+    expect(data.runs[0]).toEqual({
+      run_id: runId,
+      agent: "divisor-guard",
+      category: "bug",
+      objectivity: "objective",
+      reasoning: "Evidence points to a reproducible defect.",
+      split_recommendations: [],
+      unavailable_reason: null,
+    })
+    expect(data.warnings).toEqual(["skipped unreadable run file: run-divisor-corrupt.json"])
+  })
+
+  it("maps multiple runs in the requested order", async () => {
+    const runIdA = randomUUID()
+    const runIdB = randomUUID()
+    await setupDispatchSession([
+      runFixture({ agent: "divisor-guard", run_id: runIdA, text: contractText() }),
+      runFixture({ agent: "divisor-adversary", run_id: runIdB, text: contractText({ category: "enhancement" }) }),
+    ])
+
+    const result = await createReadAssessmentFieldsTool().execute({ run_ids: [runIdB, runIdA] }, noopContext())
+    const data = JSON.parse(result.output)
+    expect(data.status).toBe("ok")
+    expect(data.runs).toHaveLength(2)
+    expect(data.runs[0]).toMatchObject({ run_id: runIdB, agent: "divisor-adversary", category: "enhancement" })
+    expect(data.runs[1]).toMatchObject({ run_id: runIdA, agent: "divisor-guard", category: "bug" })
+    expect(data.warnings).toEqual([])
+  })
 })
 
 describe("read_assessment_fields integration through a dispatched run", () => {
