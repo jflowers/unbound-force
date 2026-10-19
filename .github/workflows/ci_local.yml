@@ -4,7 +4,8 @@
 # ========
 # Project-specific checks that cannot be delegated to
 # org-infra reusable workflows: build, test with race
-# detection, and coverage ratchet enforcement.
+# detection, coverage ratchet enforcement, and a push-to-main
+# gaze AI quality report.
 
 name: Local CI
 
@@ -60,6 +61,12 @@ jobs:
           BASE="${GITHUB_BASE_SHA:-origin/main}"
           go run ./cmd/coverage-gate -manifest coverage-gate.json -profile coverage.out -base "${BASE}"
 
+      - name: Upload coverage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: coverage-out
+          path: coverage.out
+
   plugin-tests:
     name: Plugin Tests
     runs-on: ubuntu-latest
@@ -84,3 +91,18 @@ jobs:
 
       - name: Run pipeline tests
         run: bash council-review-action/test/test-pipeline.sh
+
+  gaze-ai-report:
+    name: Gaze AI Report
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+    uses: unbound-force/gaze/.github/workflows/reusable_gaze_ai_report.yml@c133b1180f26bf0b2ae433d22f6c7adf9fbff992
+    with:
+      coverage-artifact: coverage-out
+      max-crapload: 30
+      max-gaze-crapload: 12
+      min-contract-coverage: 55
+    secrets:
+      opencode-config: ${{ secrets.OPENCODE_CONFIG_CONTENT }}

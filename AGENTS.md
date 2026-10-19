@@ -59,7 +59,7 @@ Always run tests with `-race -count=1`. CI enforces this.
 
 | Workflow | File | Purpose |
 |---|---|---|
-| Local CI | `ci_local.yml` | Build, test, coverage ratchets, pipeline tests |
+| Local CI | `ci_local.yml` | Build, test, coverage ratchets, pipeline tests, gaze AI report (push to main) |
 | CI Checks | `ci_checks.yml` | MegaLinter + commitlint |
 | Security | `ci_security.yml` | OSV-Scanner, Trivy, Scorecards |
 | Dependencies | `ci_dependencies.yml` | Dependency review + dependabot |

@@ -6,6 +6,10 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- gaze-ai-report: Added a push-to-main Gaze AI report job to Local CI
+  (`ci_local.yml`) consuming the SHA-pinned unbound-force/gaze reusable
+  workflow with thresholds 30/12/55; `build-and-test` now uploads
+  `coverage.out` as the `coverage-out` artifact for the same-run handoff.
 - unleash-deterministic-tools: Migrated `/uf.unleash`'s
   remaining deterministic procedures into 11 tested
   uf-workflow plugin tools (uf_unleash_branch_gate,
