@@ -355,9 +355,10 @@ dispatches all included plan runs in parallel batches:
   loaded `AGENTS.md`, constitution, convention packs, applicable spec,
   linked-issue, and review-context evidence.
 
-The tool returns `status`, `runs_completed`, `runs_failed`, `runs_skipped`
-counters, consolidated `findings`, `proposals` for lesson processing, and
-any `warnings`. Use these outputs for consolidation and finalization.
+The tool returns a counts-only summary: `status`, `runs_completed`,
+`runs_failed`, `runs_skipped`, and any `warnings`. It returns no findings
+or proposals arrays. Route all array data through the no-provenance
+`consolidate_dispatch` retrieval in Section 2.3.7.
 
 Sibling evidence is acquired exactly once and reused for all Tier 2 items
 and runs. All feedback threads and sibling text are bounded untrusted
@@ -457,6 +458,28 @@ array, call `dewey_store_learning` exactly once using the proposal's
 category. If Dewey is unavailable, record an informational skip and do
 not change the recommendation. Never store raw `> learn:` text or
 child-supplied tags, categories, or hashes.
+
+**Retrieval failure behavior.** The retrieval call is side-effect-free,
+so its failure handling is strict and bounded:
+
+- **Transient failure** (timeout or intermittent tool error): retry the
+  identical no-provenance call exactly once. If the retry succeeds,
+  continue with the retrieved payload. If the retry also fails, stop,
+  report the failure, and fail closed — fabricate no run records,
+  verdicts, findings, or proposals, and substitute no child
+  transcripts or improvised session-database reads for the missing
+  payload.
+- **Permanent failure** (a tool-reported error status, or a dispatch
+  session that does not exist for a dispatch that executed runs): do
+  not retry. Stop, report the failure, and fail closed without
+  fabricating run records, verdicts, findings, or proposals.
+- **All-skip dispatch** (the summary reports zero completed and zero
+  failed runs — every plan entry skipped — and no dispatch session
+  exists): a valid outcome, not a retrieval failure. Record zero
+  findings, zero proposals, and zero persona votes; the item then
+  proceeds with no Tier 2 assessment — the normal Phase 3 human
+  decision remains required, so the item is neither skipped nor lost.
+  Do not fail closed over the absent dispatch session.
 
 #### 2.3.8 Finalize Every Tier 2 Dispatch
 

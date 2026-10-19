@@ -452,6 +452,28 @@ category. If Dewey is unavailable, record an informational skip and do
 not change the review verdict. Never store raw `> learn:` text or
 child-supplied tags, categories, or hashes.
 
+**Retrieval failure behavior.** The retrieval call is side-effect-free,
+so its failure handling is strict and bounded:
+
+- **Transient failure** (timeout or intermittent tool error): retry the
+  identical no-provenance call exactly once. If the retry succeeds,
+  continue with the retrieved payload. If the retry also fails, stop,
+  report the failure, and fail closed — fabricate no run records,
+  verdicts, findings, or proposals, and substitute no child
+  transcripts or improvised session-database reads for the missing
+  payload.
+- **Permanent failure** (a tool-reported error status, or a dispatch
+  session that does not exist for a dispatch that executed runs): do
+  not retry. Stop, report the failure, and fail closed without
+  fabricating run records, verdicts, findings, or proposals.
+- **All-skip dispatch** (the summary reports zero completed and zero
+  failed runs — every plan entry skipped — and no dispatch session
+  exists): a valid outcome, not a retrieval failure. Record zero
+  findings, zero proposals, and zero persona votes, and resolve the
+  review verdict through this command's zero-success semantics without
+  fabricating records; do not fail closed over the absent dispatch
+  session.
+
 ### 5b. Finalize Dispatch
 
 Call `finalize_review_dispatch` with:
