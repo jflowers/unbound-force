@@ -346,12 +346,16 @@ func TestPluginPackageInputs_ExactVersionsAndLockIntegrity(t *testing.T) {
 		"toml": "4.2.0",
 		"uuid": "13.0.1",
 	}
+	expectedEngines := map[string]string{
+		"node": "^22.22.2 || ^24.15.0 || >=26.0.0",
+	}
 
 	var manifest struct {
 		Name            string            `json:"name"`
 		Private         bool              `json:"private"`
 		Type            string            `json:"type"`
 		Scripts         map[string]string `json:"scripts"`
+		Engines         map[string]string `json:"engines"`
 		Dependencies    map[string]string `json:"dependencies"`
 		DevDependencies map[string]string `json:"devDependencies"`
 		Overrides       map[string]string `json:"overrides"`
@@ -372,6 +376,7 @@ func TestPluginPackageInputs_ExactVersionsAndLockIntegrity(t *testing.T) {
 	assertStringMap(t, "runtime dependencies", manifest.Dependencies, expectedRuntime)
 	assertStringMap(t, "development dependencies", manifest.DevDependencies, expectedDevelopment)
 	assertStringMap(t, "security overrides", manifest.Overrides, expectedOverrides)
+	assertStringMap(t, "node engines", manifest.Engines, expectedEngines)
 
 	var lock struct {
 		Name            string                      `json:"name"`

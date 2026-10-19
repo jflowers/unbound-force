@@ -142,24 +142,27 @@
 ## 4. Pin verification and documentation
 
 - [x] 4.1 Verify the Node engine floor locally (AGENTS.md
-  Gatekeeping): assert the resolved Node version satisfies the ini 7
-  engine range (^22.22.2) and record the check and its result as
-  reproducible evidence (not deferred to CI's floating
-  `node-version: 22`)
+  Gatekeeping): assert the manifest `engines.node` equals ini 7's
+  declared range (^22.22.2 || ^24.15.0 || >=26.0.0) and record the
+  check and its result as reproducible evidence (not deferred to
+  CI's floating `node-version: 22`; local Node v24.11.1 predates
+  the >=24.15.0 24.x bound, so npm reports an advisory EBADENGINE
+  warning, not a failure)
 - [x] 4.2 Update `AGENTS.md` Technology Stack: `@opencode-ai/plugin`
-  1.4.10 → 1.19.0 and the Node >= 22.22.2 engine floor; update
-  `README.md` with the engine floor and a note that `uf init`
-  consumers inherit it via the scaffolded package manifests
+  1.4.10 → 1.19.0 and the Node engine range (^22.22.2 ||
+  ^24.15.0 || >=26.0.0); update `README.md` with the engine range
+  and a note that `uf init` consumers inherit it via the
+  scaffolded package manifests
 - [x] 4.3 Validate the pin update: `make plugin-test` green against
   1.19.0 and `go test ./internal/scaffold -run
   TestPluginPackageInputs_ExactVersionsAndLockIntegrity` green;
   record the output as the pin-update validation evidence
-- [x] 4.4 Declare the Node engine floor in the `engines` field of
+- [x] 4.4 Declare the Node engine range in the `engines` field of
   `.opencode/package.json` and its scaffold asset mirror
-  `internal/scaffold/assets/opencode/package.json` (ini 7 floor
-  ^22.22.2) so npm tooling enforces the floor rather than it being
-  only documented; confirm the lockfile is unaffected or regenerate
-  it in lockstep
+  `internal/scaffold/assets/opencode/package.json` (ini 7 range
+  ^22.22.2 || ^24.15.0 || >=26.0.0) so npm tooling enforces it
+  rather than it being only documented; confirm the lockfile is
+  unaffected or regenerate it in lockstep
 - [x] 4.5 Commit sequencing (AGENTS.md commit-scope rule): stage and
   commit the pin lockstep file group (manifests, locks, scaffold
   asset mirrors, test expectation, testdata, AGENTS.md and README

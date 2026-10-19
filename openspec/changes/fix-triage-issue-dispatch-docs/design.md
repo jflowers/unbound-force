@@ -240,13 +240,15 @@ integrity and each package's actual license — MIT for
 `@ai-sdk/provider`; AFL-2.1 OR BSD-3-Clause for `json-schema` —
 plus a msgpackr 1 → 2 changelog review, following org precedent
 `review-council-multi-model-fanout` task 1.5), a locally executed
-Node engine-floor check (^22.22.2, recorded as reproducible evidence
-rather than deferred to CI: the resolved local Node is v24.11.1,
-which satisfies the ^22.22.2 floor minimum — with the caveat that
-ini 7.0.0's exact range "^22.22.2 || ^24.15.0 || >=26.0.0" asks
->=24.15.0 on the 24.x line, and npm enforces engines advisively,
-not strictly) declared in the `engines` fields of the manifests and
-their scaffold mirrors (task 4.4), and `make
+Node engine-range check (the manifests declare ini 7.0.0's exact
+range "^22.22.2 || ^24.15.0 || >=26.0.0", recorded as reproducible
+evidence rather than deferred to CI: the declaration is verified
+against ini 7's own `engines` field; the resolved local Node is
+v24.11.1, which predates the >=24.15.0 bound on the 24.x line, so
+npm reports an advisory EBADENGINE warning rather than a failure —
+npm enforces engines advisively, not strictly) declared in the
+`engines` fields of the manifests and their scaffold mirrors
+(task 4.4), and `make
 plugin-test` (33 files, 903 tests, coverage 94.55% statements /
 86.98% branches) plus the pin-enforcement test
 (`TestPluginPackageInputs_ExactVersionsAndLockIntegrity`) as

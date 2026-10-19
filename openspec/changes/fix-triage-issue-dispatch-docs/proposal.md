@@ -250,10 +250,11 @@ it in this change rather than revert. Justification and obligations:
   affecting the plugin runtime and confirm `make plugin-test` green
   (task 4.3).
 - **Engine floor check** (tasks 4.1 and 4.4; AGENTS.md Gatekeeping
-  condition): ini 7 raises the Node engine floor to ^22.22.2. The
-  floor is verified by a locally executed, reproducible check
-  (assert the resolved Node version satisfies the manifest engine
-  range and record the result), declared in the `engines` field of
+  condition): ini 7 raises the Node engine floor to a disjunctive
+  range (^22.22.2 || ^24.15.0 || >=26.0.0). The range is verified
+  by a locally executed, reproducible check (assert the manifest
+  `engines.node` equals ini 7's declared range and record the
+  result), declared in the `engines` field of
   `.opencode/package.json` and its scaffold asset mirror (task 4.4),
   and documented in AGENTS.md and README (task 4.2) — not deferred
   to CI's floating `node-version: 22`.

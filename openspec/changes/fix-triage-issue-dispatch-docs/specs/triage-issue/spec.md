@@ -285,9 +285,10 @@ license — MIT for `@opencode-ai/plugin` and `@opencode-ai/sdk`;
 Apache-2.0 for `@ai-sdk/provider`; AFL-2.1 OR BSD-3-Clause for
 `json-schema` — rather than assuming MIT, and SHALL verify the
 msgpackr 1 → 2 major transitive bump before adoption. The Node
-engine floor (^22.22.2) SHALL be verified locally, declared in the
-`engines` field of `.opencode/package.json` and its scaffold asset
-mirror, and a single-commit rollback path SHALL remain executable.
+engine range (ini 7: ^22.22.2 || ^24.15.0 || >=26.0.0) SHALL be
+verified locally, declared in the `engines` field of
+`.opencode/package.json` and its scaffold asset mirror, and a
+single-commit rollback path SHALL remain executable.
 The pin lockstep file group SHALL be committed as a dedicated
 commit, staged by explicit path, separate from the command-doc and
 plugin-tool edits.
@@ -302,13 +303,14 @@ plugin-tool edits.
 
 #### Scenario: Engine floor declared and verified
 
-- **GIVEN** ini 7 raises the Node engine floor to ^22.22.2
+- **GIVEN** ini 7 raises the Node engine floor to a disjunctive
+  range (^22.22.2 || ^24.15.0 || >=26.0.0)
 - **WHEN** the pin ships
 - **THEN** `.opencode/package.json` and its scaffold asset mirror
-  declare the floor in their `engines` fields
+  declare the range in their `engines` fields
 - **AND** the resolved local Node version is recorded as
   reproducible evidence, and AGENTS.md and README document the
-  floor
+  range
 
 #### Scenario: Dedicated pin commit
 
