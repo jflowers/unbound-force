@@ -867,12 +867,13 @@ var expectedAssetPaths = []string{
 	"openspec/schemas/unbound-force/templates/spec.md",
 	"openspec/schemas/unbound-force/templates/design.md",
 	"openspec/schemas/unbound-force/templates/tasks.md",
-	// Swarm skills (5)
+	// Swarm skills (6)
 	"opencode/skills/always-on-guidance/SKILL.md",
 	"opencode/skills/dispatch-advisor/SKILL.md",
 	"opencode/skills/pre-flight/SKILL.md",
 	"opencode/skills/review-context/SKILL.md",
 	"opencode/skills/speckit-workflow/SKILL.md",
+	"opencode/skills/tier-routing/SKILL.md",
 	// Review dispatch plugins and policy modules (6)
 	"opencode/plugins/invoke-agent/index.ts",
 	"opencode/plugins/review-dispatch/index.ts",

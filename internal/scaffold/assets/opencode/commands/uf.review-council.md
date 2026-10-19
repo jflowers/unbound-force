@@ -164,7 +164,8 @@ list resolved above. Preserve the existing classification:
 Spec paths are under `specs/`, `openspec/`, or `.specify/`, or are the
 existing named spec artifacts. Everything else is a code path. Branches
 matching `opsx/*` use OpenSpec; `speckit/NNN-*` and legacy `NNN-*` use
-Speckit; other branches have no active workflow.
+Speckit; `quick/*` use the quick workflow (no spec artifacts — every
+quick change is a code change); other branches have no active workflow.
 
 Announce the selected mode, workflow tier, immutable base/head refs and
 SHAs, normalized PR number when present, and whether `--full` is set.
@@ -1129,6 +1130,11 @@ step, determine which artifacts to review:
   (proposal.md, design.md, specs/, tasks.md), plus any
   referenced main specs at `openspec/specs/`, plus
   `.specify/memory/constitution.md` and `AGENTS.md`.
+
+- **Quick** (branch `quick/*`): No spec artifacts exist
+  by definition. If `specs` mode was explicitly requested
+  on a quick branch, stop and report that quick changes
+  carry no spec artifacts — run code mode instead.
 
 - **No active workflow** (main or unknown branch): Review
   all spec artifacts across both `specs/` and

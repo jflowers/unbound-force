@@ -158,6 +158,7 @@ describe("provider-free scratch-repository smoke test", () => {
       "uf_delegate_command",
       "uf_unleash_branch_gate",
       "uf_unleash_detect_resume",
+      "uf_unleash_route_decision",
       "write_unleash_summary",
     ])
   })

@@ -42,6 +42,51 @@ describe("classifyBranch() opsx branches", () => {
   })
 })
 
+describe("classifyBranch() quick branches", () => {
+  it("strips the quick/ prefix to derive the change name", () => {
+    expect(classifyBranch("quick/fix-retry-flake")).toStrictEqual({
+      branchType: "quick",
+      changeName: "fix-retry-flake",
+      isMain: false,
+    })
+  })
+
+  it("returns an empty change name for the bare quick/ prefix", () => {
+    expect(classifyBranch("quick/")).toStrictEqual({
+      branchType: "quick",
+      changeName: "",
+      isMain: false,
+    })
+  })
+
+  it("preserves everything after the quick/ prefix verbatim", () => {
+    expect(classifyBranch("quick/nested/change")).toStrictEqual({
+      branchType: "quick",
+      changeName: "nested/change",
+      isMain: false,
+    })
+  })
+
+  it("does not flag quick/main as main", () => {
+    // isMain is an exact branch-name match, not derived from changeName.
+    expect(classifyBranch("quick/main")).toStrictEqual({
+      branchType: "quick",
+      changeName: "main",
+      isMain: false,
+    })
+  })
+
+  it("classifies numeric quick names without the speckit prefix rule", () => {
+    // The quick/ prefix wins over the speckit /^\d+-/ rule: the name
+    // after the prefix keeps any leading digits.
+    expect(classifyBranch("quick/123-rename")).toStrictEqual({
+      branchType: "quick",
+      changeName: "123-rename",
+      isMain: false,
+    })
+  })
+})
+
 describe("classifyBranch() speckit branches", () => {
   it("strips the leading numeric prefix", () => {
     expect(classifyBranch("018-unleash-command")).toStrictEqual({

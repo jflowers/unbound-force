@@ -10,23 +10,28 @@ orchestration only.
 
 `/uf.unleash` Step 1 MUST execute the branch safety gate by calling
 `uf_unleash_branch_gate`. The tool MUST classify the current branch
-(`main`, `opsx/*`, `NNN-*`, unrecognized), derive the workflow tier
-and feature directory, and enforce per-tier prerequisites: for
-OpenSpec, `tasks.md` existence under `openspec/changes/<name>/`; for
-Speckit, derivation of the feature directory from the branch name
-(`NNN-*` -> `specs/<branch>/`, the convention
-`.specify/scripts/bash/common.sh` applies) and a direct existence
-check for `spec.md` in that directory. The current command's
+(`main`, `opsx/*`, `NNN-*`, `quick/*`, unrecognized), derive the
+workflow tier and feature directory, and enforce per-tier
+prerequisites: for OpenSpec, `tasks.md` existence under
+`openspec/changes/<name>/`; for Speckit, derivation of the feature
+directory from the branch name (`NNN-*` -> `specs/<branch>/`, the
+convention `.specify/scripts/bash/common.sh` applies) and a direct
+existence check for `spec.md` in that directory; for quick, no
+artifact prerequisites. The current command's
 `check-prerequisites.sh --json --require-spec` invocation is a
 defect: the script supports no such flag and unconditionally
 requires plan.md, which cannot exist at Step 1 gate time. The
-rewrite MUST NOT invoke the script. Every rejection MUST return
-a failure envelope carrying the command's exact STOP message. Branch
-classification MUST be computed by a shared `lib/` helper that
-`uf_finale_startup` also consumes, preserving its existing output
-shape: the helper returns a three-valued `branchType` with
+rewrite MUST NOT invoke the script. Missing-artifact rejections
+(NO_TASKS, NO_SPEC) MUST return a failure envelope carrying the
+command's exact STOP message; main-branch and unrecognized-branch
+rejections MUST return failure envelopes carrying the command's
+exact tier-routing message directing the caller to
+`uf_unleash_route_decision`. Branch classification MUST be computed
+by a shared `lib/` helper that `uf_finale_startup` also consumes,
+preserving its existing output shape: the helper returns a
+four-valued `branchType` (`opsx`, `speckit`, `quick`, `other`) with
 `main`/`master` reported as `"other"` plus a separate `isMain`
-boolean, and the gate derives its main-branch rejection from
+boolean, and the gate derives its main-branch routing trigger from
 `isMain`. Step 0 worktree cleanup MUST remain in command prose
 because it calls Replicator MCP tools.
 
@@ -50,10 +55,10 @@ because it calls Replicator MCP tools.
 - **WHEN** `uf_unleash_branch_gate` runs
 - **THEN** it returns a failure envelope whose message directs the user to run `/speckit.specify` first
 
-#### Scenario: Main and unrecognized branches rejected
-- **GIVEN** the current branch is `main` or matches neither `opsx/*` nor `NNN-*`
+#### Scenario: Main and unrecognized branches carry the routing message
+- **GIVEN** the current branch is `main` or matches neither `opsx/*` nor `NNN-*` nor `quick/*`
 - **WHEN** `uf_unleash_branch_gate` runs
-- **THEN** it returns a failure envelope with the exact STOP message prescribing a Speckit or OpenSpec feature branch
+- **THEN** it returns a failure envelope carrying the exact routing message directing tier routing through `uf_unleash_route_decision`
 
 ### Requirement: Resumability detection tool
 
@@ -85,7 +90,11 @@ authoritative even when no checkpoint state exists, so a first
 `/uf.unleash` run over artifacts created by `/opsx-propose` or the
 Speckit commands skips the completed steps, and compressed-context
 summaries are never treated as resumability evidence. OpenSpec mode
-MUST report clarify, plan, and tasks as done.
+MUST report clarify, plan, and tasks as done. Quick mode MUST report
+clarify, plan, tasks, and spec review as done (no spec artifacts
+exist to probe), MUST derive implement completion from the
+`implement` checkpoint claim `uf_delegate_command` records, and MUST
+keep code review artifact-authoritative.
 
 #### Scenario: First run over propose artifacts
 - **GIVEN** branch `opsx/some-change` has proposal, design, specs, and tasks artifacts but no `uf.unleash` checkpoint state
@@ -148,12 +157,12 @@ delegation. The tool MUST reject `agent` values matching
 Tools that complete pipeline steps MUST record their checkpoints on
 success through the existing progress state store, preserving the
 `ProgressState` shape read by `get_progress`: the branch gate records
-`branch-safety-gate`, resumability detection records
-`resumability-detection`, `uf_delegate_command` records the step
-named by its `checkpoint_step` parameter on success (`plan` and
-`tasks` when the expected artifact verifies; `implement` with
-phase data for per-task delegation), and the demo formatter
-records `demo`. The command MUST
+`branch-safety-gate`, the route decision tool records `tier-routing`,
+resumability detection records `resumability-detection`,
+`uf_delegate_command` records the step named by its
+`checkpoint_step` parameter on success (`plan` and `tasks` when the
+expected artifact verifies; `implement` with phase data for per-task
+delegation), and the demo formatter records `demo`. The command MUST
 NOT carry per-step checkpoint ceremony blockquotes; it MUST retain
 exactly one statement that tools checkpoint automatically, plus the
 explicit `clear_progress` call at pipeline completion. Review-loop
@@ -258,7 +267,9 @@ step by calling `write_unleash_summary`, which persists
 `.uf/artifacts/unleash-summary/<sanitized-branch>.json` with
 restrictive file modes, symlink refusal, and path-traversal
 protection. The artifact MUST contain the change name, workflow
-tier, feature directory, review verdicts and iteration counts,
+tier, feature directory (empty for the quick tier, which carries
+no feature directory — unleash-tier-routing), review verdicts and
+iteration counts,
 learnings stored, completion timestamp, and the demo payload
 fields `whatWasBuilt`, `howToVerify`, and `testResults` — the
 `unleashSummary` shape `/uf.finale` reads. This closes defect 1:

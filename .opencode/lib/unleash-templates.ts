@@ -26,7 +26,7 @@
  * DetectResumeInputSchema) all derive from this list, so a value
  * added or renamed in one declaration cannot drift from the rest.
  */
-export const WORKFLOW_TIERS = ["speckit", "openspec"] as const
+export const WORKFLOW_TIERS = ["speckit", "openspec", "quick"] as const
 
 /** Workflow tier selecting tier-specific template options. */
 export type UnleashTier = (typeof WORKFLOW_TIERS)[number]
@@ -184,11 +184,16 @@ function openspecChangePath(changeName?: string): string {
 /**
  * Tier-specific "What to do next" recovery guidance for the spec-review
  * exit (command Step 4): Speckit routes through /speckit.clarify, OpenSpec
- * through the change's artifacts directory.
+ * through the change's artifacts directory. Quick has no spec artifacts to
+ * recover into — the branch is unreachable in a well-formed quick run
+ * (spec review is skipped), so its guidance addresses the code directly.
  */
 function specReviewRecoveryGuidance(tier: UnleashTier, changeName?: string): string {
   if (tier === "speckit") {
     return "Run `/speckit.clarify` to address the findings, then re-run `/uf.unleash`."
+  }
+  if (tier === "quick") {
+    return "Quick changes carry no spec artifacts; address the findings in the code, then re-run `/uf.unleash`."
   }
   return `Update the artifacts under \`${openspecChangePath(changeName)}\` to address the findings, then re-run \`/uf.unleash\`.`
 }
@@ -196,11 +201,16 @@ function specReviewRecoveryGuidance(tier: UnleashTier, changeName?: string): str
 /**
  * Tier-selected second Next Steps option for the demo block (command
  * Step 8): Speckit iterates through /speckit.clarify, OpenSpec through
- * the change's artifacts directory.
+ * the change's artifacts directory, Quick offers a follow-up issue —
+ * there are no artifacts to refine and trivial changes should not
+ * accrete scope.
  */
 function demoRefinementOption(tier: UnleashTier, changeName?: string): string {
   if (tier === "speckit") {
     return "Run `/speckit.clarify` to refine and iterate"
+  }
+  if (tier === "quick") {
+    return "Open a follow-up issue for anything this change surfaced"
   }
   return `Update the artifacts under \`${openspecChangePath(changeName)}\` to refine and iterate`
 }

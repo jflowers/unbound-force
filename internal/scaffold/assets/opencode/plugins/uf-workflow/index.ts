@@ -839,14 +839,19 @@ export interface UnleashBranchGateData {
  * git executor, working directory, and file-existence checker for
  * testability.
  *
- * Gate semantics (OpenSpec change unleash-deterministic-tools, D3):
- * - main/master → failure ON_MAIN with the command's exact STOP message
+ * Gate semantics (OpenSpec change unleash-deterministic-tools, D3; tier
+ * routing per unleash-tier-routing D2/D3):
+ * - main/master → failure ON_MAIN carrying the command's exact routing
+ *   message (the command routes from main instead of stopping)
  * - opsx/<name> → tier openspec, feature_dir openspec/changes/<name>/,
  *   tasks.md existence check → failure NO_TASKS
  * - NNN-* → tier speckit, feature_dir specs/<raw-branch>/ (the common.sh
  *   convention — never derived from changeName, which strips the numeric
  *   prefix), spec.md existence check → failure NO_SPEC
- * - anything else → failure UNRECOGNIZED_BRANCH
+ * - quick/<name> → tier quick, empty feature_dir, no artifact
+ *   prerequisites (the quick workflow carries no spec artifacts)
+ * - anything else → failure UNRECOGNIZED_BRANCH carrying the command's
+ *   exact routing message (the command routes instead of stopping)
  *
  * On success the tool auto-checkpoints "branch-safety-gate" for command
  * "uf.unleash" through the same writeState path as the checkpoint tool
@@ -861,11 +866,12 @@ export function createUnleashBranchGateTool(exec: GitExec, cwd: string, fileExis
   return tool({
     description:
       "Branch safety gate for /uf.unleash: reads the current branch, " +
-      "classifies it as OpenSpec (opsx/*) or Speckit (NNN-*), verifies the " +
-      "tier prerequisite (openspec/changes/<name>/tasks.md or " +
-      "specs/<branch>/spec.md), and returns {branch, workflow_tier, " +
-      "feature_dir, change_name}. Rejection envelopes (ON_MAIN, NO_TASKS, " +
-      "NO_SPEC, UNRECOGNIZED_BRANCH) carry the command's exact STOP " +
+      "classifies it as OpenSpec (opsx/*), Speckit (NNN-*), or quick " +
+      "(quick/*), verifies the tier prerequisite (openspec/changes/<name>/tasks.md " +
+      "or specs/<branch>/spec.md; the quick tier has none), and returns " +
+      "{branch, workflow_tier, feature_dir, change_name}. ON_MAIN and " +
+      "UNRECOGNIZED_BRANCH are tier-routing triggers carrying the command's " +
+      "exact routing messages; NO_TASKS and NO_SPEC carry its exact STOP " +
       "messages. Auto-checkpoints branch-safety-gate on success.",
     execute: async () => {
       try {
@@ -878,7 +884,7 @@ export function createUnleashBranchGateTool(exec: GitExec, cwd: string, fileExis
           return {
             output: JSON.stringify(
               failure(
-                "Cannot run /uf.unleash on main. Must be on a Speckit (`NNN-*`) or OpenSpec (`opsx/*`) feature branch.",
+                "On main. /uf.unleash tier routing applies: gather the change description, apply the tier-routing rubric, and call `uf_unleash_route_decision` to select and start a workflow.",
                 { retryable: false, code: "ON_MAIN" },
               ),
             ),
@@ -917,11 +923,18 @@ export function createUnleashBranchGateTool(exec: GitExec, cwd: string, fileExis
               ),
             }
           }
+        } else if (branchType === "quick") {
+          // D2 (unleash-tier-routing): quick changes carry no spec
+          // artifacts by design — no feature dir, no prerequisites. The
+          // pre-flight hard gate and the code review council remain the
+          // quality bars for this tier.
+          workflowTier = "quick"
+          featureDir = ""
         } else {
           return {
             output: JSON.stringify(
               failure(
-                "Unrecognized branch pattern. /uf.unleash requires a Speckit feature branch (`NNN-*`) or OpenSpec branch (`opsx/*`). Run `/speckit.specify` or `/opsx-propose` to create one.",
+                "Unrecognized branch pattern. /uf.unleash tier routing applies: gather the change description, apply the tier-routing rubric, and call `uf_unleash_route_decision` to select and start a workflow.",
                 { retryable: false, code: "UNRECOGNIZED_BRANCH" },
               ),
             ),
@@ -947,6 +960,185 @@ export function createUnleashBranchGateTool(exec: GitExec, cwd: string, fileExis
         return { output: JSON.stringify(success(data)) }
       } catch (err: unknown) {
         return { output: failureFromError(err, "BRANCH_GATE_ERROR") }
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// uf_unleash_route_decision tool
+// ---------------------------------------------------------------------------
+
+/**
+ * Kebab-case slug grammar for quick-tier change names (they become git
+ * branch names through `quick/<name>`, so the charset is restricted to
+ * lowercase alphanumerics joined by single hyphens — D5).
+ */
+const QUICK_CHANGE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+/** Structured output from uf_unleash_route_decision. */
+export interface UnleashRouteDecisionData {
+  /** Workflow tier selected by the tier-routing rubric. */
+  readonly tier: WorkflowTier
+  /** Kebab-case change name; the quick-tier branch name source. */
+  readonly change_name: string
+  /** Current branch after the decision (`quick/<name>` for the quick tier). */
+  readonly branch: string
+  /** Rubric rationale recorded alongside the decision. */
+  readonly rationale: string
+  /** Change description that drove the routing decision. */
+  readonly description: string
+  /** GitHub issue number the description was resolved from, when applicable. */
+  readonly issue_number: number | null
+}
+
+/** zod-validated input contract for uf_unleash_route_decision. */
+const RouteDecisionInputSchema = z
+  .object({
+    tier: z.enum(WORKFLOW_TIERS),
+    change_name: z.string().min(1).max(128),
+    rationale: z.string().min(1).max(2000),
+    description: z.string().min(1).max(10000),
+    issue_number: z.number().int().positive().optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    // D5: the quick tier derives a git branch from change_name, so it must
+    // be a kebab-case slug. The speckit and openspec entry commands own
+    // their own naming, so the constraint is quick-only.
+    if (input.tier === "quick" && !QUICK_CHANGE_NAME_PATTERN.test(input.change_name)) {
+      context.addIssue({
+        code: "custom",
+        path: ["change_name"],
+        message: "quick tier requires a kebab-case slug (lowercase alphanumerics joined by single hyphens)",
+      })
+    }
+  })
+
+/**
+ * Factory that creates the uf_unleash_route_decision tool with injectable
+ * git executor and working directory for testability.
+ *
+ * Route decision semantics (OpenSpec change unleash-tier-routing, D1/D3/D5):
+ * - only callable from a branch whose name does not already commit to a
+ *   workflow tier (branchType "other" — main included); tier-named branches
+ *   fail ROUTE_ON_TIER_BRANCH because their name is committed intent
+ * - the working tree must be clean (any `git status --porcelain` output,
+ *   untracked files included, fails DIRTY_TREE) BEFORE any branch is
+ *   created, so routing never sweeps uncommitted work into a new change
+ * - the quick tier creates and switches to `quick/<change_name>`; the
+ *   speckit and openspec tiers leave branch creation to their delegated
+ *   entry commands (/speckit.specify, /opsx-propose)
+ * - the decision auto-checkpoints "tier-routing" after any branch switch,
+ *   so the quick tier records under its new branch key
+ *
+ * @param exec Git executor used to read branches and create the quick branch.
+ * @param cwd Repository root the decision executes against.
+ * @returns The uf_unleash_route_decision tool.
+ */
+export function createUnleashRouteDecisionTool(exec: GitExec, cwd: string): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Tier routing decision for /uf.unleash: records the selected workflow tier " +
+      "(speckit, openspec, or quick) with its rubric rationale and change " +
+      "description, guards against routing on a tier-named branch " +
+      "(ROUTE_ON_TIER_BRANCH) and a dirty working tree (DIRTY_TREE), creates " +
+      "the quick/<change_name> branch for the quick tier, and returns " +
+      "{tier, change_name, branch, rationale, description, issue_number}. " +
+      "Auto-checkpoints tier-routing on success.",
+    args: {
+      tier: RouteDecisionInputSchema.shape.tier.describe(
+        "Workflow tier selected by the tier-routing rubric.",
+      ),
+      change_name: RouteDecisionInputSchema.shape.change_name.describe(
+        "Kebab-case change name; becomes the quick/<name> branch for the quick tier.",
+      ),
+      rationale: RouteDecisionInputSchema.shape.rationale.describe(
+        "Why the rubric selected this tier (recorded with the decision).",
+      ),
+      description: RouteDecisionInputSchema.shape.description.describe(
+        "The change description that drove the routing decision.",
+      ),
+      issue_number: RouteDecisionInputSchema.shape.issue_number.describe(
+        "GitHub issue number the description was resolved from, when applicable.",
+      ),
+    },
+    async execute(args) {
+      try {
+        const parsedInput = parseToolInput(RouteDecisionInputSchema, args)
+        if (!parsedInput.ok) {
+          return { output: parsedInput.failureOutput }
+        }
+        const input = parsedInput.value
+
+        // D3: a tier-named branch is committed intent. Routing on it would
+        // mask that intent behind a different workflow, so the decision is
+        // rejected — the pipeline continues on the branch's own tier.
+        const branch = exec(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+        const { branchType } = classifyBranch(branch)
+        if (branchType !== "other") {
+          const tierLabel =
+            branchType === "opsx" ? "OpenSpec" : branchType === "speckit" ? "Speckit" : "quick"
+          return {
+            output: JSON.stringify(
+              failure(
+                `Cannot route a new change on branch \`${branch}\` — the branch name already commits to the ${tierLabel} workflow. Continue the existing pipeline instead.`,
+                { retryable: false, code: "ROUTE_ON_TIER_BRANCH" },
+              ),
+            ),
+          }
+        }
+
+        // Deterministic Execution: the dirty-tree guard runs before any
+        // branch is created, so a rejected decision leaves the repository
+        // untouched. Untracked files count — routing must not fold them
+        // into a new change.
+        const status = exec(["status", "--porcelain"], cwd)
+        if (status.trim() !== "") {
+          return {
+            output: JSON.stringify(
+              failure(
+                "Working tree is not clean. Commit or stash your changes before starting a new change — tier routing must not sweep uncommitted work into it.",
+                { retryable: false, code: "DIRTY_TREE" },
+              ),
+            ),
+          }
+        }
+
+        // D5: only the quick tier creates its branch here. The speckit and
+        // openspec tiers delegate branch creation to their entry commands
+        // (/speckit.specify assigns the NNN prefix; /opsx-propose runs
+        // `git checkout -b opsx/<name>` itself).
+        let routedBranch = branch
+        if (input.tier === "quick") {
+          exec(["checkout", "-b", `quick/${input.change_name}`], cwd)
+          // Read back to verify the switch took effect and to anchor the
+          // checkpoint on the new branch key.
+          routedBranch = exec(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+        }
+
+        // D5: auto-checkpoint after the branch switch so the quick tier
+        // records under its new branch key — the same writeState path the
+        // gate and delegate tools use.
+        recordAutoCheckpoint(cwd, sanitizeSlug(routedBranch), "uf.unleash", "tier-routing", {
+          tier: input.tier,
+          change_name: input.change_name,
+          description: input.description,
+          issue_number: input.issue_number,
+          rationale: input.rationale,
+        })
+
+        const data: UnleashRouteDecisionData = {
+          tier: input.tier,
+          change_name: input.change_name,
+          branch: routedBranch,
+          rationale: input.rationale,
+          description: input.description,
+          issue_number: input.issue_number ?? null,
+        }
+        return { output: JSON.stringify(success(data)) }
+      } catch (err: unknown) {
+        return { output: failureFromError(err, "ROUTE_DECISION_ERROR") }
       }
     },
   })
@@ -1496,10 +1688,23 @@ const DetectResumeInputSchema = z
       .max(1024)
       .refine((value) => !value.startsWith(":"), {
         message: "must not start with ':' (git pathspec magic)",
-      }),
+      })
+      .optional(),
     workflow_tier: z.enum(WORKFLOW_TIERS),
   })
   .strict()
+  .superRefine((input, context) => {
+    // D2 (unleash-tier-routing): only the quick tier omits feature_dir —
+    // quick changes carry no feature directory. The speckit and openspec
+    // tiers probe artifacts inside it, so it stays required for them.
+    if (input.workflow_tier !== "quick" && input.feature_dir === undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["feature_dir"],
+        message: "required for the speckit and openspec tiers",
+      })
+    }
+  })
 
 /**
  * Count unchecked top-level task checkboxes in tasks.md content through the
@@ -1771,13 +1976,16 @@ export function createUnleashDetectResumeTool(
       "edits excluded) — reconciled with checkpoint state (artifacts authoritative). " +
       "Returns {step_statuses, resume_from, all_complete, unchecked_count, " +
       "checkpoint_claims}. OpenSpec forces clarify, plan, and tasks done. " +
+      "Quick forces clarify, plan, tasks, and spec review done (no spec " +
+      "artifacts) and derives implement from the checkpoint claim " +
+      "uf_delegate_command records. " +
       "Auto-checkpoints resumability-detection on success.",
     args: {
       feature_dir: DetectResumeInputSchema.shape.feature_dir.describe(
-        "Feature directory relative to the repo root (e.g. openspec/changes/name/ or specs/018-name/), as returned by uf_unleash_branch_gate.",
+        "Feature directory relative to the repo root (e.g. openspec/changes/name/ or specs/018-name/), as returned by uf_unleash_branch_gate. Omitted for the quick tier.",
       ),
       workflow_tier: DetectResumeInputSchema.shape.workflow_tier.describe(
-        "Workflow tier: openspec forces clarify, plan, and tasks done (artifacts from /opsx-propose); speckit probes spec.md, plan.md, and tasks.md.",
+        "Workflow tier: openspec forces clarify, plan, and tasks done (artifacts from /opsx-propose); speckit probes spec.md, plan.md, and tasks.md; quick forces the spec steps done and derives implement from the checkpoint claim.",
       ),
     },
     async execute(args) {
@@ -1789,27 +1997,43 @@ export function createUnleashDetectResumeTool(
         const input = parsedInput.value
 
         // feature_dir is repo-relative with the same traversal guard the
-        // delegation tool applies to command paths.
-        const featureDirParam = resolveToolParam(
-          cwd,
-          input.feature_dir,
-          "feature_dir",
-          "FEATURE_DIR_TRAVERSAL"
-        )
-        if (!featureDirParam.ok) {
-          return { output: featureDirParam.failureOutput }
+        // delegation tool applies to command paths. The quick tier omits
+        // it — quick changes carry no feature directory (D2).
+        let featureDirAbs: string | null = null
+        let featureDir = ""
+        if (input.feature_dir !== undefined) {
+          const featureDirParam = resolveToolParam(
+            cwd,
+            input.feature_dir,
+            "feature_dir",
+            "FEATURE_DIR_TRAVERSAL"
+          )
+          if (!featureDirParam.ok) {
+            return { output: featureDirParam.failureOutput }
+          }
+          featureDirAbs = featureDirParam.abs
+          // Normalize to a trailing slash so file joins and the git pathspec
+          // compose identically whether or not the caller passed one.
+          featureDir = input.feature_dir.endsWith("/")
+            ? input.feature_dir
+            : `${input.feature_dir}/`
         }
-        const featureDirAbs = featureDirParam.abs
-        // Normalize to a trailing slash so file joins and the git pathspec
-        // compose identically whether or not the caller passed one.
-        const featureDir = input.feature_dir.endsWith("/")
-          ? input.feature_dir
-          : `${input.feature_dir}/`
 
         // Git context: the branch filters the repo-global artifact store,
         // and HEAD anchors both per-mode freshness rules.
         const branch = exec(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
         const headSha = exec(["rev-parse", "HEAD"], cwd)
+
+        // D4 reconciliation runs before the probes: the quick tier derives
+        // implement completion from the checkpoint claim uf_delegate_command
+        // records after artifact-verified success — the durable filesystem
+        // marker for a workflow with no spec artifacts (D6). Claims still
+        // never complete a review step; the artifacts below stay
+        // authoritative for every tier.
+        const key = resolveKey(exec, cwd)
+        const state = readState(cwd, key, sanitizeSlug("uf.unleash"))
+        const claimedSteps =
+          state !== null && Array.isArray(state.completed_steps) ? state.completed_steps : []
 
         let clarifyDone = false
         let planDone = false
@@ -1820,7 +2044,14 @@ export function createUnleashDetectResumeTool(
           clarifyDone = true
           planDone = true
           tasksDone = true
-        } else {
+        } else if (input.workflow_tier === "quick") {
+          // Quick (D2/D6): no spec artifacts exist by design, so the
+          // skipped steps are done by definition. implement is probed
+          // below from the checkpoint claim.
+          clarifyDone = true
+          planDone = true
+          tasksDone = true
+        } else if (featureDirAbs !== null) {
           planDone = deps.fileExists(resolve(featureDirAbs, "plan.md"))
           tasksDone = deps.fileExists(resolve(featureDirAbs, "tasks.md"))
           let specText: string | null = null
@@ -1839,44 +2070,45 @@ export function createUnleashDetectResumeTool(
           }
         }
 
-        // Implement probe (both tiers): zero unchecked task checkboxes.
+        // Implement probe: zero unchecked task checkboxes for the spec
+        // tiers; the checkpoint claim for quick (no tasks.md exists).
         let uncheckedCount: number | null = null
         let implementDone = false
-        try {
-          const tasksText = await deps.readText(resolve(featureDirAbs, "tasks.md"))
-          uncheckedCount = countUncheckedCheckboxes(tasksText)
-          implementDone = uncheckedCount === 0
-        } catch {
-          // Missing/unreadable tasks.md — implement is not done.
+        if (input.workflow_tier === "quick") {
+          implementDone = claimedSteps.includes("implement")
+        } else if (featureDirAbs !== null) {
+          try {
+            const tasksText = await deps.readText(resolve(featureDirAbs, "tasks.md"))
+            uncheckedCount = countUncheckedCheckboxes(tasksText)
+            implementDone = uncheckedCount === 0
+          } catch {
+            // Missing/unreadable tasks.md — implement is not done.
+          }
         }
 
         // Review probes: the dispatch artifacts are the durable verdict
         // record (D4). The git calls stay lazy — ancestry and dirtiness
         // only matter for an approving most-recent artifact.
         const artifacts = await readDispatchArtifacts(deps, cwd)
-        const specArtifact = mostRecentArtifact(artifacts, "specs", branch)
         const codeArtifact = mostRecentArtifact(artifacts, "code", branch)
 
-        let specReviewDone = false
-        if (specArtifact !== null && isApprovingVerdict(specArtifact.verdict)) {
-          specReviewDone =
-            isAncestorOrEqual(exec, cwd, specArtifact.headSha, headSha) &&
-            !specArtifactsDirty(exec, cwd, featureDir)
-        }
         let codeReviewDone = false
         if (codeArtifact !== null && isApprovingVerdict(codeArtifact.verdict)) {
           codeReviewDone = codeArtifact.headSha === headSha
         }
+        // The quick tier skips the spec review by definition (D2) — no
+        // spec artifacts exist to review. The code review stays
+        // artifact-authoritative for every tier.
+        let specReviewDone = input.workflow_tier === "quick"
+        if (!specReviewDone) {
+          const specArtifact = mostRecentArtifact(artifacts, "specs", branch)
+          if (specArtifact !== null && isApprovingVerdict(specArtifact.verdict)) {
+            specReviewDone =
+              isAncestorOrEqual(exec, cwd, specArtifact.headSha, headSha) &&
+              !specArtifactsDirty(exec, cwd, featureDir)
+          }
+        }
 
-        // D4 reconciliation: read the same state get_progress would return
-        // (no separate tool round-trip). Checkpoint claims never complete a
-        // review step — the artifact-derived statuses above are
-        // authoritative; the claims surface so the command can distinguish
-        // "never recorded" from "recorded but not artifact-backed".
-        const key = resolveKey(exec, cwd)
-        const state = readState(cwd, key, sanitizeSlug("uf.unleash"))
-        const claimedSteps =
-          state !== null && Array.isArray(state.completed_steps) ? state.completed_steps : []
         const stepStatuses: Record<ResumeStep, boolean> = {
           clarify: clarifyDone,
           plan: planDone,
@@ -1893,7 +2125,7 @@ export function createUnleashDetectResumeTool(
         // readers see resumability-detection complete.
         recordAutoCheckpoint(cwd, key, "uf.unleash", "resumability-detection", {
           workflow_tier: input.workflow_tier,
-          feature_dir: input.feature_dir,
+          feature_dir: input.feature_dir ?? "",
           resume_from: resumeFrom,
           all_complete: allComplete,
         })
@@ -3459,7 +3691,10 @@ export interface UnleashSummary {
   readonly changeName: string
   /** Workflow tier of the completed pipeline. */
   readonly tier: WorkflowTier
-  /** Feature directory (trailing slash) the pipeline ran against. */
+  /**
+   * Feature directory (trailing slash) the pipeline ran against. Empty for
+   * the quick tier, which carries no feature directory (unleash-tier-routing D7).
+   */
   readonly featureDir: string
   /** Terminal review-gate verdicts and iteration counts. */
   readonly reviewVerdicts: {
@@ -3523,7 +3758,7 @@ const WriteUnleashSummaryInputSchema = z
   .object({
     change_name: ExitChangeNameSchema,
     tier: ExitTierSchema,
-    feature_dir: z.string().min(1).max(1024),
+    feature_dir: z.string().min(1).max(1024).optional(),
     review_verdicts: z
       .object({
         spec_review: SummaryReviewVerdictSchema.optional(),
@@ -3536,6 +3771,19 @@ const WriteUnleashSummaryInputSchema = z
     testResults: z.string().max(16384),
   })
   .strict()
+  // Quick-tier changes carry no feature directory (unleash-tier-routing
+  // D7): the parameter is optional only for that tier, mirroring the
+  // detect_resume contract. Speckit and openspec summaries must still
+  // name the directory the pipeline ran against.
+  .superRefine((value, ctx) => {
+    if (value.tier !== "quick" && value.feature_dir === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["feature_dir"],
+        message: "feature_dir is required for the speckit and openspec tiers",
+      })
+    }
+  })
 
 /**
  * Factory that creates the write_unleash_summary tool with injectable
@@ -3594,11 +3842,12 @@ export function createWriteUnleashSummaryTool(exec: GitExec, cwd: string): Retur
         "Change name as uf_unleash_branch_gate derived it (opsx change id, or the speckit name with the numeric prefix stripped).",
       ),
       tier: WriteUnleashSummaryInputSchema.shape.tier.describe(
-        "Workflow tier of the completed pipeline (speckit or openspec).",
+        "Workflow tier of the completed pipeline (speckit, openspec, or quick).",
       ),
       feature_dir: WriteUnleashSummaryInputSchema.shape.feature_dir.describe(
         "Feature directory relative to the repo root, as returned by uf_unleash_branch_gate " +
-          "(recorded as artifact metadata; not used for filesystem access).",
+          "(recorded as artifact metadata; not used for filesystem access). Omitted for the " +
+          "quick tier, which carries no feature directory.",
       ),
       review_verdicts: WriteUnleashSummaryInputSchema.shape.review_verdicts.describe(
         "Terminal review verdicts and iteration counts: spec_review and code_review, each " +
@@ -3737,7 +3986,9 @@ export function createWriteUnleashSummaryTool(exec: GitExec, cwd: string): Retur
         const summary: UnleashSummary = {
           changeName: input.change_name,
           tier: input.tier,
-          featureDir: input.feature_dir,
+          // Quick-tier summaries carry no feature directory — recorded as
+          // an empty string so the artifact schema stays uniform (D7).
+          featureDir: input.feature_dir ?? "",
           reviewVerdicts,
           learningsStored: input.learnings_stored,
           whatWasBuilt: input.whatWasBuilt,
@@ -3824,6 +4075,7 @@ const UfWorkflowPlugin = {
         git_conflict_files: createGitConflictFilesTool(defaultGitExec, cwd),
         git_commit_no_edit: createGitCommitNoEditTool(defaultGitExec, cwd),
         uf_unleash_branch_gate: createUnleashBranchGateTool(defaultGitExec, cwd, defaultFileExists),
+        uf_unleash_route_decision: createUnleashRouteDecisionTool(defaultGitExec, cwd),
         uf_delegate_command: createDelegateCommandTool(defaultGitExec, cwd, {
           client: input.client,
           readText: (path: string) => readFile(path, "utf8"),

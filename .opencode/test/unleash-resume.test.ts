@@ -557,14 +557,16 @@ describe("uf_unleash_detect_resume all-complete routing", () => {
     expect(data.unchecked_count).toBe(0)
 
     // The specs rule consulted merge-base and the dirty check; code mode is
-    // a pure head-SHA string compare; resolveKey re-reads the branch for
-    // the checkpoint key.
+    // a pure head-SHA string compare. resolveKey re-reads the branch for
+    // the checkpoint key BEFORE the probes — the quick tier derives
+    // implement from checkpoint claims (D6, unleash-tier-routing), so the
+    // reconciliation read can no longer trail the probes.
     expect(gitCommands(calls)).toEqual([
       "rev-parse --abbrev-ref HEAD",
       "rev-parse HEAD",
+      "rev-parse --abbrev-ref HEAD",
       `merge-base --is-ancestor ${ANCESTOR_SHA} ${HEAD_SHA}`,
       `status --porcelain -- ${FEATURE_DIR}`,
-      "rev-parse --abbrev-ref HEAD",
     ])
   })
 })
@@ -2021,5 +2023,192 @@ describe("uf_unleash_detect_resume injected-dependency isolation", () => {
     for (const probed of stateIoPaths) {
       expect(probed.startsWith(FAKE_CWD + "/")).toBe(true)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// uf_unleash_detect_resume — quick tier
+// ---------------------------------------------------------------------------
+
+describe("uf_unleash_detect_resume quick tier", () => {
+  it("forces the spec steps done, resumes at implement, and probes no feature dir", async () => {
+    const { exec, calls } = fakeGit({ branch: "quick/fix-typo" })
+    // The feature dir options are irrelevant for quick — the fake only
+    // exists because the deps builder requires one. The assertions below
+    // prove none of its paths are ever probed.
+    const { deps, readTextCalls, fileExistsCalls, readDirCalls } = fakeDeps({
+      featureDir: FEATURE_DIR,
+      artifacts: {},
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      workflow_tier: "quick",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses).toStrictEqual({
+      clarify: true,
+      plan: true,
+      tasks: true,
+      spec_review: true,
+      implement: false,
+      code_review: false,
+    })
+    expect(data.resume_from).toBe("implement")
+    expect(data.all_complete).toBe(false)
+    // No tasks.md exists in the quick tier — there is nothing to count.
+    expect(data.unchecked_count).toBe(null)
+    expect(data.checkpoint_claims).toStrictEqual({ spec_review: false, code_review: false })
+
+    // The dispatch store is the only filesystem probe (fail-open empty);
+    // no feature-dir reads or existence checks ever fire (D2).
+    expect(readDirCalls).toEqual([STORE_DIR])
+    expect(readTextCalls).toEqual([])
+    expect(fileExistsCalls).toEqual([])
+
+    // Laziness holds: with no approving artifact there is no ancestry or
+    // dirtiness probe — the branch filter, the HEAD read, and the
+    // reconciliation resolveKey read (D4) are the only git calls.
+    expect(gitCommands(calls)).toEqual([
+      "rev-parse --abbrev-ref HEAD",
+      "rev-parse HEAD",
+      "rev-parse --abbrev-ref HEAD",
+    ])
+
+    // D5: auto-checkpoint under the quick branch key with tier data.
+    const states = writtenStates()
+    expect(states).toHaveLength(1)
+    expect(states[0]?.current_step).toBe("resumability-detection")
+    expect(states[0]?.key).toBe("quick-fix-typo")
+    expect(states[0]?.data).toEqual({
+      workflow_tier: "quick",
+      feature_dir: "",
+      resume_from: "implement",
+      all_complete: false,
+    })
+  })
+
+  it("derives implement done from the checkpoint claim uf_delegate_command records", async () => {
+    // D6: the quick tier has no tasks.md, so the implement claim that
+    // uf_delegate_command auto-checkpoints after artifact-verified success
+    // is the durable filesystem marker for the step.
+    simulateExistingState(claimedReviewState(["implement"]), "quick-fix-typo")
+    const { exec } = fakeGit({ branch: "quick/fix-typo" })
+    const { deps } = fakeDeps({ featureDir: FEATURE_DIR, artifacts: {} })
+
+    const result = await invokeDetectResume(exec, deps, {
+      workflow_tier: "quick",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses).toStrictEqual({
+      clarify: true,
+      plan: true,
+      tasks: true,
+      spec_review: true,
+      implement: true,
+      code_review: false,
+    })
+    expect(data.resume_from).toBe("code_review")
+    expect(data.all_complete).toBe(false)
+    // Claims still never complete a review step (D4) — the claim list holds
+    // "implement", not a review verdict.
+    expect(data.checkpoint_claims).toStrictEqual({ spec_review: false, code_review: false })
+
+    // The claim is appended-to, not duplicated: resumability-detection lands
+    // after the implement claim in the merged state.
+    const states = writtenStates()
+    expect(states).toHaveLength(1)
+    expect(states[0]?.completed_steps).toEqual([
+      "branch-safety-gate",
+      "implement",
+      "resumability-detection",
+    ])
+    expect(states[0]?.current_step).toBe("resumability-detection")
+  })
+
+  it("routes to retrospective when the implement claim pairs with a fresh code-approve artifact", async () => {
+    simulateExistingState(claimedReviewState(["implement"]), "quick-fix-typo")
+    const { exec, calls } = fakeGit({ branch: "quick/fix-typo" })
+    const { deps } = fakeDeps({
+      featureDir: FEATURE_DIR,
+      artifacts: {
+        "code-approve.json": artifactJson({
+          mode: "code",
+          branch: "quick/fix-typo",
+          headSha: HEAD_SHA,
+          verdict: "APPROVE",
+        }),
+      },
+    })
+
+    const result = await invokeDetectResume(exec, deps, {
+      workflow_tier: "quick",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses).toStrictEqual({
+      clarify: true,
+      plan: true,
+      tasks: true,
+      spec_review: true,
+      implement: true,
+      code_review: true,
+    })
+    expect(data.all_complete).toBe(true)
+    expect(data.resume_from).toBe(null)
+
+    // The code-review freshness rule is unchanged for quick: the artifact's
+    // head SHA must equal the current HEAD. No spec-review probe runs —
+    // no merge-base, no dirty check.
+    expect(gitCommands(calls)).toEqual([
+      "rev-parse --abbrev-ref HEAD",
+      "rev-parse HEAD",
+      "rev-parse --abbrev-ref HEAD",
+    ])
+  })
+
+  it.each(["speckit", "openspec"])(
+    "rejects a %s invocation without feature_dir with INVALID_INPUT before any git call",
+    async (tier) => {
+      const { exec, calls } = fakeGit({ branch: "quick/fix-typo" })
+      const { deps, readTextCalls, fileExistsCalls, readDirCalls } = fakeDeps({
+        featureDir: FEATURE_DIR,
+        artifacts: {},
+      })
+
+      const result = await invokeDetectResume(exec, deps, {
+        workflow_tier: tier,
+      })
+
+      // The tier-conditional superRefine: only quick may omit feature_dir.
+      const envelope = errorEnvelope(result)
+      expect(envelope.code).toBe("INVALID_INPUT")
+      expect(envelope.retryable).toBe(false)
+      expect(envelope.message).toContain("feature_dir")
+      // Rejected at the schema boundary — no git, probe, or state I/O.
+      expect(calls).toEqual([])
+      expect(readTextCalls).toEqual([])
+      expect(fileExistsCalls).toEqual([])
+      expect(readDirCalls).toEqual([])
+      expect(writeFileSync).not.toHaveBeenCalled()
+    },
+  )
+
+  it("accepts an omitted feature_dir for the quick tier only (strict schema)", async () => {
+    // feature_dir omitted is valid input for quick — verified by the
+    // success tests above. An explicitly-passed empty string stays invalid
+    // for every tier (the min(1) bound), pinning the two rules apart.
+    const { exec } = fakeGit({ branch: "quick/fix-typo" })
+    const { deps } = fakeDeps({ featureDir: FEATURE_DIR, artifacts: {} })
+
+    const result = await invokeDetectResume(exec, deps, {
+      feature_dir: "",
+      workflow_tier: "quick",
+    })
+
+    const envelope = errorEnvelope(result)
+    expect(envelope.code).toBe("INVALID_INPUT")
+    expect(envelope.message).toContain("feature_dir")
   })
 })

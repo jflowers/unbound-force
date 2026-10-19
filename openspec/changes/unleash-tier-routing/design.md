@@ -110,16 +110,23 @@ Rationale: branch creation in the tool is testable with the
 injected GitExec pattern; the child delegations keep their
 existing contracts (Composability First).
 
-### D6: Quick resumability via a progress artifact
+### D6: Quick resumability via checkpoint state, not a new artifact
 
-Quick tiers have no tasks.md, so resume probing needs a marker
-file. `.uf/artifacts/unleash/<branch>.md` holds step markers
-written as the pipeline progresses. `uf_unleash_detect_resume`
-on a quick branch treats clarify/plan/tasks/spec-review as done
-and probes the artifact for implement, code-review, and later
-markers. Rationale: preserves the "filesystem markers are
-authoritative" guardrail — resume never depends on the model's
-memory of a prior session.
+Quick tiers have no tasks.md, so resume probing needs a durable
+implement marker. The checkpoint system already provides one:
+`uf_delegate_command` auto-checkpoints the `implement` step
+after artifact-verified delegation success, and that state lives
+on disk under `.uf/progress/`. `uf_unleash_detect_resume` on a
+quick branch treats clarify/plan/tasks/spec-review as done,
+derives implement from the `implement` checkpoint claim, and
+keeps code review artifact-authoritative (dispatch review
+artifacts). Checkpoint reconciliation runs before artifact
+probing so quick-tier implement derivation reads claims in the
+same pass. Rationale: a dedicated marker file would duplicate
+the tested checkpoint machinery with an identical trust profile;
+reusing it preserves the "filesystem markers are authoritative"
+guardrail — resume never depends on the model's memory of a
+prior session — without a new write path.
 
 ### D7: WORKFLOW_TIERS gains quick and ripples everywhere at once
 

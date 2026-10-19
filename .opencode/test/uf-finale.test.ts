@@ -256,6 +256,32 @@ describe("uf_finale_startup", () => {
     }
   })
 
+  it("classifies quick branches with the quick workflow tier (unleash-tier-routing)", async () => {
+    // The shared classifyBranch classifier gained the quick branch type
+    // in unleash-tier-routing; finale startup must surface it so /uf.finale
+    // can finalize quick/* branches like any other feature branch.
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "quick/fix-typo"
+      if (cmd.includes("--porcelain")) return ""
+      throw new Error("no upstream")
+    }
+    const result = await invokeTool<{
+      branch: string
+      branchType: string
+      changeName: string
+      isMain: boolean
+    }>(createUfFinaleStartupTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.branch).toBe("quick/fix-typo")
+      expect(result.data?.branchType).toBe("quick")
+      expect(result.data?.changeName).toBe("fix-typo")
+      expect(result.data?.isMain).toBe(false)
+    }
+  })
+
   it("detects secret candidates in changed files", async () => {
     const mockExec: GitExec = (args: string[]) => {
       const cmd = args.join(" ")
@@ -823,6 +849,131 @@ describe("uf_finale_pr_context", () => {
     )
     expect(openspecCall).toBeDefined()
     expect(openspecCall![0]).toBe(resolve("/fake", ".openspec.yaml"))
+  })
+
+  it("threads the issue number from the tier-routing route decision (unleash-tier-routing)", async () => {
+    // Quick changes carry no .openspec.yaml; the branch-scoped route
+    // decision checkpoint is the only issue record. The reader must
+    // find it at the exact uf_unleash_route_decision write path so
+    // /uf.finale can thread `Closes #<N>` into the PR body.
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "quick/fix-typo"
+      throw new Error("skip")
+    }
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("skip gh")
+    })
+    vi.mocked(readFileSync).mockImplementation((pathArg) => {
+      const p = String(pathArg)
+      if (p.includes(".uf/progress/quick-fix-typo/uf.unleash.json")) {
+        return JSON.stringify({
+          command: "uf.unleash",
+          branch: "quick-fix-typo",
+          key: "quick-fix-typo",
+          current_step: "implement",
+          completed_steps: ["tier-routing", "implement"],
+          data: {
+            tier: "quick",
+            change_name: "fix-typo",
+            issue_number: 42,
+            rationale: "Trivial typo fix",
+          },
+        })
+      }
+      throw new Error("ENOENT")
+    })
+
+    const result = await invokeTool<{ originatingIssue: number | null }>(
+      createUfFinalePrContextTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.originatingIssue).toBe(42)
+    }
+    // Verify the exact branch-scoped state path was read.
+    const readCalls = vi.mocked(readFileSync).mock.calls
+    const stateCall = readCalls.find((call) =>
+      String(call[0]).includes(".uf/progress/"),
+    )
+    expect(stateCall).toBeDefined()
+    expect(stateCall![0]).toBe(
+      resolve("/fake", ".uf/progress/quick-fix-typo/uf.unleash.json"),
+    )
+  })
+
+  it("prefers the route-decision issue number over .openspec.yaml", async () => {
+    // The route decision is branch-scoped; the repo-root .openspec.yaml
+    // can go stale across changes. The branch-scoped record wins.
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "quick/fix-typo"
+      throw new Error("skip")
+    }
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("skip gh")
+    })
+    vi.mocked(readFileSync).mockImplementation((pathArg) => {
+      const p = String(pathArg)
+      if (p.includes(".openspec.yaml")) {
+        return "name: stale-change\noriginating_issue: 123\n"
+      }
+      if (p.includes(".uf/progress/quick-fix-typo/uf.unleash.json")) {
+        return JSON.stringify({
+          completed_steps: ["tier-routing"],
+          data: { issue_number: 42 },
+        })
+      }
+      throw new Error("ENOENT")
+    })
+
+    const result = await invokeTool<{ originatingIssue: number | null }>(
+      createUfFinalePrContextTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.originatingIssue).toBe(42)
+    }
+  })
+
+  it("keeps the .openspec.yaml issue when no tier-routing step was recorded", async () => {
+    // Fail closed: state data mentioning an issue number without the
+    // recorded tier-routing step must not override .openspec.yaml.
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "opsx/some-change"
+      throw new Error("skip")
+    }
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("skip gh")
+    })
+    vi.mocked(readFileSync).mockImplementation((pathArg) => {
+      const p = String(pathArg)
+      if (p.includes(".openspec.yaml")) {
+        return "name: some-change\noriginating_issue: 123\n"
+      }
+      if (p.includes(".uf/progress/opsx-some-change/uf.unleash.json")) {
+        return JSON.stringify({
+          completed_steps: ["branch-safety-gate", "resumability-detection"],
+          data: { issue_number: 42 },
+        })
+      }
+      throw new Error("ENOENT")
+    })
+
+    const result = await invokeTool<{ originatingIssue: number | null }>(
+      createUfFinalePrContextTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.originatingIssue).toBe(123)
+    }
   })
 
   it("serves a write_unleash_summary artifact through uf_finale_pr_context (#707 writer-reader contract)", async () => {

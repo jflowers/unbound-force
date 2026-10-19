@@ -435,6 +435,57 @@ describe("write_unleash_summary input validation", () => {
     expect(mkdirSync).not.toHaveBeenCalled()
     expect(writeFileSync).not.toHaveBeenCalled()
   })
+
+  // Quick-tier summaries carry no feature directory (unleash-tier-routing
+  // D7): the parameter is optional for that tier alone, mirroring the
+  // detect_resume contract. The artifact records the empty string so the
+  // camelCase schema stays uniform for the finale consumer.
+  it("accepts a quick-tier summary without feature_dir and records an empty featureDir", async () => {
+    const { exec } = recordingExec("quick/fix-typo")
+    const { feature_dir: _omitted, ...quickInput } = DEMO_INPUT
+    const result = await invokeSummary(exec, {
+      ...quickInput,
+      change_name: "fix-typo",
+      tier: "quick",
+      // Quick changes never run the spec review gate — code review only.
+      review_verdicts: { code_review: { verdict: "APPROVE", iterations: 1 } },
+    })
+
+    expect(result.status).toBe("ok")
+    const { path, raw } = writtenSummary()
+    expect(path).toBe(consumerPath("quick/fix-typo"))
+
+    const artifact = JSON.parse(raw) as UnleashSummary
+    expect(artifact.tier).toBe("quick")
+    expect(artifact.featureDir).toBe("")
+    expect(artifact.reviewVerdicts).toStrictEqual({
+      codeReview: { verdict: "APPROVE", iterations: 1 },
+    })
+  })
+
+  // The speckit and openspec tiers must still name the directory the
+  // pipeline ran against — omitting feature_dir fails the superRefine.
+  it.each(["speckit", "openspec"])(
+    "rejects a %s summary without feature_dir with INVALID_INPUT",
+    async (tier) => {
+      const { exec, calls: execCalls } = recordingExec()
+      const { feature_dir: _omitted, ...args } = DEMO_INPUT
+      const result = await invokeSummary(exec, { ...args, tier })
+
+      expect(result.status).toBe("error")
+      if (result.status === "error") {
+        expect(result.code).toBe("INVALID_INPUT")
+        expect(result.retryable).toBe(false)
+        expect(result.message).toContain("feature_dir")
+        expect(result.message).toContain("required for the speckit and openspec tiers")
+      }
+      // Rejected before any git or filesystem activity.
+      expect(execCalls).toEqual([])
+      expect(lstatSync).not.toHaveBeenCalled()
+      expect(mkdirSync).not.toHaveBeenCalled()
+      expect(writeFileSync).not.toHaveBeenCalled()
+    },
+  )
 })
 
 // ---------------------------------------------------------------------------

@@ -276,7 +276,8 @@ export function createUfFinalePrContextTool(exec: GitExec, cwd: string) {
   return tool({
     description:
       "Gather PR context: existing PR, fork status, PR template sections, " +
-      "commit log, diff stat, originating issue, and unleash summary.",
+      "commit log, diff stat, originating issue (tier-routing route " +
+      "decision or .openspec.yaml), and unleash summary.",
     execute: async () => {
       try {
         // Existing PR — uses gh CLI directly (not GitExec).
@@ -396,6 +397,40 @@ export function createUfFinalePrContextTool(exec: GitExec, cwd: string) {
           }
         } catch {
           // No .openspec.yaml — field stays null.
+        }
+
+        // Tier-routing issue number (unleash-tier-routing). The route
+        // decision records the originating issue in the branch-scoped
+        // uf.unleash checkpoint state, which is more precise than the
+        // repo-root .openspec.yaml — it takes precedence when present.
+        try {
+          const routeBranch = exec(
+            ["rev-parse", "--abbrev-ref", "HEAD"],
+            cwd,
+          )
+          const routeSlugged = sanitizeSlug(routeBranch)
+          const statePath = resolve(
+            cwd,
+            `.uf/progress/${routeSlugged}/uf.unleash.json`,
+          )
+          const stateContent = readFileSync(statePath, "utf-8")
+          const state = JSON.parse(stateContent) as {
+            completed_steps?: unknown
+            data?: { issue_number?: unknown }
+          }
+          // Fail closed: only a recorded tier-routing step carrying a
+          // valid positive integer issue number overrides .openspec.yaml.
+          if (
+            Array.isArray(state.completed_steps) &&
+            state.completed_steps.includes("tier-routing") &&
+            typeof state.data?.issue_number === "number" &&
+            Number.isInteger(state.data.issue_number) &&
+            state.data.issue_number > 0
+          ) {
+            originatingIssue = state.data.issue_number
+          }
+        } catch {
+          // No route-decision state — the .openspec.yaml value stands.
         }
 
         // Unleash summary artifact.

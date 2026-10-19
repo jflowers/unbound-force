@@ -265,6 +265,19 @@ describe("formatUnleashExit golden templates", () => {
     )
   })
 
+  it("renders the spec-review exit with quick code guidance", () => {
+    // Unreachable in a well-formed quick run (spec review is skipped);
+    // the defensive branch still renders code-directed guidance.
+    const rendered = formatUnleashExit("spec-review", {
+      tier: "quick",
+      findings: ["CRITICAL: FR-1 acceptance scenario is unverifiable"],
+    })
+
+    expect(rendered).toContain(
+      "### What to do next\nQuick changes carry no spec artifacts; address the findings in the code, then re-run `/uf.unleash`.",
+    )
+  })
+
   it("renders the openspec guidance with the literal <name> placeholder when change_name is omitted", () => {
     const rendered = formatUnleashExit("spec-review", {
       tier: "openspec",
@@ -562,6 +575,20 @@ describe("formatUnleashDemo golden templates", () => {
     const lines = rendered.split("\n")
     expect(lines[lines.length - 1]).toBe(
       "- Update the artifacts under `openspec/changes/<name>/` to refine and iterate",
+    )
+  })
+
+  it("renders the quick demo with the follow-up-issue refinement option", () => {
+    const rendered = formatUnleashDemo({
+      tier: "quick",
+      whatWasBuilt: "Fixed the flaky retry assertion in the dispatch tests.",
+      howToVerify: "Run `npx vitest run test/dispatch-status.test.ts` from .opencode.",
+      testResults: "All plugin tests pass.",
+    })
+
+    const lines = rendered.split("\n")
+    expect(lines[lines.length - 1]).toBe(
+      "- Open a follow-up issue for anything this change surfaced",
     )
   })
 })

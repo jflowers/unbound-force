@@ -193,11 +193,49 @@ describe("uf_unleash_branch_gate success (Speckit tier)", () => {
 })
 
 // ---------------------------------------------------------------------------
+// uf_unleash_branch_gate — Quick success
+// ---------------------------------------------------------------------------
+
+describe("uf_unleash_branch_gate success (Quick tier)", () => {
+  it("classifies quick/<name> with no feature dir, no prerequisite probes, and checkpoints", async () => {
+    const { fileExists, calls } = fakeFileExists([])
+    const result = await invokeGate(branchExec("quick/fix-typo"), FAKE_CWD, fileExists)
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data).toStrictEqual({
+        branch: "quick/fix-typo",
+        workflow_tier: "quick",
+        // Quick changes carry no spec artifacts (D2): no feature dir, no
+        // prerequisite file. The branch name alone carries the intent.
+        feature_dir: "",
+        change_name: "fix-typo",
+      })
+    }
+
+    // No prerequisite probe — the quick tier has nothing to verify before
+    // the pipeline starts.
+    expect(calls).toEqual([])
+
+    expect(writeFileSync).toHaveBeenCalledTimes(1)
+    const [statePathArg, stateRaw] = vi.mocked(writeFileSync).mock.calls[0]
+    expect(statePathArg).toBe(resolve(FAKE_CWD, ".uf/progress/quick-fix-typo/uf.unleash.json"))
+    const state = JSON.parse(stateRaw as string) as ProgressState
+    expect(state.current_step).toBe("branch-safety-gate")
+    expect(state.completed_steps).toEqual(["branch-safety-gate"])
+    expect(state.data).toEqual({
+      workflow_tier: "quick",
+      feature_dir: "",
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // uf_unleash_branch_gate — rejection envelopes
 // ---------------------------------------------------------------------------
 
 describe("uf_unleash_branch_gate rejection envelopes", () => {
-  it("rejects main with ON_MAIN and the exact command STOP message", async () => {
+  it("rejects main with ON_MAIN and the exact command routing message", async () => {
     const { fileExists, calls } = fakeFileExists([])
     const result = await invokeGate(branchExec("main"), FAKE_CWD, fileExists)
 
@@ -206,14 +244,14 @@ describe("uf_unleash_branch_gate rejection envelopes", () => {
       expect(result.code).toBe("ON_MAIN")
       expect(result.retryable).toBe(false)
       expect(result.message).toBe(
-        "Cannot run /uf.unleash on main. Must be on a Speckit (`NNN-*`) or OpenSpec (`opsx/*`) feature branch.",
+        "On main. /uf.unleash tier routing applies: gather the change description, apply the tier-routing rubric, and call `uf_unleash_route_decision` to select and start a workflow.",
       )
     }
     // Rejected before any filesystem probe.
     expect(calls).toEqual([])
   })
 
-  it("rejects master with ON_MAIN and the exact command STOP message", async () => {
+  it("rejects master with ON_MAIN and the exact command routing message", async () => {
     const { fileExists, calls } = fakeFileExists([])
     const result = await invokeGate(branchExec("master"), FAKE_CWD, fileExists)
 
@@ -222,7 +260,7 @@ describe("uf_unleash_branch_gate rejection envelopes", () => {
       expect(result.code).toBe("ON_MAIN")
       expect(result.retryable).toBe(false)
       expect(result.message).toBe(
-        "Cannot run /uf.unleash on main. Must be on a Speckit (`NNN-*`) or OpenSpec (`opsx/*`) feature branch.",
+        "On main. /uf.unleash tier routing applies: gather the change description, apply the tier-routing rubric, and call `uf_unleash_route_decision` to select and start a workflow.",
       )
     }
     expect(calls).toEqual([])
@@ -266,7 +304,7 @@ describe("uf_unleash_branch_gate rejection envelopes", () => {
     expect(calls).toEqual([resolve(FAKE_CWD, "specs/018-unleash-command/spec.md")])
   })
 
-  it("rejects unrecognized branches with UNRECOGNIZED_BRANCH and the exact command STOP message", async () => {
+  it("rejects unrecognized branches with UNRECOGNIZED_BRANCH and the exact command routing message", async () => {
     const { fileExists, calls } = fakeFileExists([])
     const result = await invokeGate(branchExec("feature/foo"), FAKE_CWD, fileExists)
 
@@ -275,8 +313,7 @@ describe("uf_unleash_branch_gate rejection envelopes", () => {
       expect(result.code).toBe("UNRECOGNIZED_BRANCH")
       expect(result.retryable).toBe(false)
       expect(result.message).toBe(
-        "Unrecognized branch pattern. /uf.unleash requires a Speckit feature branch (`NNN-*`) " +
-          "or OpenSpec branch (`opsx/*`). Run `/speckit.specify` or `/opsx-propose` to create one.",
+        "Unrecognized branch pattern. /uf.unleash tier routing applies: gather the change description, apply the tier-routing rubric, and call `uf_unleash_route_decision` to select and start a workflow.",
       )
     }
     expect(calls).toEqual([])

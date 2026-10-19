@@ -2,8 +2,8 @@
 description: >
   Finalize a branch: commit, push, create PR, watch CI
   checks, and return to main. The PR stays open for
-  review. One command to wrap up any feature or OpenSpec
-  branch.
+  review. One command to wrap up any feature, OpenSpec,
+  or quick branch.
 ---
 <!-- scaffolded by uf vdev -->
 
@@ -167,7 +167,8 @@ b. Synthesize PR title from `commitLog`.
 c. Generate PR body sections:
 - `## Summary` — from `commitLog`; prefer
   `unleashSummary.whatWasBuilt` if available.
-  If `originatingIssue`, insert `Closes #<N>` after
+  If `originatingIssue` (tier-routing route decision or
+  `.openspec.yaml`), insert `Closes #<N>` after
   Summary. Soft-warn if opsx branch lacks it.
 - `## How to Test` — prefer `unleashSummary.howToVerify`;
   else read spec artifacts or synthesize from diff.

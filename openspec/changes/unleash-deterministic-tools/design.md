@@ -149,17 +149,20 @@ and errors machine-parseably.
 ### D3: `uf_unleash_branch_gate` — shared branch classification
 
 A new `lib/` helper `classifyBranch(branch)` returns
-`{branchType, changeName, isMain}` — `branchType` is three-valued
-(`opsx`/`speckit`/`other`), matching `uf_finale_startup`'s legacy
-output, with `main`/`master` reported as `branchType: "other"` and
+`{branchType, changeName, isMain}` — `branchType` is four-valued
+(`opsx`/`speckit`/`quick`/`other`), matching `uf_finale_startup`'s
+legacy output with the `quick` value added by the
+unleash-tier-routing change, with `main`/`master` reported as
+`branchType: "other"` and
 `isMain: true`; the gate derives its distinct main class from
 `isMain`. `uf_finale_startup` is refactored to
 consume it (output shape unchanged; existing uf-finale tests must
 pass untouched, extended to assert `branchType` for main/master).
 The gate tool composes it with:
 
-- `isMain` → failure envelope code `ON_MAIN` carrying the exact STOP
-  message from the command.
+- `isMain` → failure envelope code `ON_MAIN` carrying the exact
+  tier-routing message from the command (unleash-tier-routing
+  reroutes this state into tier routing rather than a STOP).
 - `opsx/<name>` → tier `openspec`, `feature_dir =
   openspec/changes/<name>/`; verify `tasks.md` exists, else
   failure `NO_TASKS` with the "Run /opsx-propose first" message.
@@ -178,8 +181,10 @@ The gate tool composes it with:
   duplicated from common.sh rather than shared with the script —
   is accepted because the gate must not depend on a script that
   cannot succeed at gate time.
+- `quick/<name>` → tier `quick`, no artifact prerequisites
+  (added by unleash-tier-routing).
 - otherwise → failure `UNRECOGNIZED_BRANCH` with the exact
-  guidance message.
+  tier-routing message from the command.
 
 Success returns the standard uf-workflow success envelope with
 payload `{branch, workflow_tier, feature_dir, change_name}`.
