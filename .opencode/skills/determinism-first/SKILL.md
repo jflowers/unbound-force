@@ -69,10 +69,10 @@ mitigations, not the mechanism of record.
 
 ## Chains Without Judgment Collapse Too
 
-Extraction does not stop at single steps. When a fixed sequence of
+Extraction does not stop at single steps. A fixed sequence of
 tool calls with no judgment between steps — each next call and its
 arguments fully determined by the previous call's structured result —
-the sequence is itself a deterministic step. Collapse it into one
+is itself a deterministic step and MUST be collapsed into one
 intent-level tool whose code performs the chaining.
 
 The twice-test applies one level up: if a competent agent executing
@@ -81,7 +81,7 @@ same order both times, the chain belongs in code. Re-reading and
 re-sequencing ten tool calls on every run costs the same scarce
 context as ten steps of prose choreography.
 
-Judgment stays at the boundary: composed content and human gate
+Judgment SHOULD stay at the boundary: composed content and human gate
 decisions arrive as tool parameters; branching on structured results
 (verdict mapping, severity sorting, exit-variant selection, batch
 scheduling, failure-stop) happens inside the tool. Shipped
