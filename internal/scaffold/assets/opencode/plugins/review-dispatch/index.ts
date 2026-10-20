@@ -1871,6 +1871,22 @@ export function serializeDispatchPlan(plan: DispatchPlan): string {
 type DispatchRun = ReviewDispatchPayload["runs"][number]
 type CanonicalFinding = ReviewVerdictDecisionData["unresolved_findings"][number]
 
+/**
+ * Structural input carrying exactly the payload fields that
+ * calculatedWorkflowValue reads (fix-dispatch-verdict-derivation
+ * design D2): the runs whose successful verdicts vote, the kind
+ * that selects the voting semantics, and the advisory guard term.
+ * The full ReviewDispatchPayload satisfies this type structurally,
+ * so the finalizer call site passes payloads unchanged;
+ * consolidate_dispatch can call it before the payload exists with
+ * the built runs, the resolved kind, and empty advisories.
+ */
+type WorkflowValueInput = {
+  readonly runs: ReadonlyArray<DispatchRun>
+  readonly workflow_result: { readonly kind: NativeWorkflowResult["kind"] }
+  readonly advisories: ReadonlyArray<ReviewDispatchPayload["advisories"][number]>
+}
+
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort()
 }
@@ -1926,7 +1942,9 @@ function noSuccessResult(runs: readonly DispatchRun[]): "INCONCLUSIVE" | "UNAVAI
   return availabilityOnly ? "UNAVAILABLE" : "INCONCLUSIVE"
 }
 
-function successfulPersonaVotes(payload: ReviewDispatchPayload): ReadonlyMap<string, string> {
+function successfulPersonaVotes(
+  payload: Pick<WorkflowValueInput, "runs" | "workflow_result">,
+): ReadonlyMap<string, string> {
   const byAgent = new Map<string, string[]>()
   for (const run of payload.runs) {
     if (run.status !== "success" || run.workflow_verdict === null) {
@@ -1954,7 +1972,7 @@ function successfulPersonaVotes(payload: ReviewDispatchPayload): ReadonlyMap<str
   return votes
 }
 
-function calculatedWorkflowValue(payload: ReviewDispatchPayload): NativeWorkflowResult["value"] {
+function calculatedWorkflowValue(payload: WorkflowValueInput): NativeWorkflowResult["value"] {
   const votes = [...successfulPersonaVotes(payload).values()]
   if (votes.length === 0) {
     return noSuccessResult(payload.runs)
@@ -3101,12 +3119,22 @@ function computeVerdict(findings: readonly z.infer<typeof ConsolidatedFindingSch
 }
 
 /**
+ * Generic verdicts the severity ladders (computeVerdict, runVerdict) emit.
+ * INCONCLUSIVE and UNAVAILABLE are availability outcomes derived from run
+ * status, never from finding severities, so they are excluded.
+ */
+type SeverityLadderVerdict = Extract<
+  (typeof GENERIC_VERDICT_VALUES)[number],
+  "APPROVE" | "APPROVE WITH ADVISORIES" | "REQUEST CHANGES"
+>
+
+/**
  * Compute a per-run workflow verdict from the run's findings.
  * Successful runs MUST have a non-null workflow_verdict for semantic validation.
  */
 function runVerdict(
   findings: readonly { readonly severity: string }[],
-): (typeof GENERIC_VERDICT_VALUES)[number] {
+): SeverityLadderVerdict {
   if (findings.some((f) => f.severity === "CRITICAL" || f.severity === "HIGH")) {
     return "REQUEST CHANGES"
   }
@@ -3135,18 +3163,18 @@ function workflowKind(command: string): "council" | "triage" | "feedback" | "tes
 }
 
 /**
- * Map a generic verdict to a workflow-specific verdict value.
+ * Map a severity-ladder verdict to a workflow-specific run verdict value.
  *
- * The mapping is total over GENERIC_VERDICT_VALUES for every kind so run
- * verdicts, workflow_result.value, and allowedRunVerdicts() always agree
- * (FR-001). INCONCLUSIVE/UNAVAILABLE never reach this function —
- * computeVerdict and runVerdict emit only generic values — so the
- * default branches are defense-in-depth pass-throughs.
+ * The mapping is total over SeverityLadderVerdict for every kind, so the
+ * run verdicts it emits always agree with allowedRunVerdicts() (FR-001).
+ * INCONCLUSIVE and UNAVAILABLE never reach this function — the severity
+ * ladders cannot emit them — so the feedback default branch is an
+ * unreachable defense-in-depth pass-through.
  */
 function workflowVerdictValue(
   kind: ReturnType<typeof workflowKind>,
-  verdict: (typeof GENERIC_VERDICT_VALUES)[number],
-): string {
+  verdict: SeverityLadderVerdict,
+): NonNullable<DispatchRun["workflow_verdict"]> {
   if (kind === "triage") {
     switch (verdict) {
       case "APPROVE":
@@ -3274,7 +3302,7 @@ export function createConsolidateDispatchTool(
       const consolidatedFindings = deduplicateFindings(runs)
 
       // Compute verdict.
-      const { verdict, reason: verdictReason } = computeVerdict(consolidatedFindings)
+      const { reason: verdictReason } = computeVerdict(consolidatedFindings)
 
       // Derive the workflow kind for kind-native verdict projection (FR-001).
       const kind = workflowKind(sessionMetadata.command)
@@ -3313,18 +3341,24 @@ export function createConsolidateDispatchTool(
         cancelled: runs.filter((r) => r.status === "cancelled").length,
       }
 
-      // Build workflow result.
+      // Build workflow result. Derive the value from the successful runs'
+      // kind-native votes via calculatedWorkflowValue — the same function
+      // the finalizer validates with — so the payload passes semantic
+      // validation by construction (fix-dispatch-verdict-derivation design D1).
+      // Advisories are empty by the D3 fixed-point ordering: the projected
+      // verdict below decides whether advisories are built, and non-empty
+      // advisories only ever reinforce a value the votes already produced.
       const workflowResult = {
         kind,
-        value: workflowVerdictValue(kind, verdict),
+        value: calculatedWorkflowValue({ runs: dispatchRuns, workflow_result: { kind }, advisories: [] }),
       }
 
       // The finalizer requires the top-level verdict to be the lossless
       // back-projection of the native workflow result (RD-FR-008): the
       // identity for council and test-review, and the native-to-generic
-      // projection for triage and feedback. A raw severity-derived REQUEST
-      // CHANGES would fail semantic validation for feedback, whose native
-      // space has no REQUEST CHANGES value (FR-001).
+      // projection for triage and feedback. The vote-derived value above
+      // is already kind-native, so the back-projection matches what
+      // validatePayloadSemantics recomputes (FR-001).
       const projectedVerdict = projectNativeValue(workflowResult.value)
 
       // Build advisories for advisory-level verdicts.

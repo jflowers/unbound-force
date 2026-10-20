@@ -13,6 +13,7 @@ function runFixture(overrides: {
   agent: string
   run_id?: string
   status?: string
+  error?: { code: string; message: string; retryable: boolean }
   findings?: Array<{
     severity: string
     category: string
@@ -41,7 +42,7 @@ function runFixture(overrides: {
     reported_model: "provider/standard",
     model_mismatch: false,
     usage: { cost_usd: 0.5, tokens: { input: 1000, output: 500 } },
-    error: null,
+    error: overrides.error ?? null,
     workflow_verdict: null,
     findings: overrides.findings ?? [],
     proposals: overrides.proposals ?? [],
@@ -758,6 +759,469 @@ describe("consolidate_dispatch", () => {
     expect(persistedPayload.verdict).toBe("APPROVE WITH ADVISORIES")
     expect(persistedPayload.findings).toHaveLength(1)
     expect(persistedPayload.findings[0].severity).toBe("HIGH")
+  })
+
+  it("finalizes a split address-feedback panel via internal finalization and an unmodified payload", async () => {
+    // Issue #764 regression shape (observed on PR #761): one reviewer
+    // fully accepts (zero findings → run verdict ACCEPT) while another
+    // documents a MEDIUM finding (run verdict AUTHOR-DECIDES). Before
+    // fix-dispatch-verdict-derivation the emitter derived the top-level
+    // value from the consolidated severity ladder (AUTHOR-DECIDES
+    // whenever any finding exists) while the finalizer recomputed the
+    // persona-vote value (ACCEPT whenever any successful run voted
+    // ACCEPT) — a deterministic, retry-proof rejection. Emission and
+    // validation now share calculatedWorkflowValue, so the panel
+    // finalizes. Distinct personas keep the plan identities unique and
+    // the two votes separate in successfulPersonaVotes.
+    const splitPanelRuns = () => [
+      runFixture({ agent: "divisor-guard" }),
+      runFixture({
+        agent: "divisor-adversary",
+        findings: [
+          {
+            severity: "MEDIUM",
+            category: "style",
+            description: "Inconsistent error wrapping across finalization paths",
+            root_cause: "Missing operation context in wrapped error",
+            file: "lib/review-dispatch.ts",
+            line: 42,
+          },
+        ],
+      }),
+    ]
+    const splitPanelPlan = [...explicitRunPlan("divisor-guard"), ...explicitRunPlan("divisor-adversary")]
+
+    // Phase 1: internal finalization with provenance.
+    const projectRoot = join(tmpdir(), `consolidate-feedback-split-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    const finalizeCorrelationId = await setupDispatchSession(splitPanelRuns(), {
+      command: "address-feedback" as const,
+      mode: "feedback" as const,
+      plan: splitPanelPlan,
+    })
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/fix-dispatch-verdict-derivation",
+          // Provenance commit MUST match input_context.head_sha for non-issue kinds.
+          commit: "b".repeat(40),
+          workflow_id: "uf.address-feedback",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // Errors asserted first so a regression fails with the finalizer's
+    // rejection text (value mismatch), not just a status mismatch.
+    expect(finalizationResult.errors).toEqual([])
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(finalizeCorrelationId)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // Any successful ACCEPT vote decides a feedback panel; the value is
+    // ACCEPT and its lossless back-projection is APPROVE (RD-FR-008).
+    expect(finalizationResult.operation_verdict).toBe("APPROVE")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.workflow_result).toEqual({ kind: "feedback", value: "ACCEPT" })
+    expect(persistedPayload.verdict).toBe("APPROVE")
+    // The MEDIUM finding is retained as the author's decision input and
+    // in the severity-derived verdict_reason, while advisories stay
+    // empty because the projected verdict is APPROVE, not ADVISORIES
+    // (design D3 fixed-point ordering).
+    expect(persistedPayload.findings).toHaveLength(1)
+    expect(persistedPayload.findings[0].severity).toBe("MEDIUM")
+    expect(persistedPayload.advisories).toHaveLength(0)
+    expect(persistedPayload.verdict_reason).toContain("MEDIUM")
+    // The split survives in the kind-native run verdicts.
+    expect(persistedPayload.runs).toHaveLength(2)
+    const runVerdicts = new Map<string, string>()
+    for (const run of persistedPayload.runs) {
+      runVerdicts.set(run.agent, run.workflow_verdict)
+    }
+    expect(runVerdicts.get("divisor-guard")).toBe("ACCEPT")
+    expect(runVerdicts.get("divisor-adversary")).toBe("AUTHOR-DECIDES")
+    // The canonical decision records APPROVED with both native votes.
+    expect(finalizationResult.review_verdict.council_decision).toBe("APPROVED")
+    const personaSummaries = finalizationResult.review_verdict.persona_verdicts.map(
+      (persona: { summary: string }) => persona.summary,
+    )
+    expect(personaSummaries).toContain("Native verdict: ACCEPT")
+    expect(personaSummaries).toContain("Native verdict: AUTHOR-DECIDES")
+
+    // Phase 2: without provenance the same session shape returns a raw
+    // payload that finalizes unmodified (Composability First: no caller
+    // transformation between consolidate and finalize).
+    const payloadRoot = join(tmpdir(), `consolidate-feedback-split-payload-${randomUUID()}`)
+    await mkdir(payloadRoot, { recursive: true })
+    cleanupDirs.push(payloadRoot)
+
+    const payloadCorrelationId = await setupDispatchSession(splitPanelRuns(), {
+      command: "address-feedback" as const,
+      mode: "feedback" as const,
+      plan: splitPanelPlan,
+    })
+
+    const payloadTool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const payloadResult = await payloadTool.execute({}, noopContext())
+
+    const returnedPayload = JSON.parse(payloadResult.output)
+    expect(returnedPayload.correlation_id).toBe(payloadCorrelationId)
+    expect(returnedPayload).not.toHaveProperty("status")
+    expect(returnedPayload).not.toHaveProperty("artifact_path")
+    expect(returnedPayload.workflow_result).toEqual({ kind: "feedback", value: "ACCEPT" })
+    expect(returnedPayload.verdict).toBe("APPROVE")
+    expect(returnedPayload.findings).toHaveLength(1)
+    expect(returnedPayload.advisories).toHaveLength(0)
+
+    // Submit the returned payload unmodified: structural (strict schema)
+    // and semantic validation must both pass.
+    const externalFinalization = await finalizeReviewDispatch(
+      {
+        payload: returnedPayload,
+        provenance: {
+          branch: "opsx/fix-dispatch-verdict-derivation",
+          commit: "b".repeat(40),
+          workflow_id: "uf.address-feedback",
+        },
+      },
+      createFinalizationDependencies(payloadRoot),
+    )
+
+    expect(externalFinalization.errors).toEqual([])
+    expect(externalFinalization.status).toBe("success")
+    expect(externalFinalization.operation_verdict).toBe("APPROVE")
+    expect(externalFinalization.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // The persisted runs are exactly the returned runs — no transformation.
+    expect(externalFinalization.review_dispatch?.payload.runs).toEqual(returnedPayload.runs)
+  })
+
+  it("finalizes a split-majority triage panel via internal finalization and an unmodified payload", async () => {
+    // Issue #764 triage shape: a split-majority panel where two
+    // reviewers vote VALID (zero findings) while one documents a HIGH
+    // finding (run verdict INVALID). Before fix-dispatch-verdict-
+    // derivation the emitter derived the top-level value from the
+    // consolidated severity ladder (INVALID whenever any HIGH finding
+    // exists) while the finalizer recomputed the persona majority
+    // (triageMajority: two VALID votes beat one INVALID) — a
+    // deterministic, retry-proof rejection. Emission and validation
+    // now share calculatedWorkflowValue, so the majority decides and
+    // the panel finalizes. Distinct personas keep the plan identities
+    // unique and the three votes separate in successfulPersonaVotes.
+    const splitPanelRuns = () => [
+      runFixture({ agent: "divisor-guard" }),
+      runFixture({
+        agent: "divisor-adversary",
+        findings: [
+          {
+            severity: "HIGH",
+            category: "clarity",
+            description: "Issue lacks acceptance criteria for the reported regression",
+            root_cause: "No reproduction steps or expected-behavior section",
+            file: null,
+            line: null,
+          },
+        ],
+      }),
+      runFixture({ agent: "divisor-architect" }),
+    ]
+    const splitPanelPlan = [
+      ...explicitRunPlan("divisor-guard"),
+      ...explicitRunPlan("divisor-adversary"),
+      ...explicitRunPlan("divisor-architect"),
+    ]
+
+    // Phase 1: internal finalization with provenance.
+    const projectRoot = join(tmpdir(), `consolidate-triage-split-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    const finalizeCorrelationId = await setupDispatchSession(splitPanelRuns(), {
+      ...triageIssueMetadata(),
+      plan: splitPanelPlan,
+    })
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/fix-dispatch-verdict-derivation",
+          // Issue-kind contexts carry no head_sha, so the commit
+          // equality rule does not apply; keep the pattern anyway.
+          commit: "b".repeat(40),
+          workflow_id: "uf.triage-issue",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // Errors asserted first so a regression fails with the finalizer's
+    // rejection text (value mismatch), not just a status mismatch.
+    expect(finalizationResult.errors).toEqual([])
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(finalizeCorrelationId)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // The persona majority decides a triage panel: two VALID votes
+    // beat one INVALID, so the value is VALID and its lossless
+    // back-projection is APPROVE (RD-FR-008).
+    expect(finalizationResult.operation_verdict).toBe("APPROVE")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.workflow_result).toEqual({ kind: "triage", value: "VALID" })
+    expect(persistedPayload.verdict).toBe("APPROVE")
+    // The HIGH finding is retained as the triage decision input and in
+    // the severity-derived verdict_reason, while advisories stay empty
+    // because the projected verdict is APPROVE, not ADVISORIES (design
+    // D3 fixed-point ordering).
+    expect(persistedPayload.findings).toHaveLength(1)
+    expect(persistedPayload.findings[0].severity).toBe("HIGH")
+    expect(persistedPayload.advisories).toHaveLength(0)
+    expect(persistedPayload.verdict_reason).toContain("HIGH")
+    // The split survives in the kind-native run verdicts.
+    expect(persistedPayload.runs).toHaveLength(3)
+    const runVerdicts = new Map<string, string>()
+    for (const run of persistedPayload.runs) {
+      runVerdicts.set(run.agent, run.workflow_verdict)
+    }
+    expect(runVerdicts.get("divisor-guard")).toBe("VALID")
+    expect(runVerdicts.get("divisor-adversary")).toBe("INVALID")
+    expect(runVerdicts.get("divisor-architect")).toBe("VALID")
+    // The canonical decision records the triage majority.
+    expect(finalizationResult.review_verdict.council_decision).toBe("APPROVED")
+    const personaSummaries = finalizationResult.review_verdict.persona_verdicts.map(
+      (persona: { summary: string }) => persona.summary,
+    )
+    expect(personaSummaries).toContain("Native verdict: VALID")
+    expect(personaSummaries).toContain("Native verdict: INVALID")
+
+    // Phase 2: without provenance the same session shape returns a raw
+    // payload that finalizes unmodified (Composability First: no caller
+    // transformation between consolidate and finalize).
+    const payloadRoot = join(tmpdir(), `consolidate-triage-split-payload-${randomUUID()}`)
+    await mkdir(payloadRoot, { recursive: true })
+    cleanupDirs.push(payloadRoot)
+
+    const payloadCorrelationId = await setupDispatchSession(splitPanelRuns(), {
+      ...triageIssueMetadata(),
+      plan: splitPanelPlan,
+    })
+
+    const payloadTool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const payloadResult = await payloadTool.execute({}, noopContext())
+
+    const returnedPayload = JSON.parse(payloadResult.output)
+    expect(returnedPayload.correlation_id).toBe(payloadCorrelationId)
+    expect(returnedPayload).not.toHaveProperty("status")
+    expect(returnedPayload).not.toHaveProperty("artifact_path")
+    expect(returnedPayload.workflow_result).toEqual({ kind: "triage", value: "VALID" })
+    expect(returnedPayload.verdict).toBe("APPROVE")
+    expect(returnedPayload.findings).toHaveLength(1)
+    expect(returnedPayload.advisories).toHaveLength(0)
+
+    // Submit the returned payload unmodified: structural (strict schema)
+    // and semantic validation must both pass.
+    const externalFinalization = await finalizeReviewDispatch(
+      {
+        payload: returnedPayload,
+        provenance: {
+          branch: "opsx/fix-dispatch-verdict-derivation",
+          commit: "b".repeat(40),
+          workflow_id: "uf.triage-issue",
+        },
+      },
+      createFinalizationDependencies(payloadRoot),
+    )
+
+    expect(externalFinalization.errors).toEqual([])
+    expect(externalFinalization.status).toBe("success")
+    expect(externalFinalization.operation_verdict).toBe("APPROVE")
+    expect(externalFinalization.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // The persisted runs are exactly the returned runs — no transformation.
+    expect(externalFinalization.review_dispatch?.payload.runs).toEqual(returnedPayload.runs)
+  })
+
+  it("keeps council mixed-severity panel output identical to the severity-derived behavior", async () => {
+    // FR-011 non-regression guard (fix-dispatch-verdict-derivation): a
+    // council panel where one reviewer documents a HIGH finding (run
+    // verdict REQUEST CHANGES) while another submits none (run verdict
+    // APPROVE). Council kind is immune to the split-panel defect: the
+    // strictest persona vote equals the severity ladder over the union
+    // of successful runs' findings, because per-run votes are
+    // themselves severity-derived and the ladder is monotone under
+    // union. The derivation fix therefore MUST NOT alter this output —
+    // the panel keeps the severity-derived REQUEST CHANGES verdict,
+    // findings, advisories, and verdict_reason; the TC-001 dual-run
+    // against the pre-fix plugin proves the output byte-identical.
+    // Distinct personas keep the plan identities unique and the two
+    // votes separate in successfulPersonaVotes.
+    const projectRoot = join(tmpdir(), `consolidate-council-mixed-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // Default session metadata is the council shape (review-council/code);
+    // only the two-entry explicit plan overrides it.
+    const guardRunId = randomUUID()
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          run_id: guardRunId,
+          findings: [
+            {
+              severity: "HIGH",
+              category: "security",
+              description: "Artifact persisted without provenance validation",
+              root_cause: "Missing commit equality check before persistence",
+              file: "lib/review-dispatch.ts",
+              line: 42,
+            },
+          ],
+        }),
+        runFixture({ agent: "divisor-adversary" }),
+      ],
+      { plan: [...explicitRunPlan("divisor-guard"), ...explicitRunPlan("divisor-adversary")] },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/fix-dispatch-verdict-derivation",
+          // Provenance commit MUST match input_context.head_sha for non-issue kinds.
+          commit: "b".repeat(40),
+          workflow_id: "uf.review-council",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // Errors asserted first so a regression surfaces the finalizer's
+    // rejection text rather than a bare status mismatch.
+    expect(finalizationResult.errors).toEqual([])
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // The severity-derived verdict is REQUEST CHANGES, unchanged by the
+    // vote-based derivation: the strictest persona vote (the
+    // HIGH-findings run) equals the severity ladder over the union.
+    expect(finalizationResult.operation_verdict).toBe("REQUEST CHANGES")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.workflow_result).toEqual({ kind: "council", value: "REQUEST CHANGES" })
+    expect(persistedPayload.verdict).toBe("REQUEST CHANGES")
+    // The HIGH finding is consolidated with its contributing run, the
+    // verdict_reason stays severity-derived (FR-012), and advisories
+    // stay empty because the verdict is REQUEST CHANGES, not
+    // APPROVE WITH ADVISORIES.
+    expect(persistedPayload.findings).toHaveLength(1)
+    expect(persistedPayload.findings[0].severity).toBe("HIGH")
+    expect(persistedPayload.findings[0].run_ids).toContain(guardRunId)
+    expect(persistedPayload.verdict_reason).toContain("HIGH")
+    expect(persistedPayload.advisories).toHaveLength(0)
+    // The split survives in the kind-native run verdicts.
+    expect(persistedPayload.runs).toHaveLength(2)
+    const runVerdicts = new Map<string, string>()
+    for (const run of persistedPayload.runs) {
+      runVerdicts.set(run.agent, run.workflow_verdict)
+    }
+    expect(runVerdicts.get("divisor-guard")).toBe("REQUEST CHANGES")
+    expect(runVerdicts.get("divisor-adversary")).toBe("APPROVE")
+    // The canonical decision records the blocking outcome with both votes.
+    expect(finalizationResult.review_verdict.council_decision).toBe("CHANGES_REQUESTED")
+    const personaSummaries = finalizationResult.review_verdict.persona_verdicts.map(
+      (persona: { summary: string }) => persona.summary,
+    )
+    expect(personaSummaries).toContain("Native verdict: REQUEST CHANGES")
+    expect(personaSummaries).toContain("Native verdict: APPROVE")
+  })
+
+  it("finalizes a zero-successful-runs panel as INCONCLUSIVE instead of a value-mismatch rejection", async () => {
+    // Task 3.4 regression shape (fix-dispatch-verdict-derivation):
+    // every panel run failed before voting — no findings, null run
+    // verdicts, plain non-availability error codes. Before the fix the
+    // emitter derived the top-level value from the consolidated
+    // severity ladder (APPROVE over empty findings) while the finalizer
+    // recomputed the zero-success outcome via noSuccessResult
+    // (INCONCLUSIVE) — a deterministic, retry-proof value-mismatch
+    // rejection. Emission and validation now share
+    // calculatedWorkflowValue, so the panel finalizes: with zero
+    // successful votes the value is INCONCLUSIVE — the plain error
+    // codes are not availability-classified, so noSuccessResult cannot
+    // yield UNAVAILABLE — and the verdict is the pass-through
+    // back-projection. Both runs carry errors and empty findings so
+    // validateRunState's non-success rules hold (failed runs must not
+    // vote or emit findings), and distinct personas keep the plan
+    // identities unique.
+    const projectRoot = join(tmpdir(), `consolidate-council-zero-success-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // Default session metadata is the council shape (review-council/code);
+    // only the two-entry explicit plan overrides it.
+    const childSessionFailed = {
+      code: "child_session_failed",
+      message: "Child session exited before producing an assessment.",
+      retryable: true,
+    }
+    const correlationId = await setupDispatchSession(
+      [
+        runFixture({ agent: "divisor-guard", status: "failed", error: childSessionFailed }),
+        runFixture({ agent: "divisor-adversary", status: "failed", error: childSessionFailed }),
+      ],
+      { plan: [...explicitRunPlan("divisor-guard"), ...explicitRunPlan("divisor-adversary")] },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/fix-dispatch-verdict-derivation",
+          // Provenance commit MUST match input_context.head_sha for non-issue kinds.
+          commit: "b".repeat(40),
+          workflow_id: "uf.review-council",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // Errors asserted first so a regression surfaces the finalizer's
+    // rejection text (value mismatch), not just a status mismatch.
+    expect(finalizationResult.errors).toEqual([])
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.correlation_id).toBe(correlationId)
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // Zero successful votes: noSuccessResult decides INCONCLUSIVE and
+    // the pass-through back-projection keeps the verdict INCONCLUSIVE.
+    expect(finalizationResult.operation_verdict).toBe("INCONCLUSIVE")
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.workflow_result).toEqual({ kind: "council", value: "INCONCLUSIVE" })
+    expect(persistedPayload.verdict).toBe("INCONCLUSIVE")
+    // No findings, no advisories, and the failed runs never voted.
+    expect(persistedPayload.findings).toHaveLength(0)
+    expect(persistedPayload.advisories).toHaveLength(0)
+    expect(persistedPayload.run_counts.total).toBe(2)
+    expect(persistedPayload.run_counts.success).toBe(0)
+    expect(persistedPayload.run_counts.failed).toBe(2)
+    // Design D4 cosmetic quirk: verdict_reason stays severity-derived
+    // beside the availability outcome — documented, not a mismatch.
+    expect(persistedPayload.verdict_reason).toBe("No findings requiring changes")
+    // The failed runs carry null verdicts (they contribute no votes).
+    expect(persistedPayload.runs).toHaveLength(2)
+    const runVerdicts = new Map<string, string>()
+    for (const run of persistedPayload.runs) {
+      runVerdicts.set(run.agent, run.workflow_verdict)
+    }
+    expect(runVerdicts.get("divisor-guard")).toBe(null)
+    expect(runVerdicts.get("divisor-adversary")).toBe(null)
+    // The canonical decision records the INCONCLUSIVE outcome (the
+    // canonical-decision mapping passes availability outcomes through),
+    // and no persona verdicts exist because no run succeeded.
+    expect(finalizationResult.review_verdict.council_decision).toBe("INCONCLUSIVE")
+    expect(finalizationResult.review_verdict.persona_verdicts).toHaveLength(0)
   })
 
   it("returns finalization payload JSON when provenance is omitted", async () => {

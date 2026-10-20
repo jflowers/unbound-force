@@ -301,6 +301,28 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/command-prose-pilot/)
 
 ### Fixed
+- fix-dispatch-verdict-derivation: `consolidate_dispatch` now
+  derives `workflow_result.value` and `verdict` from
+  `calculatedWorkflowValue` — the same vote-based derivation
+  function the finalizer validates with — instead of the
+  severity ladder over consolidated findings, so emission and
+  validation share one derivation and cannot disagree. Fixes
+  deterministic finalization rejection of feedback split
+  panels (any successful zero-findings ACCEPT run plus
+  findings-bearing runs), triage split-majority panels, and
+  zero-successful-runs panels: those panel shapes previously
+  could never finalize — rejected with identical value-mismatch
+  errors that burned the bounded mechanical-retry budget and
+  fail-closed INCONCLUSIVE with no persisted artifact (observed
+  on PR #761). `verdict_reason` and advisories remain
+  severity-derived; council and test-review outputs are
+  unchanged (both derivations agree there). Four regression
+  tests added in `.opencode/test/consolidate-dispatch.test.ts`;
+  scaffold mirror
+  `internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`
+  synced byte-identical. (Spec:
+  openspec/changes/fix-dispatch-verdict-derivation/,
+  Fixes: #764)
 - fix-tool-args-schema-mismatch: uf-workflow (8) and uf-finale
   (3) tool factories now declare parameters via the
   SDK-recognized zod `args` contract instead of plain
