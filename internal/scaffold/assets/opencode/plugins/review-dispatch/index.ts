@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer"
 import { createHash, randomUUID } from "node:crypto"
-import { chmod, link, mkdir, open, readFile, readdir, realpath, unlink, writeFile } from "node:fs/promises"
+import { chmod, link, mkdir, open, readFile, readdir, realpath, rename, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -566,7 +566,10 @@ const submissionStore = new Map<string, SubmittedData>()
  * dispatch_agent_run auto-generates a correlation_id on the first call from a
  * given parent session and reuses it for all subsequent calls in that session.
  * consolidate_dispatch and dispatch_status look up the correlation_id by
- * context.sessionID so the agent never has to track or pass correlation IDs.
+ * context.sessionID so the agent never has to track or pass correlation IDs;
+ * each also accepts an optional explicit correlation_id that takes precedence
+ * over this map, keeping the tools usable standalone from a fresh parent
+ * session (design D3 of fix-review-dispatch-recovery, issue #751).
  */
 const sessionCorrelationMap = new Map<string, string>()
 
@@ -578,6 +581,61 @@ export function _getSubmissionStore(): Map<string, SubmittedData> {
 /** Exported for testing only. */
 export function _getSessionCorrelationMap(): Map<string, string> {
   return sessionCorrelationMap
+}
+
+/**
+ * Run-file-only audit record of a post-submission abort (RD-FR-026, design
+ * D2 of fix-review-dispatch-recovery; issue #751). Present only on run files
+ * whose executor outcome was reclassified from `failed` to `success`: the
+ * child delivered accepted structured submissions and had entered its
+ * final-response phase when its session aborted mid-message. The null-error
+ * finalization emission (task 1.1 verdict — validateRunState rejects any
+ * success run carrying a non-null error) erases the original executor error
+ * from the run file's `error` field, so this record preserves the abort
+ * circumstances. Partial final-response text and token usage are already
+ * preserved verbatim in the run file's `text` and `usage` fields. This
+ * shape MUST NOT flow into the finalization payload: DispatchRunSchema is
+ * strict, and the consolidate_dispatch dispatchRuns mapping deliberately
+ * omits it.
+ */
+interface PostSubmissionAbortRecord {
+  /** Executor terminal status before reclassification (always "failed"). */
+  readonly original_status: string
+  /** Original executor error code — the post-submission abort signature. */
+  readonly error_code: string
+  /** Original executor error message describing the abort. */
+  readonly error_message: string
+  /** Reclassification rationale with spec provenance (RD-FR-026, design D2). */
+  readonly note: string
+}
+
+/**
+ * Run-file-only audit record of an orphaned-submission discard (DR-FR-001,
+ * design D4 of fix-review-dispatch-recovery; issue #751). Present only on
+ * non-success run files rewritten by discard_orphaned_submissions: the run
+ * held harvested findings/proposals that success-scoped consolidation
+ * (RD-FR-025) excludes with no recovery path to a finalizable payload, so
+ * the operator discarded them to finalize the dispatch from its successful
+ * runs. The rewrite empties the run file's findings and proposals arrays,
+ * so this record preserves what was dropped (agent, run id, counts) and
+ * when — the discarded submissions themselves are no longer recoverable
+ * from the file. This shape MUST NOT flow into the finalization payload:
+ * DispatchRunSchema is strict, and the consolidate_dispatch dispatchRuns
+ * mapping deliberately omits it.
+ */
+interface DiscardedSubmissionsRecord {
+  /** Agent whose run held the discarded submissions. */
+  readonly agent: string
+  /** Run id of the rewritten run file. */
+  readonly run_id: string
+  /** Number of findings removed from the run file. */
+  readonly discarded_findings: number
+  /** Number of lesson proposals removed from the run file. */
+  readonly discarded_proposals: number
+  /** RFC3339 timestamp shared by every rewrite in the discard call. */
+  readonly discarded_at: string
+  /** Discard rationale with spec provenance (DR-FR-001, design D4). */
+  readonly note: string
 }
 
 /** Persisted run data written to dispatch session directory. */
@@ -605,6 +663,30 @@ interface PersistedRunData {
   readonly proposals: LessonProposal[]
   readonly text: string
   readonly read_only: boolean
+  /**
+   * Full resolved prompt text (inline prompt or promptFile contents) used to
+   * execute this run, persisted verbatim at dispatch time (design D4 of
+   * fix-review-dispatch-recovery) so redispatch_failed_runs can re-run a
+   * failed reviewer with its original prompt from any parent session. Bounded
+   * by the input caps (128 KiB inline, 4 MiB promptFile); never truncated.
+   * Run-file only: DispatchRunSchema is strict and the consolidate_dispatch
+   * dispatchRuns mapping deliberately omits this field. Older run files that
+   * predate the field remain valid.
+   */
+  readonly prompt?: string
+  /**
+   * Optional run-file-only audit record, populated exclusively by the
+   * executeDispatchRun reclassification site for runs reclassified per
+   * RD-FR-026. Older run files that predate the field remain valid.
+   */
+  readonly post_submission_abort?: PostSubmissionAbortRecord
+  /**
+   * Optional run-file-only audit record, populated exclusively by the
+   * discard_orphaned_submissions tool when it empties this run's harvested
+   * findings and proposals (DR-FR-001). Older run files that predate the
+   * field remain valid.
+   */
+  readonly discarded_submissions?: DiscardedSubmissionsRecord
 }
 
 /** Structured result returned by dispatch_agent_run for agent consumption. */
@@ -2569,9 +2651,11 @@ export function createFinalizeReviewDispatchTool(
 
 // ── dispatch_agent_run ────────────────────────────────────────
 
-/** Session metadata persisted on the first dispatch_agent_run call so
- * consolidate_dispatch can reconstruct the full finalization payload
- * without requiring the agent to re-supply plan, context, and coverage. */
+/** Session metadata persisted whenever supplied on a dispatch_agent_run call
+ * (latest supplied metadata replaces any earlier file — design D5 of
+ * fix-review-dispatch-recovery) so consolidate_dispatch can reconstruct the
+ * full finalization payload without requiring the agent to re-supply plan,
+ * context, and coverage. */
 const SessionMetadataSchema = z
   .object({
     command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
@@ -2665,8 +2749,9 @@ export function createDispatchAgentRunTool(deps: DispatchAgentRunDependencies): 
       sequence: z.number().int().positive().optional().describe("Run sequence number from the dispatch plan. Defaults to 1."),
       session_metadata: SessionMetadataSchema.optional().describe(
         "Session metadata (command, mode, full, input_context, change_profile, plan, coverage) to persist " +
-          "for consolidate_dispatch. Supply on the FIRST dispatch_agent_run call only; subsequent calls ignore it. " +
-          "When omitted, consolidate_dispatch requires a prior call that stored metadata.",
+          "for consolidate_dispatch. Written whenever supplied, replacing any earlier file — supply the " +
+          "current dispatch's metadata on its first call, and again when re-dispatching in the same session " +
+          "(fix loops). When never supplied, consolidate_dispatch fails closed.",
       ),
     },
     async execute(args, context): Promise<{ readonly output: string; readonly metadata: Record<string, unknown> }> {
@@ -2703,11 +2788,424 @@ function makeProvenance(
 }
 
 /**
+ * Post-submission completion reclassification predicate (RD-FR-026, design
+ * D2 of fix-review-dispatch-recovery; issue #751).
+ *
+ * A reviewer child can abort mid-final-message AFTER its structured
+ * submissions (findings / lesson proposals) were accepted and harvested —
+ * the issue #751 context-exhaustion case. The executor returns such runs
+ * as `failed` with error code `child_message_error` while the partial
+ * final-response text and full model provenance are preserved. RD-FR-026
+ * requires that this delivered review work MUST NOT be recorded as failed:
+ * executeDispatchRun reclassifies the persisted run record to `success`
+ * exactly when every criterion below holds. Each negated criterion leaves
+ * the run `failed`.
+ *
+ * 1. status is `failed` — only failed runs are candidates; success and
+ *    cancelled runs pass through unchanged.
+ * 2. error code is `child_message_error` — the post-submission
+ *    session-abort signature. Timeout ("timeout"), cancellation
+ *    ("cancelled"), model mismatch ("model_mismatch"), and every other
+ *    failure path use distinct error codes, so those runs can never
+ *    satisfy this criterion.
+ * 3. harvested findings or proposals exist — the child delivered accepted
+ *    structured output before the abort; a run that aborted before any
+ *    submission stays failed (RD-FR-026 scenario "Session abort before
+ *    any submission").
+ * 4. final-response text is non-empty — the child had entered its
+ *    final-message phase, separating a post-submission abort from a
+ *    failure during tool work.
+ * 5. the child reported no model mismatch — the executor captures
+ *    reported-model provenance before the child_message_error return, so
+ *    a provider-substituted child can abort mid-message carrying both
+ *    this error code and model_mismatch. validateRunModel rejects any
+ *    success run with model_mismatch ("model mismatch run must be
+ *    failed"), so such a run stays failed and its submissions flow
+ *    through the RD-FR-025 success-scoping exclusion instead of bricking
+ *    the finalization payload.
+ *
+ * Pure predicate over its arguments (Constitution IV — Testability): no
+ * I/O, no clocks, no store access.
+ */
+export function shouldReclassifyToSuccess(
+  result: InvokeAgentResult,
+  harvestedFindings: readonly z.infer<typeof RunFindingSchema>[],
+  harvestedProposals: readonly LessonProposal[],
+): boolean {
+  return (
+    result.status === "failed" &&
+    result.error?.code === "child_message_error" &&
+    (harvestedFindings.length > 0 || harvestedProposals.length > 0) &&
+    result.text.length > 0 &&
+    !result.provenance.model_mismatch
+  )
+}
+
+/**
+ * Inputs to the shared dispatch core (executeDispatchRun), extracted from
+ * dispatchAgentRun by design D4 / task 5.2 of fix-review-dispatch-recovery
+ * so redispatch_failed_runs (task 6.2) can re-run a failed reviewer through
+ * the identical execution path.
+ *
+ * The calling tool owns everything session-shaped: input validation, prompt
+ * or promptFile resolution, timeout validation, correlation-id resolution,
+ * and session-metadata persistence. It hands the core an already-resolved
+ * run — dispatch_agent_run passes fresh tool input, redispatch_failed_runs
+ * passes the original persisted prompt plus the plan entry's model, tier,
+ * variant, sequence, source, and read-only intent.
+ *
+ * model and tier are mutually exclusive and carry the dispatch_agent_run
+ * semantics: model is a direct provider/model-id bypass, tier resolves
+ * through the review matrix, and an advisor-source run whose tier profile
+ * has no model inherits the host session model.
+ */
+export interface ExecuteDispatchRunOptions {
+  /** Manifest-declared divisor-* review agent to execute. */
+  readonly agent: string
+  /** Fully resolved prompt text (inline prompt or promptFile contents). */
+  readonly promptText: string
+  /** Dispatch session correlation id; the run file lands in its session dir. */
+  readonly correlationId: string
+  /** Run sequence number from the dispatch plan. */
+  readonly sequence: number
+  /** Invocation provenance intent; does not alter permissions. */
+  readonly readOnly: boolean
+  /** Pre-validated run timeout in milliseconds (the calling tool validates). */
+  readonly timeoutMilliseconds: number
+  /** Run source from the dispatch plan. Defaults to "explicit". */
+  readonly source?: Source
+  /** Direct provider/model-id bypass. Mutually exclusive with tier. */
+  readonly model?: string
+  /** Review matrix profile tier. Mutually exclusive with model. */
+  readonly tier?: Tier
+  /** Direct-model runtime variant. */
+  readonly variant?: string
+}
+
+/**
+ * Runtime model-resolution fields of a dispatch plan entry, resolved for
+ * the shared dispatch core: model takes precedence over tier, and null —
+ * a host-source entry carries null for both — normalizes to undefined so
+ * the caller can pass the field as absent.
+ */
+interface PlanEntryRuntime {
+  /** Direct provider/model-id from the plan entry; undefined when null. */
+  readonly model: string | undefined
+  /** Review matrix tier; undefined when the entry carries a model or null. */
+  readonly tier: Tier | undefined
+  /** Direct-model runtime variant; undefined when null. */
+  readonly variant: string | undefined
+}
+
+/**
+ * Resolve a dispatch plan entry's model/tier/variant into the runtime
+ * options the shared dispatch core consumes (model-over-tier precedence,
+ * null normalized to undefined). One shared mapping: dispatch_review_runs
+ * and redispatch_failed_runs MUST resolve identical plan entries
+ * identically (DR-FR-002 reuses the original entry's runtime intent), so
+ * the mapping MUST NOT be duplicated at the call sites.
+ *
+ * @param entry Plan entry (or entry-shaped input) carrying the nullable
+ *   model/tier/variant fields of DispatchPlanEntrySchema.
+ * @returns The resolved runtime fields, each undefined when absent.
+ */
+function resolvePlanEntryRuntime(
+  entry: Readonly<Pick<z.infer<typeof DispatchPlanEntrySchema>, "model" | "tier" | "variant">>,
+): PlanEntryRuntime {
+  return {
+    model: entry.model ?? undefined,
+    tier: entry.model === null ? (entry.tier ?? undefined) : undefined,
+    variant: entry.variant ?? undefined,
+  }
+}
+
+/**
+ * Structured outcome of the shared dispatch core.
+ *
+ * `result` is the raw executor result and keeps the raw terminal status and
+ * error even when the run was reclassified per RD-FR-026 — the
+ * caller-visible contract of dispatch_agent_run is unchanged, and the
+ * persisted run file (via `runData`) remains the source of truth for
+ * consolidate_dispatch. `runData` is null when the run exited before child
+ * execution (policy load, agent validation, or model resolution failure):
+ * those early exits never wrote run files before the extraction and still
+ * do not.
+ */
+export interface ExecuteDispatchRunOutcome {
+  /** Raw executor result; caller-visible status/error preserved. */
+  readonly result: InvokeAgentResult
+  /** Findings harvested from the child session's submission store. */
+  readonly harvestedFindings: readonly z.infer<typeof RunFindingSchema>[]
+  /** Lesson proposals harvested from the child session's submission store. */
+  readonly harvestedProposals: readonly LessonProposal[]
+  /** Persisted run record; null when the run exited before child execution. */
+  readonly runData: PersistedRunData | null
+  /** Dispatch session correlation id the run was recorded under. */
+  readonly correlation_id: string
+  /** Run id; also embedded in runData whenever a run file was written. */
+  readonly run_id: string
+}
+
+/**
+ * Execute one planned Divisor review-agent run end to end — the shared
+ * dispatch core extracted from dispatchAgentRun (design D4, task 5.2 of
+ * fix-review-dispatch-recovery) so redispatch_failed_runs (task 6.2) can
+ * re-run a failed reviewer with its original prompt and plan entry from any
+ * parent session.
+ *
+ * Responsibilities, in order: load review policies and validate the agent
+ * against the reviewer manifest; resolve the model (direct bypass, review
+ * matrix tier, or host-model inheritance for advisor runs); execute the
+ * child session via the shared executeAgentSession executor; harvest
+ * submitted findings and lesson proposals; apply the RD-FR-026
+ * post-submission reclassification; and persist the run file to the
+ * dispatch session directory (best effort). Every step is behavior-identical
+ * to the pre-extraction dispatchAgentRun body. Pre-execution failures
+ * (policy_load_failed, unknown_agent, tier_model_unavailable,
+ * host_model_unavailable, cancelled) return an outcome whose runData is
+ * null and whose result carries the same error codes the tool has always
+ * surfaced; no run file is written for them.
+ *
+ * @param options Resolved run inputs: agent, prompt, model resolution, sequence, correlation id.
+ * @param context Calling tool context used for the cancellation signal and host model resolution.
+ * @param deps Injected planner dependencies, client, session context, and project root.
+ * @returns The executor result, harvested submissions, persisted run record, and ids.
+ */
+export async function executeDispatchRun(
+  options: ExecuteDispatchRunOptions,
+  context: ToolContext,
+  deps: DispatchAgentRunDependencies,
+): Promise<ExecuteDispatchRunOutcome> {
+  const source = options.source ?? "explicit"
+
+  /** Wrap a failed InvokeAgentResult for pre-execution early exits (no run file). */
+  const earlyExit = (result: InvokeAgentResult): ExecuteDispatchRunOutcome => ({
+    result,
+    runData: null,
+    harvestedFindings: [],
+    harvestedProposals: [],
+    correlation_id: options.correlationId,
+    run_id: randomUUID(),
+  })
+
+  /** Build a provenance placeholder using the options' common fields. */
+  const earlyProvenance = (modelOverride?: string) =>
+    makeProvenance(
+      options.agent,
+      modelOverride ?? options.model ?? options.tier ?? "standard",
+      options.variant ?? null,
+      options.readOnly,
+    )
+
+  // Load policies once — provides both manifest (for agent validation) and matrix (for tier resolution).
+  let policies: { readonly matrix: ReviewMatrix; readonly manifest: ReviewerManifest }
+  try {
+    policies = await loadPolicies(deps.plannerDependencies)
+  } catch (error: unknown) {
+    return earlyExit(failedResult(earlyProvenance(), "policy_load_failed", sanitizeInvocationError(errorText(error)), true))
+  }
+
+  // Validate the agent exists in the reviewer manifest.
+  const reviewer = policies.manifest.reviewers.find((candidate: Reviewer) => candidate.agent === options.agent)
+  if (reviewer === undefined) {
+    return earlyExit(failedResult(
+      earlyProvenance(),
+      "unknown_agent",
+      `agent ${options.agent} is absent from the reviewer manifest`,
+      false,
+    ))
+  }
+
+  // Resolve model: tier-based via review matrix or direct bypass.
+  let selectedModel: ModelIdentity
+  let selectedVariant: string | undefined
+  let requestedModelLabel: string | null
+  let hostResolvedParent: { model: string; variant: string } | null = null
+
+  if (options.model !== undefined) {
+    // Direct model bypass — skip matrix lookup.
+    selectedModel = directModelIdentity(options.model)
+    selectedVariant = options.variant
+    requestedModelLabel = options.model
+  } else {
+    // Tier-based resolution via review matrix.
+    const tier = options.tier ?? "standard"
+    const resolved = profilePair(policies.matrix, tier, options.variant)
+    if (resolved.model === null) {
+      if (source === "advisor") {
+        // Advisor runs with no profile model inherit the parent session model.
+        try {
+          const hostResult = await resolveHostModel(
+            { client: deps.client, sessionID: context.sessionID, messageID: context.messageID, directory: deps.directory },
+            context.abort,
+          )
+          selectedModel = hostResult.identity
+          selectedVariant = hostResult.variant
+          requestedModelLabel = null
+          hostResolvedParent = {
+            model: `${hostResult.identity.providerID}/${hostResult.identity.modelID}`,
+            variant: hostResult.variant,
+          }
+        } catch (error: unknown) {
+          if (context.abort.aborted) {
+            return earlyExit(failedResult(earlyProvenance(tier), "cancelled", "dispatch cancelled", false))
+          }
+          return earlyExit(failedResult(
+            earlyProvenance(tier),
+            "host_model_unavailable",
+            sanitizeInvocationError(errorText(error)),
+            true,
+          ))
+        }
+      } else {
+        return earlyExit(failedResult(
+          earlyProvenance(tier),
+          "tier_model_unavailable",
+          `profile "${tier}" has no model configured in the review matrix`,
+          false,
+        ))
+      }
+    } else {
+      selectedModel = directModelIdentity(resolved.model)
+      selectedVariant = resolved.variant ?? undefined
+      requestedModelLabel = resolved.model
+    }
+  }
+
+  const provenance = makeProvenance(
+    options.agent,
+    requestedModelLabel,
+    hostResolvedParent !== null ? null : (selectedVariant ?? null),
+    options.readOnly,
+  )
+  if (hostResolvedParent !== null) {
+    provenance.resolved_parent_model = hostResolvedParent.model
+    provenance.resolved_parent_variant = hostResolvedParent.variant
+  }
+
+  // Delegate session lifecycle to the shared executor.
+  const startedAt = new Date().toISOString()
+  const executorDeps: ExecutorDependencies = {
+    client: deps.client,
+    sessionID: context.sessionID,
+    directory: deps.directory,
+    parentAbort: context.abort,
+    timeoutMilliseconds: options.timeoutMilliseconds,
+  }
+
+  const result = await executeAgentSession(executorDeps, options.agent, options.promptText, selectedModel, selectedVariant, options.readOnly, provenance)
+  const finishedAt = new Date().toISOString()
+
+  // Harvest submitted findings/proposals from child session via the in-process Map.
+  const childSessionID = result.childSessionID
+  const submitted = childSessionID !== undefined ? submissionStore.get(childSessionID) : undefined
+  if (childSessionID !== undefined) {
+    submissionStore.delete(childSessionID)
+  }
+
+  const harvestedFindings = submitted?.findings ?? []
+  const harvestedProposals = submitted?.proposals ?? []
+
+  // Post-submission completion status (RD-FR-026, design D2, issue #751):
+  // a child that delivered accepted structured submissions and entered its
+  // final-response phase is recorded as a success contributor even though
+  // its session aborted mid-message — the completed review work MUST NOT
+  // be bricked by the abort. The reclassified status lands in the
+  // persisted run record, the input consolidate_dispatch and
+  // dispatch_status read; the executor result returned to the caller keeps
+  // the raw abort error so the circumstances stay observable. Timeout,
+  // cancelled, pre-submission, and model-mismatch runs fail the predicate
+  // and stay failed.
+  const reclassified = shouldReclassifyToSuccess(result, harvestedFindings, harvestedProposals)
+
+  // Abort-circumstances audit record (RD-FR-026, design D2): the null-error
+  // emission in the runData literal below erases the original executor
+  // error from the run file, so a reclassified run preserves it here
+  // alongside the reclassification provenance. Run-file only — the
+  // consolidate_dispatch dispatchRuns mapping deliberately omits this field
+  // (DispatchRunSchema is strict). The result.error null check is
+  // TypeScript narrowing only: the predicate already guarantees a
+  // non-null child_message_error whenever it returns true.
+  const postSubmissionAbort =
+    reclassified && result.error !== null
+      ? {
+          original_status: result.status,
+          error_code: result.error.code,
+          error_message: result.error.message,
+          note: "Run reclassified from failed to success per RD-FR-026 (fix-review-dispatch-recovery design D2, issue #751): accepted structured submissions were harvested and the child had entered its final-response phase before its session aborted mid-message.",
+        }
+      : undefined
+
+  // Record under the caller-resolved correlation_id; generate run_id per invocation.
+  const runId = randomUUID()
+  const runData: PersistedRunData = {
+    correlation_id: options.correlationId,
+    run_id: runId,
+    agent: options.agent,
+    source,
+    sequence: options.sequence,
+    status: reclassified ? "success" : result.status,
+    started_at: startedAt,
+    finished_at: finishedAt,
+    requested_model: requestedModelLabel,
+    provider: hostResolvedParent !== null ? null : (selectedModel.providerID || null),
+    model_id: hostResolvedParent !== null ? null : (selectedModel.modelID || null),
+    variant: hostResolvedParent !== null ? null : (selectedVariant ?? null),
+    resolved_parent_model: hostResolvedParent !== null ? hostResolvedParent.model : result.provenance.resolved_parent_model,
+    resolved_parent_variant: hostResolvedParent !== null ? hostResolvedParent.variant : result.provenance.resolved_parent_variant,
+    reported_model: result.provenance.reported_child_model,
+    model_mismatch: result.provenance.model_mismatch,
+    usage: result.usage,
+    // Null-error emission per the task 1.1 verdict (design D2):
+    // validateRunState rejects any success run carrying a non-null error
+    // and finalizer code stays untouched, so a reclassified run persists
+    // error: null here. The original abort error survives in
+    // post_submission_abort; non-reclassified runs keep their errors.
+    error: reclassified ? null : result.error,
+    workflow_verdict: null,
+    findings: harvestedFindings,
+    proposals: harvestedProposals,
+    text: result.text,
+    read_only: options.readOnly,
+    // Full resolved prompt persisted verbatim at dispatch time (design D4,
+    // task 5.1 of fix-review-dispatch-recovery): redispatch_failed_runs
+    // re-runs a failed reviewer with exactly this prompt. Run-file only —
+    // the consolidate_dispatch dispatchRuns mapping deliberately omits it
+    // (DispatchRunSchema is strict).
+    prompt: options.promptText,
+    // Undefined (key absent after JSON.stringify) for every
+    // non-reclassified run — populated only at the RD-FR-026 hook above.
+    post_submission_abort: postSubmissionAbort,
+  }
+  try {
+    const dir = dispatchSessionDir(options.correlationId)
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `run-${options.agent}.json`), JSON.stringify(runData, null, 2), "utf8")
+  } catch {
+    // Persistence is best-effort; the result is authoritative.
+  }
+
+  return {
+    result,
+    runData,
+    harvestedFindings,
+    harvestedProposals,
+    correlation_id: options.correlationId,
+    run_id: runId,
+  }
+}
+
+/**
  * Execute a single Divisor review-agent run in a parented child session.
  *
  * Unlike invoke_agent (which resolves the host model from the parent session), dispatch_agent_run
  * resolves models from the review matrix profiles. This gives the dispatch planner
  * deterministic control over which model each agent receives.
+ *
+ * Owns the tool-boundary concerns — input validation, correlation-id resolution
+ * for the parent session, session-metadata persistence, and prompt resolution —
+ * then delegates the shared dispatch core (model resolution, child execution,
+ * submission harvest, run-file persistence) to executeDispatchRun.
  *
  * @param rawInput Untrusted invocation arguments from the OpenCode tool boundary.
  * @param context Calling tool context used for cancellation signal.
@@ -2738,9 +3236,14 @@ export async function dispatchAgentRun(
     sessionCorrelationMap.set(context.sessionID, correlationId)
   }
 
-  // Persist session metadata on the first call so consolidate_dispatch can
-  // reconstruct the finalization payload without the agent re-supplying it.
-  if (isFirstCall && input.session_metadata !== undefined) {
+  // Persist session metadata whenever it is supplied (design D5 of
+  // fix-review-dispatch-recovery), replacing any earlier file with the
+  // latest metadata: the first call still creates it, and a later call
+  // carrying fresh metadata (a fix-loop re-dispatch in the same parent
+  // session) overwrites the stale file so consolidate_dispatch validates
+  // runs against the CURRENT dispatch's plan, not the first one.
+  // Replace-with-latest, not merge.
+  if (input.session_metadata !== undefined) {
     try {
       const dir = dispatchSessionDir(correlationId)
       await mkdir(dir, { recursive: true })
@@ -2791,151 +3294,31 @@ export async function dispatchAgentRun(
     promptText = input.prompt!
   }
 
-  // Load policies once — provides both manifest (for agent validation) and matrix (for tier resolution).
-  let policies: { readonly matrix: ReviewMatrix; readonly manifest: ReviewerManifest }
-  try {
-    policies = await loadPolicies(deps.plannerDependencies)
-  } catch (error: unknown) {
-    return earlyExit(failedResult(earlyProvenance(), "policy_load_failed", sanitizeInvocationError(errorText(error)), true))
-  }
-
-  // Validate the agent exists in the reviewer manifest.
-  const reviewer = policies.manifest.reviewers.find((candidate: Reviewer) => candidate.agent === input.agent)
-  if (reviewer === undefined) {
-    return earlyExit(failedResult(
-      earlyProvenance(),
-      "unknown_agent",
-      `agent ${input.agent} is absent from the reviewer manifest`,
-      false,
-    ))
-  }
-
-  // Resolve model: tier-based via review matrix or direct bypass.
-  let selectedModel: ModelIdentity
-  let selectedVariant: string | undefined
-  let requestedModelLabel: string | null
-  let hostResolvedParent: { model: string; variant: string } | null = null
-
-  if (input.model !== undefined) {
-    // Direct model bypass — skip matrix lookup.
-    selectedModel = directModelIdentity(input.model)
-    selectedVariant = input.variant
-    requestedModelLabel = input.model
-  } else {
-    // Tier-based resolution via review matrix.
-    const tier = input.tier ?? "standard"
-    const resolved = profilePair(policies.matrix, tier, input.variant)
-    if (resolved.model === null) {
-      if (input.source === "advisor") {
-        // Advisor runs with no profile model inherit the parent session model.
-        try {
-          const hostResult = await resolveHostModel(
-            { client: deps.client, sessionID: context.sessionID, messageID: context.messageID, directory: deps.directory },
-            context.abort,
-          )
-          selectedModel = hostResult.identity
-          selectedVariant = hostResult.variant
-          requestedModelLabel = null
-          hostResolvedParent = {
-            model: `${hostResult.identity.providerID}/${hostResult.identity.modelID}`,
-            variant: hostResult.variant,
-          }
-        } catch (error: unknown) {
-          if (context.abort.aborted) {
-            return earlyExit(failedResult(earlyProvenance(tier), "cancelled", "dispatch cancelled", false))
-          }
-          return earlyExit(failedResult(
-            earlyProvenance(tier),
-            "host_model_unavailable",
-            sanitizeInvocationError(errorText(error)),
-            true,
-          ))
-        }
-      } else {
-        return earlyExit(failedResult(
-          earlyProvenance(tier),
-          "tier_model_unavailable",
-          `profile "${tier}" has no model configured in the review matrix`,
-          false,
-        ))
-      }
-    } else {
-      selectedModel = directModelIdentity(resolved.model)
-      selectedVariant = resolved.variant ?? undefined
-      requestedModelLabel = resolved.model
-    }
-  }
-
-  const provenance = makeProvenance(
-    input.agent,
-    requestedModelLabel,
-    hostResolvedParent !== null ? null : (selectedVariant ?? null),
-    readOnly,
+  // Delegate the shared dispatch core to executeDispatchRun (design D4,
+  // task 5.2 of fix-review-dispatch-recovery): policy loading, model
+  // resolution, child execution, submission harvest, RD-FR-026
+  // reclassification, and run-file persistence live there so
+  // redispatch_failed_runs (task 6.2) can re-run a failed reviewer through
+  // the identical path. Everything above this point — input validation,
+  // correlation-id resolution, session-metadata persistence, and prompt
+  // resolution — is this tool's session-level concern.
+  const outcome = await executeDispatchRun(
+    {
+      agent: input.agent,
+      promptText,
+      correlationId,
+      sequence: resolvedSequence,
+      readOnly,
+      timeoutMilliseconds,
+      source: input.source,
+      model: input.model,
+      tier: input.tier,
+      variant: input.variant,
+    },
+    context,
+    deps,
   )
-  if (hostResolvedParent !== null) {
-    provenance.resolved_parent_model = hostResolvedParent.model
-    provenance.resolved_parent_variant = hostResolvedParent.variant
-  }
-
-  // Delegate session lifecycle to the shared executor.
-  const startedAt = new Date().toISOString()
-  const executorDeps: ExecutorDependencies = {
-    client: deps.client,
-    sessionID: context.sessionID,
-    directory: deps.directory,
-    parentAbort: context.abort,
-    timeoutMilliseconds,
-  }
-
-  const result = await executeAgentSession(executorDeps, input.agent, promptText, selectedModel, selectedVariant, readOnly, provenance)
-  const finishedAt = new Date().toISOString()
-
-  // Harvest submitted findings/proposals from child session via the in-process Map.
-  const childSessionID = result.childSessionID
-  const submitted = childSessionID !== undefined ? submissionStore.get(childSessionID) : undefined
-  if (childSessionID !== undefined) {
-    submissionStore.delete(childSessionID)
-  }
-
-  const harvestedFindings = submitted?.findings ?? []
-  const harvestedProposals = submitted?.proposals ?? []
-
-  // Reuse the session-scoped correlation_id; generate run_id per invocation.
-  const runId = randomUUID()
-  const runData: PersistedRunData = {
-    correlation_id: correlationId,
-    run_id: runId,
-    agent: input.agent,
-    source: input.source ?? "explicit",
-    sequence: resolvedSequence,
-    status: result.status,
-    started_at: startedAt,
-    finished_at: finishedAt,
-    requested_model: requestedModelLabel,
-    provider: hostResolvedParent !== null ? null : (selectedModel.providerID || null),
-    model_id: hostResolvedParent !== null ? null : (selectedModel.modelID || null),
-    variant: hostResolvedParent !== null ? null : (selectedVariant ?? null),
-    resolved_parent_model: hostResolvedParent !== null ? hostResolvedParent.model : result.provenance.resolved_parent_model,
-    resolved_parent_variant: hostResolvedParent !== null ? hostResolvedParent.variant : result.provenance.resolved_parent_variant,
-    reported_model: result.provenance.reported_child_model,
-    model_mismatch: result.provenance.model_mismatch,
-    usage: result.usage,
-    error: result.error,
-    workflow_verdict: null,
-    findings: harvestedFindings,
-    proposals: harvestedProposals,
-    text: result.text,
-    read_only: readOnly,
-  }
-  try {
-    const dir = dispatchSessionDir(correlationId)
-    await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, `run-${input.agent}.json`), JSON.stringify(runData, null, 2), "utf8")
-  } catch {
-    // Persistence is best-effort; the result is authoritative.
-  }
-
-  return { ...result, correlation_id: correlationId, run_id: runId }
+  return { ...outcome.result, correlation_id: outcome.correlation_id, run_id: outcome.run_id }
 }
 
 // ── submit_review_findings ───────────────────────────────────
@@ -3036,6 +3419,10 @@ async function readRunFiles(dir: string): Promise<ReadonlyArray<RunFileReadResul
 const ConsolidateDispatchInputSchema = z
   .object({
     provenance: ArtifactProvenanceSchema.optional(),
+    // Optional explicit dispatch correlation_id (design D3, task 4.1): takes
+    // precedence over the session map so consolidation can run standalone from
+    // a fresh parent session (cross-session recovery, issue #751).
+    correlation_id: UUIDSchema.optional(),
   })
   .strict()
 
@@ -3219,6 +3606,24 @@ function buildAdvisories(
 }
 
 /**
+ * Machine-readable consolidate_dispatch warning: success scoping excluded a
+ * non-success run's harvested submissions (RD-FR-025, design D1). One entry
+ * per excluded run whose submissions were actually discarded — a non-success
+ * run with no submissions emits no entry, so a run emptied by
+ * discard_orphaned_submissions consolidates without a warning (DR-FR-001).
+ * This shape is consolidate-result observability only; it MUST NOT flow
+ * into the finalization payload, whose strict schema rejects unknown
+ * top-level keys.
+ */
+interface OrphanedSubmissionsExcludedWarning {
+  readonly type: "orphaned_submissions_excluded"
+  readonly agent: string
+  readonly run_id: string
+  readonly discarded_findings: number
+  readonly discarded_proposals: number
+}
+
+/**
  * Creates the consolidate_dispatch tool that reads persisted run files,
  * deduplicates findings, computes verdict, and returns a finalization-ready payload.
  * When provenance is supplied, calls finalizeReviewDispatch internally to skip
@@ -3236,12 +3641,21 @@ export function createConsolidateDispatchTool(
       "(no LLM round-trip) and returns the finalization result directly. When omitted, returns the payload JSON. " +
       "Lesson proposals submitted by child agents are collected and returned in a top-level proposals array; " +
       "call dewey_store_learning for each. " +
-      "Automatically resolves the dispatch session from prior dispatch_agent_run calls.",
+      "Findings and proposals harvested from non-success runs are excluded from the payload and reported in a " +
+      "top-level warnings array as orphaned_submissions_excluded entries (agent, run_id, discarded counts); when " +
+      "finalizing externally, submit the payload without the top-level proposals and warnings observability fields. " +
+      "Automatically resolves the dispatch session from prior dispatch_agent_run calls; pass correlation_id " +
+      "explicitly to consolidate a dispatch started by a different session (e.g. after a restart).",
     args: {
       provenance: ArtifactProvenanceSchema.optional().describe(
         "When provided, consolidate_dispatch calls finalize_review_dispatch internally " +
           "and returns the finalization result. Requires branch (e.g. opsx/foo), " +
           "commit (40-char SHA), and workflow_id (e.g. uf.review-council).",
+      ),
+      correlation_id: UUIDSchema.optional().describe(
+        "Optional explicit dispatch correlation_id; takes precedence over the " +
+          "session's automatically resolved one. Use it to consolidate a dispatch " +
+          "started by a different (e.g. restarted) parent session.",
       ),
     },
     async execute(args, context): Promise<{ readonly output: string }> {
@@ -3251,13 +3665,18 @@ export function createConsolidateDispatchTool(
       }
       const input = parsed.data
 
-      // Resolve correlation_id from the session map — set by prior dispatch_agent_run calls.
-      const correlationId = sessionCorrelationMap.get(context.sessionID)
+      // Resolve the correlation_id: an explicit parameter takes precedence over
+      // the session map — set by prior dispatch_agent_run calls — per design D3
+      // (task 4.1), so consolidation can recover a dispatch from a fresh parent
+      // session (issue #751). When neither resolves, the pre-existing
+      // fail-closed error is preserved unchanged.
+      const correlationId = input.correlation_id ?? sessionCorrelationMap.get(context.sessionID)
       if (correlationId === undefined) {
         return { output: "consolidate_dispatch error: no dispatch session found for this session; call dispatch_agent_run first" }
       }
 
-      // Load session metadata persisted by the first dispatch_agent_run call.
+      // Load session metadata persisted by dispatch_agent_run (latest
+      // supplied metadata wins — design D5 of fix-review-dispatch-recovery).
       const dir = dispatchSessionDir(correlationId)
       let sessionMetadata: z.infer<typeof SessionMetadataSchema>
       try {
@@ -3270,7 +3689,7 @@ export function createConsolidateDispatchTool(
       } catch {
         return {
           output:
-            "consolidate_dispatch error: no session metadata found; pass session_metadata on the first dispatch_agent_run call",
+            "consolidate_dispatch error: no session metadata found; pass session_metadata on a dispatch_agent_run call",
         }
       }
 
@@ -3293,13 +3712,43 @@ export function createConsolidateDispatchTool(
         runs.push(result.run)
       }
 
-      // Collect lesson proposals from all runs, tagged with agent name.
-      const collectedProposals = runs.flatMap((run) =>
+      // Success-scoped consolidation (RD-FR-025, design D1): a child run
+      // can abort AFTER its structured submissions were accepted and
+      // harvested into its run file (issue #751). Submissions orphaned by
+      // a non-success run MUST NOT flow into the finalization payload —
+      // the finalizer would correctly reject them (RD-FR-007) with no
+      // recovery path. The filter lives here, the single choke point
+      // before the finalizer; the harvest keeps writing every submission
+      // to the run files for the audit trail.
+      const successRuns = runs.filter((run) => run.status === "success")
+
+      // Observability for what the scoping discards (RD-FR-025, design D1):
+      // one warning entry per excluded run whose harvested submissions were
+      // actually dropped. A non-success run with no submissions emits no
+      // entry — after discard_orphaned_submissions empties a run's findings
+      // and proposals, consolidation reports no warning for it (DR-FR-001).
+      // Zero-success dispatches keep the RD-FR-007 fail-closed path; the
+      // warnings array is result observability only and MUST NOT flow into
+      // the finalization payload (strict schema).
+      const warnings: OrphanedSubmissionsExcludedWarning[] = runs
+        .filter((run) => run.status !== "success" && (run.findings.length > 0 || run.proposals.length > 0))
+        .map(
+          (run): OrphanedSubmissionsExcludedWarning => ({
+            type: "orphaned_submissions_excluded",
+            agent: run.agent,
+            run_id: run.run_id,
+            discarded_findings: run.findings.length,
+            discarded_proposals: run.proposals.length,
+          }),
+        )
+
+      // Collect lesson proposals from successful runs only, tagged with agent name.
+      const collectedProposals = successRuns.flatMap((run) =>
         run.proposals.map((p) => ({ agent: run.agent, information: p.information, tag: p.tag, category: p.category })),
       )
 
-      // Deduplicate findings across all runs.
-      const consolidatedFindings = deduplicateFindings(runs)
+      // Deduplicate findings across successful runs only.
+      const consolidatedFindings = deduplicateFindings(successRuns)
 
       // Compute verdict.
       const { reason: verdictReason } = computeVerdict(consolidatedFindings)
@@ -3323,11 +3772,23 @@ export function createConsolidateDispatchTool(
         started_at: run.started_at,
         finished_at: run.finished_at,
         usage: run.usage,
-        error: run.error,
+        // Null-error emission, defense-in-depth (RD-FR-026, task 1.1
+        // verdict): validateRunState rejects success runs carrying a
+        // non-null error. dispatchAgentRun already persists error: null for
+        // reclassified runs; this guard ensures the finalizer can never see
+        // a success+error pair regardless of run-file contents (hand-edited
+        // or foreign-written files included). Failed and cancelled runs
+        // keep their errors. The run file's post_submission_abort audit
+        // field is deliberately NOT mapped here — DispatchRunSchema is
+        // strict and rejects unknown keys.
+        error: run.status === "success" ? null : run.error,
         reported_model: run.reported_model,
         model_mismatch: run.model_mismatch,
         workflow_verdict: run.status === "success" ? workflowVerdictValue(kind, runVerdict(run.findings)) : null,
-        findings: run.findings,
+        // RD-FR-025: every plan run keeps its payload slot (run counts and
+        // plan validation need the full run list), but non-success runs
+        // emit empty findings — orphaned submissions are excluded.
+        findings: run.status === "success" ? run.findings : [],
       }))
 
       // Compute run counts.
@@ -3392,7 +3853,9 @@ export function createConsolidateDispatchTool(
         )
         return {
           output: JSON.stringify(
-            { ...result, proposals: collectedProposals.length > 0 ? collectedProposals : undefined },
+            // warnings ride along on the finalization wrapper only — the
+            // payload handed to finalizeReviewDispatch stays schema-exact.
+            { ...result, proposals: collectedProposals.length > 0 ? collectedProposals : undefined, warnings },
             null,
             2,
           ),
@@ -3401,7 +3864,10 @@ export function createConsolidateDispatchTool(
 
       return {
         output: JSON.stringify(
-          { ...payload, proposals: collectedProposals.length > 0 ? collectedProposals : undefined },
+          // The payload stays schema-exact; warnings (and proposals) are
+          // result-level observability the caller strips before external
+          // finalization.
+          { ...payload, proposals: collectedProposals.length > 0 ? collectedProposals : undefined, warnings },
           null,
           2,
         ),
@@ -4172,14 +4638,17 @@ async function dispatchReviewRuns(
         source: entry.source,
         sequence: entry.sequence,
       }
-      // Pass tier OR model (mutually exclusive), converting null to undefined.
-      if (entry.model !== null) {
-        runInput.model = entry.model
-      } else if (entry.tier !== null) {
-        runInput.tier = entry.tier
+      // Pass tier OR model (mutually exclusive), converting null to
+      // undefined — via the shared resolvePlanEntryRuntime mapping so
+      // this cannot drift from redispatch_failed_runs.
+      const runtime = resolvePlanEntryRuntime(entry)
+      if (runtime.model !== undefined) {
+        runInput.model = runtime.model
+      } else if (runtime.tier !== undefined) {
+        runInput.tier = runtime.tier
       }
-      if (entry.variant !== null) {
-        runInput.variant = entry.variant
+      if (runtime.variant !== undefined) {
+        runInput.variant = runtime.variant
       }
       if (input.per_run_timeout_ms !== undefined) {
         runInput.timeout = input.per_run_timeout_ms
@@ -4283,17 +4752,42 @@ function createDispatchReviewRunsTool(
 // ── dispatch_status ──────────────────────────────────────────
 
 /**
+ * Input schema for dispatch_status: the sole optional field is an explicit
+ * correlation_id (design D3, task 4.1) that takes precedence over the session
+ * map, so the tool can inspect a dispatch started by a different parent
+ * session (cross-session recovery, issue #751).
+ */
+const DispatchStatusInputSchema = z
+  .object({
+    correlation_id: UUIDSchema.optional(),
+  })
+  .strict()
+
+/**
  * Creates the dispatch_status query tool for inspecting dispatch session state.
  */
 function createDispatchStatusTool(): ReturnType<typeof tool> {
   return tool({
     description:
       "Query the status of this session's dispatch. Automatically resolves the dispatch session " +
-      "from prior dispatch_agent_run calls. Returns completed runs, statuses, finding counts, " +
-      "and any pending submissions in the store.",
-    args: {},
-    async execute(_args, context): Promise<{ readonly output: string }> {
-      const correlationId = sessionCorrelationMap.get(context.sessionID)
+      "from prior dispatch_agent_run calls; pass correlation_id explicitly to inspect a dispatch " +
+      "started by a different session (e.g. after a restart). Returns completed runs, statuses, " +
+      "finding counts, per-run token usage, and any pending submissions in the store.",
+    args: {
+      correlation_id: UUIDSchema.optional().describe(
+        "Optional explicit dispatch correlation_id; takes precedence over the " +
+          "session's automatically resolved one. Use it to inspect a dispatch " +
+          "started by a different (e.g. restarted) parent session.",
+      ),
+    },
+    async execute(args, context): Promise<{ readonly output: string }> {
+      const parsed = DispatchStatusInputSchema.safeParse(args)
+      if (!parsed.success) {
+        return { output: `dispatch_status validation failed: ${parsed.error.message}` }
+      }
+      // Explicit correlation_id wins over the session map (design D3, task 4.1);
+      // the not_found output for an unresolvable id is preserved unchanged.
+      const correlationId = parsed.data.correlation_id ?? sessionCorrelationMap.get(context.sessionID)
       if (correlationId === undefined) {
         return { output: JSON.stringify({ status: "not_found", message: "no dispatch session for this session", runs: [] }) }
       }
@@ -4304,16 +4798,21 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
         return { output: JSON.stringify({ status: "not_found", correlation_id: correlationId, runs: [] }) }
       }
 
+      // Per-run token usage (RD-FR-027, design D6, task 4.2): surfaced from
+      // the persisted run record so operators can spot context-exhaustion
+      // risk in reviewer children (issue #751). Strictly observational — it
+      // never feeds status or verdict computation.
       const runSummaries: Array<{
         agent: string
         status: string
         findings: number
         proposals: number
+        usage: z.infer<typeof UsageSchema> | null
       }> = []
 
       for (const result of readResults) {
         if (result.run === null) {
-          runSummaries.push({ agent: result.file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0 })
+          runSummaries.push({ agent: result.file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0, usage: null })
           continue
         }
         runSummaries.push({
@@ -4321,6 +4820,7 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
           status: result.run.status,
           findings: result.run.findings.length,
           proposals: result.run.proposals.length,
+          usage: result.run.usage,
         })
       }
 
@@ -4595,6 +5095,881 @@ export function createReadAssessmentFieldsTool(): ReturnType<typeof tool> {
           2,
         ),
       }
+    },
+  })
+}
+
+// ── discard_orphaned_submissions ─────────────────────────────
+
+/**
+ * Input schema for discard_orphaned_submissions: the dispatch correlation_id
+ * is REQUIRED (design D4 of fix-review-dispatch-recovery) — recovery runs
+ * from a fresh parent session after a restart (issue #751), when the
+ * in-process sessionCorrelationMap has no entry, so there is nothing to fall
+ * back to (Constitution II — the tool is usable standalone). The optional
+ * agents filter names the reviewers whose non-success runs to discard.
+ */
+const DiscardOrphanedSubmissionsInputSchema = z
+  .object({
+    correlation_id: UUIDSchema,
+    agents: uniqueArray(AgentNameSchema, 64).min(1).optional(),
+  })
+  .strict()
+
+/** Outcome values for one run examined by discard_orphaned_submissions. */
+type DiscardRunStatus =
+  | "discarded"
+  | "refused"
+  | "no_orphaned_submissions"
+  | "not_found"
+  | "unreadable"
+  | "error"
+
+/** Machine-readable per-run result in the discard summary (DR-FR-001). */
+interface DiscardRunResult {
+  readonly agent: string
+  readonly run_id: string | null
+  readonly status: DiscardRunStatus
+  readonly discarded_findings: number
+  readonly discarded_proposals: number
+  readonly reason?: string
+}
+
+/** Machine-readable discard summary returned to the operator (DR-FR-001). */
+interface DiscardOrphanedSubmissionsSummary {
+  readonly status: "ok" | "not_found"
+  readonly correlation_id: string
+  readonly runs: readonly DiscardRunResult[]
+  readonly total_runs: number
+  readonly discarded_runs: number
+  readonly refused_runs: number
+}
+
+/** Derive the agent name a run file was written for (run-<agent>.json). */
+function agentFromRunFileName(fileName: string): string {
+  return fileName.replace(/^run-|\.json$/g, "")
+}
+
+// ── shared recovery-tool scaffolding ──────────────────────────
+
+/** One run file of a dispatch session, parsed (shared recovery scaffolding). */
+interface LoadedDispatchRun {
+  readonly file: string
+  readonly run: PersistedRunData
+}
+
+/** A dispatch session's run files as loaded for a recovery tool. */
+interface LoadedDispatchRuns {
+  /** Parsed run files, in sorted run-*.json file-name order. */
+  readonly loaded: readonly LoadedDispatchRun[]
+  /** Run files that could not be read or parsed, in the same order. */
+  readonly unreadableFiles: readonly string[]
+  /** Agents set built from the optional agents input; undefined when omitted. */
+  readonly filter: Set<string> | undefined
+}
+
+/**
+ * Load a dispatch session's run files for a recovery tool — the shared
+ * scaffolding behind discard_orphaned_submissions and
+ * redispatch_failed_runs (design D4 of fix-review-dispatch-recovery).
+ *
+ * Reads the same run-*.json glob consolidate_dispatch and dispatch_status
+ * read; the dispatch session is addressed purely by correlation_id, and
+ * files inside superseded/ are invisible (readdir does not recurse), which
+ * keeps archived prior runs out of plan validation. Every file is parsed
+ * up front; identity is the parsed run.agent field (authoritative — the
+ * same field consolidation validates against the plan). Unreadable files
+ * are collected and never rewritten or executed: their status cannot be
+ * verified as a recovery target, and DR-FR-003 forbids touching data that
+ * cannot be proven to be one.
+ *
+ * Returns null when the directory cannot be read or holds no run files —
+ * both recovery tools report that as their not_found summary. The agents
+ * filter (undefined when the agents input was omitted) is returned so
+ * target resolution and unreadable-file scoping observe the same set.
+ */
+async function loadDispatchRunFiles(
+  dir: string,
+  agents: readonly string[] | undefined,
+): Promise<LoadedDispatchRuns | null> {
+  let runFiles: string[]
+  try {
+    const entries = await readdir(dir)
+    runFiles = entries.filter((name) => name.startsWith("run-") && name.endsWith(".json")).sort()
+  } catch {
+    return null
+  }
+  if (runFiles.length === 0) {
+    return null
+  }
+  const loaded: LoadedDispatchRun[] = []
+  const unreadableFiles: string[] = []
+  for (const file of runFiles) {
+    try {
+      const content = await readFile(join(dir, file), "utf8")
+      loaded.push({ file, run: JSON.parse(content) as PersistedRunData })
+    } catch {
+      unreadableFiles.push(file)
+    }
+  }
+  const filter = agents !== undefined ? new Set(agents) : undefined
+  return { loaded, unreadableFiles, filter }
+}
+
+/**
+ * Resolve recovery targets against the optional agents filter (shared by
+ * both recovery tools):
+ * - agents omitted → every run matching the tool's scope predicate
+ *   (non-success for discard, failed for redispatch); runs outside the
+ *   tool's scope are never matched.
+ * - agents provided → the named agents' runs regardless of status, so a
+ *   named out-of-scope run surfaces as an explicit per-run refusal
+ *   instead of silently vanishing from the summary.
+ */
+function resolveRecoveryTargets(
+  runs: readonly LoadedDispatchRun[],
+  filter: Set<string> | undefined,
+  scopePredicate: (run: PersistedRunData) => boolean,
+): readonly LoadedDispatchRun[] {
+  return runs.filter((entry) => {
+    if (filter !== undefined) {
+      return filter.has(entry.run.agent)
+    }
+    return scopePredicate(entry.run)
+  })
+}
+
+/**
+ * Unreadable run files matching the requested agents scope, as agent names
+ * derived from their file names (agentFromRunFileName): reported for
+ * observability, never rewritten or executed (status unverifiable —
+ * fail-safe).
+ */
+function scopedUnreadableAgents(
+  unreadableFiles: readonly string[],
+  filter: Set<string> | undefined,
+): readonly string[] {
+  const agents: string[] = []
+  for (const file of unreadableFiles) {
+    const agent = agentFromRunFileName(file)
+    if (filter !== undefined && !filter.has(agent)) {
+      continue
+    }
+    agents.push(agent)
+  }
+  return agents
+}
+
+/**
+ * Named agents with no run file at all (shared by both recovery tools):
+ * one not_found entry each, in input order.
+ */
+function missingAgentNames(
+  agents: readonly string[] | undefined,
+  seenAgents: readonly string[],
+): readonly string[] {
+  if (agents === undefined) {
+    return []
+  }
+  const seen = new Set(seenAgents)
+  return agents.filter((agent) => !seen.has(agent))
+}
+
+/**
+ * Serialize a recovery tool's not_found summary — the shared zero-run
+ * envelope both recovery tools return for an unknown correlation_id (no
+ * session directory, or none with run files).
+ */
+function recoveryNotFoundOutput(
+  summary: DiscardOrphanedSubmissionsSummary | RedispatchFailedRunsSummary,
+): { readonly output: string } {
+  return { output: JSON.stringify(summary, null, 2) }
+}
+
+/**
+ * Creates the discard_orphaned_submissions recovery tool (DR-FR-001, design
+ * D4 of fix-review-dispatch-recovery; issue #751).
+ *
+ * Rewrites non-success run files with emptied findings/proposals plus a
+ * discarded_submissions audit block so a dispatch with successful runs can
+ * finalize even after a failed child's harvested submissions made
+ * consolidation warn (RD-FR-025). Successful runs are never touched; a
+ * successful run named in the agents filter is refused per run and reported
+ * in the machine-readable summary. Uses direct run-file rewrites only —
+ * never executeDispatchRun, since discard executes no child.
+ */
+function createDiscardOrphanedSubmissionsTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Discard orphaned submissions (findings and lesson proposals) harvested by non-success runs of a dispatch " +
+      "session — the DR-FR-001 recovery for dispatches stranded by failed children (issue #751). Rewrites each " +
+      "targeted run file with emptied findings/proposals plus a discarded_submissions audit block (agent, run_id, " +
+      "discarded counts, timestamp); every other field is preserved verbatim. After a discard, consolidation " +
+      "completes without orphaned-submission warnings for the discarded runs. Targets only non-success runs: when " +
+      "agents is omitted every non-success run in the session is targeted; a successful run named in agents is " +
+      "refused untouched and reported in the machine-readable summary. correlation_id is required — the recovery " +
+      "operator typically runs from a fresh parent session after a restart.",
+    args: {
+      correlation_id: UUIDSchema.describe(
+        "Dispatch correlation_id of the session to recover. Required: recovery runs from a fresh parent " +
+          "session after a restart, when no in-process dispatch state exists.",
+      ),
+      agents: uniqueArray(AgentNameSchema, 64)
+        .min(1)
+        .optional()
+        .describe(
+          "Optional filter naming the reviewers whose non-success runs to discard. A named successful run is " +
+            "refused untouched (DR-FR-001); a named agent with no run file reports not_found. When omitted, " +
+            "every non-success run in the session is targeted.",
+        ),
+    },
+    async execute(args): Promise<{ readonly output: string }> {
+      const parsed = DiscardOrphanedSubmissionsInputSchema.safeParse(args)
+      if (!parsed.success) {
+        return { output: `discard_orphaned_submissions validation failed: ${parsed.error.message}` }
+      }
+      const input = parsed.data
+      const correlationId = input.correlation_id
+      const dir = dispatchSessionDir(correlationId)
+
+      const notFound = (): { readonly output: string } =>
+        recoveryNotFoundOutput({
+          status: "not_found",
+          correlation_id: correlationId,
+          runs: [],
+          total_runs: 0,
+          discarded_runs: 0,
+          refused_runs: 0,
+        } satisfies DiscardOrphanedSubmissionsSummary)
+
+      // Shared recovery scaffolding (see loadDispatchRunFiles): the
+      // session's run files plus the agents filter, or not_found when the
+      // directory cannot be read or holds no run files.
+      const runFiles = await loadDispatchRunFiles(dir, input.agents)
+      if (runFiles === null) {
+        return notFound()
+      }
+      const { loaded, unreadableFiles, filter } = runFiles
+
+      // Target resolution (DR-FR-001: the discard MUST target only
+      // non-successful runs): with agents omitted, every non-success run in
+      // the session directory — successful runs are out of scope entirely,
+      // never matched; with agents provided, the named agents' runs
+      // regardless of status, so a named successful run surfaces as an
+      // explicit per-run refusal ("Discard refuses successful runs"
+      // scenario) instead of silently vanishing from the summary.
+      const targets = resolveRecoveryTargets(loaded, filter, (run) => run.status !== "success")
+
+      const results: DiscardRunResult[] = []
+      // One timestamp per call: every rewrite in a single discard operation
+      // shares its audit timestamp.
+      const discardedAt = new Date().toISOString()
+
+      for (const { file, run } of targets) {
+        // Refuse successful runs (DR-FR-001): the request for this run is
+        // rejected and the file is left untouched. Per-run refusal, not a
+        // whole-operation abort — one mis-scoped agent name must not block
+        // recovery of the remaining failed runs — with the refusal kept
+        // machine-readable in the summary.
+        if (run.status === "success") {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            status: "refused",
+            discarded_findings: 0,
+            discarded_proposals: 0,
+            reason: 'run status is "success"; successful runs are never discard targets (DR-FR-001)',
+          })
+          continue
+        }
+
+        // Nothing to discard: a non-success run without harvested
+        // submissions emits no orphaned-submission warning (it fails the
+        // RD-FR-025 warning predicate), so it is left untouched — which also
+        // keeps a repeated discard idempotent and preserves any prior
+        // discarded_submissions audit block.
+        if (run.findings.length === 0 && run.proposals.length === 0) {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            status: "no_orphaned_submissions",
+            discarded_findings: 0,
+            discarded_proposals: 0,
+          })
+          continue
+        }
+
+        // Rewrite with emptied findings/proposals plus the audit block; every
+        // other field (text, usage, error, prompt, post_submission_abort,
+        // ...) is preserved verbatim so run counts and the audit trail of
+        // unaffected data stay intact (DR-FR-003).
+        const rewritten: PersistedRunData = {
+          ...run,
+          findings: [],
+          proposals: [],
+          discarded_submissions: {
+            agent: run.agent,
+            run_id: run.run_id,
+            discarded_findings: run.findings.length,
+            discarded_proposals: run.proposals.length,
+            discarded_at: discardedAt,
+            note: "Orphaned submissions discarded per DR-FR-001 (fix-review-dispatch-recovery design D4, issue #751): this non-success run's harvested submissions could never contribute to consolidation (RD-FR-025 success scoping), so the operator discarded them to finalize the dispatch from its successful runs. The removed submissions are no longer recoverable from this file; only their counts are recorded here.",
+          },
+        }
+        try {
+          await writeFile(join(dir, file), JSON.stringify(rewritten, null, 2), "utf8")
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            status: "discarded",
+            discarded_findings: run.findings.length,
+            discarded_proposals: run.proposals.length,
+          })
+        } catch (error: unknown) {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            status: "error",
+            discarded_findings: 0,
+            discarded_proposals: 0,
+            reason: `failed to rewrite ${file}: ${errorText(error)}`,
+          })
+        }
+      }
+
+      // Unreadable run files matching the requested scope: reported for
+      // observability, never rewritten (status unverifiable — fail-safe).
+      for (const agent of scopedUnreadableAgents(unreadableFiles, filter)) {
+        results.push({
+          agent,
+          run_id: null,
+          status: "unreadable",
+          discarded_findings: 0,
+          discarded_proposals: 0,
+          reason: "run file could not be read or parsed; left untouched",
+        })
+      }
+
+      // Named agents with no run file at all: one not_found entry each.
+      for (const agent of missingAgentNames(input.agents, results.map((result) => result.agent))) {
+        results.push({
+          agent,
+          run_id: null,
+          status: "not_found",
+          discarded_findings: 0,
+          discarded_proposals: 0,
+          reason: "no run file for this agent in the dispatch session directory",
+        })
+      }
+
+      const summary: DiscardOrphanedSubmissionsSummary = {
+        status: "ok",
+        correlation_id: correlationId,
+        runs: results,
+        total_runs: results.length,
+        discarded_runs: results.filter((result) => result.status === "discarded").length,
+        refused_runs: results.filter((result) => result.status === "refused").length,
+      }
+      return { output: JSON.stringify(summary, null, 2) }
+    },
+  })
+}
+
+// ── redispatch_failed_runs ───────────────────────────────────
+
+/** Result of restoring an archived prior run file to its active path. */
+interface PriorRunRestore {
+  /** True when the archived file is back at its active path. */
+  readonly restored: boolean
+  /** Restore failure detail; present only when restored is false. */
+  readonly error?: unknown
+}
+
+/**
+ * Rename an archived prior run file back to its active path — the restore
+ * half of redispatch_failed_runs' archive-first ordering (the iteration-2
+ * fix for the review council's HIGH finding). Called only after a re-run
+ * exited without writing a replacement run file (a pre-execution early
+ * exit, or executeDispatchRun threw): every throw site in the shared core
+ * precedes its best-effort persistence step, and runData null is the
+ * explicit no-run-file contract, so the restore can never clobber a
+ * replacement file. Without the restore, the archived file is invisible
+ * to the run-*.json glob: the plan entry is left with no active run file,
+ * the finalizer rejects consolidation, and re-invoking redispatch reports
+ * not_found — a recoverable session regresses into an unrecoverable one.
+ * Never throws; a failed restore is returned for the caller to report.
+ *
+ * @param supersededPath Absolute archive path currently holding the prior run file.
+ * @param activePath Absolute active run-file path to restore the prior file to.
+ * @returns Whether the prior file is active again, plus the failure detail when not.
+ */
+async function restorePriorRunFile(supersededPath: string, activePath: string): Promise<PriorRunRestore> {
+  try {
+    await rename(supersededPath, activePath)
+    return { restored: true }
+  } catch (error: unknown) {
+    return { restored: false, error }
+  }
+}
+
+/**
+ * Input schema for redispatch_failed_runs: the dispatch correlation_id is
+ * REQUIRED (design D4 of fix-review-dispatch-recovery) — recovery runs from a
+ * fresh parent session after a restart (issue #751), when the in-process
+ * sessionCorrelationMap has no entry, so there is nothing to fall back to
+ * (Constitution II — the tool is usable standalone). The optional agents
+ * filter names the reviewers whose failed runs to re-execute. The optional
+ * timeout overrides the per-run timeout for every re-executed reviewer and is
+ * validated exactly like dispatch_agent_run's timeout: the shared
+ * TimeoutSchema bounds it to a positive integer of at most 1_800_000
+ * milliseconds; the plan entry carries no timeout, so the shared dispatch
+ * default is the only fallback.
+ */
+const RedispatchFailedRunsInputSchema = z
+  .object({
+    correlation_id: UUIDSchema,
+    agents: uniqueArray(AgentNameSchema, 64).min(1).optional(),
+    timeout: TimeoutSchema.optional(),
+  })
+  .strict()
+
+/** Outcome values for one run examined by redispatch_failed_runs. */
+type RedispatchRunOutcome =
+  | "redispatched"
+  | "early_exit"
+  | "refused"
+  | "not_found"
+  | "unreadable"
+  | "missing_prompt"
+  | "no_plan_entry"
+  | "error"
+
+/** Machine-readable per-run result in the redispatch summary (DR-FR-002/003). */
+interface RedispatchRunResult {
+  /** Agent whose failed run was examined (and re-run when the outcome says so). */
+  readonly agent: string
+  /** Run id of the prior run the operation acted on; null when none exists. */
+  readonly run_id: string | null
+  /** What happened to this run. */
+  readonly outcome: RedispatchRunOutcome
+  /**
+   * Session-dir-relative archive path while the prior file remains
+   * archived; null when it was never moved, or when it was restored
+   * to its active path after the re-run exited pre-replacement.
+   */
+  readonly superseded_run_file: string | null
+  /** Run id of the replacement run; null unless outcome is "redispatched". */
+  readonly new_run_id: string | null
+  /** Persisted terminal status of the replacement; null when none was written. */
+  readonly new_status: string | null
+  /** Findings harvested by the replacement run. */
+  readonly findings: number
+  /** Lesson proposals harvested by the replacement run. */
+  readonly proposals: number
+  /** Human-readable explanation for every non-successful outcome. */
+  readonly reason?: string
+  /** Executor error for early exits and failed-again replacements. */
+  readonly error?: z.infer<typeof RunErrorSchema>
+}
+
+/** Machine-readable redispatch summary returned to the operator (DR-FR-002/003). */
+interface RedispatchFailedRunsSummary {
+  readonly status: "ok" | "not_found"
+  readonly correlation_id: string
+  readonly runs: readonly RedispatchRunResult[]
+  readonly total_runs: number
+  readonly redispatched_runs: number
+  readonly refused_runs: number
+}
+
+/**
+ * Creates the redispatch_failed_runs recovery tool (DR-FR-002, design D4 of
+ * fix-review-dispatch-recovery; issue #751).
+ *
+ * Re-runs the failed reviewers of a dispatch session within that same session
+ * by resolving the session from its explicit correlation_id and handing each
+ * failed run's persisted prompt plus its original plan entry (model, tier,
+ * variant, sequence, source, read-only) to the shared executeDispatchRun core
+ * — the identical execution path dispatch_agent_run uses, so the replacement
+ * run is recorded exactly like a fresh dispatch. The prior run file is moved
+ * to a superseded/ subdirectory (outside the run-*.json glob that
+ * consolidate_dispatch, dispatch_status, and discard_orphaned_submissions
+ * read, so plan validation still sees exactly one run per entry) BEFORE the
+ * replacement is written — the replacement replaces the prior record rather
+ * than duplicating it, while the archive preserves the audit trail
+ * (DR-FR-003). Archived file names carry the prior run_id, so repeated
+ * redispatches never overwrite an earlier archive entry.
+ *
+ * Successful runs — including post-submission-abort reclassifications whose
+ * files say "success" — are never re-run; a run named in the agents filter
+ * whose status is not "failed" is refused per run. A re-run that exits
+ * BEFORE writing a replacement run file — a pre-execution early exit
+ * (runData null, e.g. tier_model_unavailable) or an unexpected
+ * executeDispatchRun throw — restores the archived prior file to its
+ * active path, returning the session to its pre-attempt state: the prior
+ * failed run is active again and consolidatable via RD-FR-025 exclusion.
+ * Reported as the distinct "early_exit" (or "error") outcome noting the
+ * restoration in the reason. Runs whose files predate prompt persistence
+ * (no persisted prompt) or whose original plan entry no longer matches
+ * are reported per run and left untouched (fail-soft per run); the tool
+ * fails closed only when session metadata is missing entirely, since
+ * nothing can run without the plan.
+ */
+function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Re-run the failed reviewers of a dispatch session within that same session — the DR-FR-002 recovery for " +
+      "dispatches with failed children (issue #751). Reuses each failed run's original persisted prompt and plan " +
+      "entry (model, tier, variant, sequence, source, read-only) through the identical dispatch execution path; " +
+      "sibling evidence is embedded in the reused prompt. The prior run file is moved to a superseded/ subdirectory " +
+      "before the replacement is written, so each plan entry keeps exactly one active run file (replacement, not " +
+      "duplication) while the archive preserves the audit trail. A re-run that exits before child execution (or whose " +
+      "execution throws) renames the archived prior file back to its active path, so the session returns to its " +
+      "pre-attempt state and stays consolidatable. A re-run that succeeds contributes to " +
+      "consolidation; one that fails again is handled by RD-FR-025 exclusion at consolidation. Successful runs " +
+      "(including post-submission-abort reclassifications) are never re-run. correlation_id is required — the " +
+      "recovery operator typically runs from a fresh parent session after a restart.",
+    args: {
+      correlation_id: UUIDSchema.describe(
+        "Dispatch correlation_id of the session to recover. Required: recovery runs from a fresh parent " +
+          "session after a restart, when no in-process dispatch state exists.",
+      ),
+      agents: uniqueArray(AgentNameSchema, 64)
+        .min(1)
+        .optional()
+        .describe(
+          "Optional filter naming the reviewers whose failed runs to re-execute. A named run whose status is not " +
+            '"failed" is refused untouched (DR-FR-002); a named agent with no run file reports not_found. When ' +
+            "omitted, every failed run in the session is re-executed.",
+        ),
+      timeout: TimeoutSchema.optional().describe(
+        "Optional per-run timeout in milliseconds (bounded to 1_800_000) applied to every re-executed reviewer. " +
+          "When omitted, the dispatch default (600_000 ms) applies.",
+      ),
+    },
+    async execute(args, context): Promise<{ readonly output: string }> {
+      const parsed = RedispatchFailedRunsInputSchema.safeParse(args)
+      if (!parsed.success) {
+        return { output: `redispatch_failed_runs validation failed: ${parsed.error.message}` }
+      }
+      const input = parsed.data
+      const correlationId = input.correlation_id
+      const dir = dispatchSessionDir(correlationId)
+
+      const notFound = (): { readonly output: string } =>
+        recoveryNotFoundOutput({
+          status: "not_found",
+          correlation_id: correlationId,
+          runs: [],
+          total_runs: 0,
+          redispatched_runs: 0,
+          refused_runs: 0,
+        } satisfies RedispatchFailedRunsSummary)
+
+      // Shared recovery scaffolding (see loadDispatchRunFiles): the
+      // session's run files plus the agents filter, or not_found when the
+      // directory cannot be read or holds no run files — an unknown
+      // correlation_id reports not_found exactly like
+      // discard_orphaned_submissions. Files inside superseded/ are
+      // invisible to the run-*.json glob (readdir does not recurse), which
+      // is what keeps the archived prior runs out of plan validation.
+      const runFiles = await loadDispatchRunFiles(dir, input.agents)
+      if (runFiles === null) {
+        return notFound()
+      }
+      const { loaded, unreadableFiles, filter } = runFiles
+
+      // Session metadata is a hard precondition (fail-closed, mirroring
+      // consolidate_dispatch): the dispatch plan carries the model/tier/
+      // variant, sequence, source, and read-only intent every re-run MUST
+      // reuse (DR-FR-002), so without it nothing can run.
+      let sessionMetadata: z.infer<typeof SessionMetadataSchema>
+      try {
+        const raw = await readFile(join(dir, SESSION_METADATA_FILE), "utf8")
+        const parsedMetadata = SessionMetadataSchema.safeParse(JSON.parse(raw))
+        if (!parsedMetadata.success) {
+          return { output: `redispatch_failed_runs error: invalid session metadata: ${parsedMetadata.error.message}` }
+        }
+        sessionMetadata = parsedMetadata.data
+      } catch {
+        return {
+          output:
+            "redispatch_failed_runs error: no session metadata found; the dispatch plan is required to re-run failed reviewers (pass session_metadata on a dispatch_agent_run call)",
+        }
+      }
+
+      // Target resolution (DR-FR-002: only the failed reviewers re-run):
+      // with agents omitted, every failed run in the session directory —
+      // successful runs are out of scope entirely, never matched; with
+      // agents provided, the named agents' runs regardless of status, so a
+      // named successful run surfaces as an explicit per-run refusal
+      // (partial re-dispatch MUST NOT re-run successful reviewers) instead
+      // of silently vanishing from the summary.
+      const targets = resolveRecoveryTargets(loaded, filter, (run) => run.status === "failed")
+
+      // Execute in plan-sequence order (mirroring the original dispatch) so
+      // the recovery path is deterministic and observes the same ordering
+      // semantics as a first dispatch; agent name breaks sequence ties.
+      const ordered = [...targets].sort(
+        (a, b) => a.run.sequence - b.run.sequence || a.run.agent.localeCompare(b.run.agent),
+      )
+
+      // Timeout resolution mirrors dispatch_agent_run: schema-bounded input
+      // or the shared default. The plan entry carries no timeout, so the
+      // default is the only fallback.
+      const timeoutMilliseconds = input.timeout ?? DEFAULT_TIMEOUT_MILLISECONDS
+
+      const supersededDir = join(dir, "superseded")
+      const results: RedispatchRunResult[] = []
+
+      for (const { file, run } of ordered) {
+        // Refuse non-failed runs (DR-FR-002): only failed runs are redispatch
+        // targets — runs reclassified per RD-FR-026 say "success" and are
+        // never re-run. Per-run refusal, not a whole-operation abort — one
+        // mis-scoped agent name must not block recovery of the remaining
+        // failed runs.
+        if (run.status !== "failed") {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            outcome: "refused",
+            superseded_run_file: null,
+            new_run_id: null,
+            new_status: null,
+            findings: 0,
+            proposals: 0,
+            reason: `run status is "${run.status}"; only failed runs are redispatch targets (DR-FR-002)`,
+          })
+          continue
+        }
+
+        // The original plan entry, by exact identity (agent + source +
+        // sequence — the same identity the finalizer validates runs
+        // against). DR-FR-002 mandates reusing the ORIGINAL entry: when the
+        // current plan no longer carries it (refreshed metadata, or the
+        // decision flipped to skip), re-running would bind the replacement
+        // to a different entry than the run was dispatched under, so the
+        // run is left untouched and reported per run (fail-soft).
+        const planEntry = sessionMetadata.plan.find(
+          (entry) =>
+            entry.agent === run.agent &&
+            entry.source === run.source &&
+            entry.sequence === run.sequence &&
+            entry.decision === "include",
+        )
+        if (planEntry === undefined) {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            outcome: "no_plan_entry",
+            superseded_run_file: null,
+            new_run_id: null,
+            new_status: null,
+            findings: 0,
+            proposals: 0,
+            reason: `no included plan entry matches ${run.agent}/${run.source}/${run.sequence} in the session metadata; DR-FR-002 requires reusing the original plan entry`,
+          })
+          continue
+        }
+
+        // The persisted prompt is the re-run's input (task 5.1). Run files
+        // that predate prompt persistence cannot be re-run faithfully —
+        // reported per run, no archive move (fail-soft).
+        const promptText = run.prompt
+        if (typeof promptText !== "string") {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            outcome: "missing_prompt",
+            superseded_run_file: null,
+            new_run_id: null,
+            new_status: null,
+            findings: 0,
+            proposals: 0,
+            reason: "run file predates prompt persistence (fix-review-dispatch-recovery task 5.1); the original prompt is unavailable",
+          })
+          continue
+        }
+
+        // Archive-first (DR-FR-002, design D4): move the prior run file into
+        // superseded/ BEFORE executing the replacement. executeDispatchRun
+        // writes the replacement itself, so this is the only ordering that
+        // preserves the prior record; the archived name carries the prior
+        // run_id so repeated redispatches never overwrite an earlier archive
+        // entry (DR-FR-003). A failed move skips execution for this run —
+        // running anyway would let the replacement overwrite the prior
+        // record with no archive copy.
+        const supersededName = `run-${run.agent}-${run.run_id}.json`
+        try {
+          await mkdir(supersededDir, { recursive: true })
+          await rename(join(dir, file), join(supersededDir, supersededName))
+        } catch (error: unknown) {
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            outcome: "error",
+            superseded_run_file: null,
+            new_run_id: null,
+            new_status: null,
+            findings: 0,
+            proposals: 0,
+            reason: `failed to archive prior run file to superseded/: ${errorText(error)}`,
+          })
+          continue
+        }
+
+        // Plan-entry → run-options mapping mirrors dispatch_review_runs
+        // exactly (shared resolvePlanEntryRuntime): model takes
+        // precedence over tier, and an entry carrying neither
+        // (host-source) passes neither so the shared core resolves the
+        // path it always has.
+        const runtime = resolvePlanEntryRuntime(planEntry)
+
+        try {
+          const outcome = await executeDispatchRun(
+            {
+              agent: run.agent,
+              promptText,
+              correlationId,
+              sequence: planEntry.sequence,
+              readOnly: planEntry.read_only,
+              timeoutMilliseconds,
+              source: planEntry.source,
+              model: runtime.model,
+              tier: runtime.tier,
+              variant: runtime.variant,
+            },
+            context,
+            deps,
+          )
+
+          // Pre-execution early exit (runData null, the task 5.2 contract
+          // point): no replacement run file was written, so the archived
+          // prior file is renamed BACK to its active path — the session
+          // returns to its pre-attempt state (prior failed run active
+          // again, consolidatable via RD-FR-025 exclusion) instead of
+          // being left with no active run file for this plan entry.
+          if (outcome.runData === null) {
+            const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
+            if (restore.restored) {
+              results.push({
+                agent: run.agent,
+                run_id: run.run_id,
+                outcome: "early_exit",
+                superseded_run_file: null,
+                new_run_id: null,
+                new_status: null,
+                findings: 0,
+                proposals: 0,
+                reason: `the re-run exited before child execution, so no replacement run file was written; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
+                error: outcome.result.error ?? undefined,
+              })
+              continue
+            }
+            results.push({
+              agent: run.agent,
+              run_id: run.run_id,
+              outcome: "error",
+              superseded_run_file: `superseded/${supersededName}`,
+              new_run_id: null,
+              new_status: null,
+              findings: 0,
+              proposals: 0,
+              reason: `the re-run exited before child execution and the prior run file could not be restored from superseded/${supersededName} to ${file} (${errorText(restore.error)}); operator intervention required — the agent has no active run file and the prior run is preserved in the superseded archive`,
+              error: outcome.result.error ?? undefined,
+            })
+            continue
+          }
+
+          // The replacement run file is what consolidation now sees. Its
+          // persisted status (post-RD-FR-026 reclassification) is reported
+          // as new_status: a re-run that fails again is handled by RD-FR-025
+          // exclusion at consolidation, not here.
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            outcome: "redispatched",
+            superseded_run_file: `superseded/${supersededName}`,
+            new_run_id: outcome.runData.run_id,
+            new_status: outcome.runData.status,
+            findings: outcome.runData.findings.length,
+            proposals: outcome.runData.proposals.length,
+            error: outcome.runData.error ?? undefined,
+          })
+        } catch (error: unknown) {
+          // The shared core threw without writing a replacement run file:
+          // restore the archived prior file to its active path so the
+          // session returns to its pre-attempt state rather than being
+          // left with no active run file for this plan entry.
+          const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
+          if (restore.restored) {
+            results.push({
+              agent: run.agent,
+              run_id: run.run_id,
+              outcome: "error",
+              superseded_run_file: null,
+              new_run_id: null,
+              new_status: null,
+              findings: 0,
+              proposals: 0,
+              reason: `executeDispatchRun threw: ${errorText(error)}; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
+            })
+            continue
+          }
+          results.push({
+            agent: run.agent,
+            run_id: run.run_id,
+            outcome: "error",
+            superseded_run_file: `superseded/${supersededName}`,
+            new_run_id: null,
+            new_status: null,
+            findings: 0,
+            proposals: 0,
+            reason: `executeDispatchRun threw: ${errorText(error)}; restoring the prior run file from superseded/${supersededName} to ${file} failed: ${errorText(restore.error)}; operator intervention required — the agent has no active run file and the prior run is preserved in the superseded archive`,
+          })
+        }
+      }
+
+      // Unreadable run files matching the requested scope: reported for
+      // observability, never executed (status unverifiable — fail-safe).
+      for (const agent of scopedUnreadableAgents(unreadableFiles, filter)) {
+        results.push({
+          agent,
+          run_id: null,
+          outcome: "unreadable",
+          superseded_run_file: null,
+          new_run_id: null,
+          new_status: null,
+          findings: 0,
+          proposals: 0,
+          reason: "run file could not be read or parsed; left untouched",
+        })
+      }
+
+      // Named agents with no run file at all: one not_found entry each.
+      for (const agent of missingAgentNames(input.agents, results.map((result) => result.agent))) {
+        results.push({
+          agent,
+          run_id: null,
+          outcome: "not_found",
+          superseded_run_file: null,
+          new_run_id: null,
+          new_status: null,
+          findings: 0,
+          proposals: 0,
+          reason: "no run file for this agent in the dispatch session directory",
+        })
+      }
+
+      const summary: RedispatchFailedRunsSummary = {
+        status: "ok",
+        correlation_id: correlationId,
+        runs: results,
+        total_runs: results.length,
+        redispatched_runs: results.filter((result) => result.outcome === "redispatched").length,
+        refused_runs: results.filter((result) => result.outcome === "refused").length,
+      }
+      return { output: JSON.stringify(summary, null, 2) }
     },
   })
 }
@@ -5032,6 +6407,12 @@ export const ReviewDispatchPlugin = {
         ),
         dispatch_status: createDispatchStatusTool(),
         read_assessment_fields: createReadAssessmentFieldsTool(),
+        discard_orphaned_submissions: createDiscardOrphanedSubmissionsTool(),
+        redispatch_failed_runs: createRedispatchFailedRunsTool({
+          plannerDependencies: dependencies,
+          client,
+          directory: projectRoot,
+        }),
         fetch_pr_review_context: createFetchPrReviewContextTool(),
       },
     }

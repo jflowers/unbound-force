@@ -6,7 +6,6 @@ import { tmpdir } from "node:os"
 import { describe, expect, it, afterEach } from "vitest"
 
 import { ReviewDispatchPlugin, createConsolidateDispatchTool, createFinalizationDependencies, _getSessionCorrelationMap, finalizeReviewDispatch } from "../plugins/review-dispatch/index.js"
-import { withBun, scratchProject } from "./helpers.js"
 
 /** Build a valid PersistedRunData fixture for writing to disk. */
 function runFixture(overrides: {
@@ -42,6 +41,8 @@ function runFixture(overrides: {
     reported_model: "provider/standard",
     model_mismatch: false,
     usage: { cost_usd: 0.5, tokens: { input: 1000, output: 500 } },
+    // Failed/cancelled fixtures need a non-null error for the finalizer's
+    // validateRunState; success fixtures keep null.
     error: overrides.error ?? null,
     workflow_verdict: null,
     findings: overrides.findings ?? [],
@@ -127,25 +128,25 @@ function defaultSessionMetadata(overrides?: Record<string, unknown>) {
 }
 
 /**
- * Plan entry matching a runFixture run (identity = agent + source +
- * sequence) so the finalizer's plan-identity and model checks pass.
+ * Plan entries matching runFixture runs (identity = agent + source +
+ * sequence; every fixture run uses source "explicit" and sequence 1) so
+ * the finalizer's plan-identity and model checks pass. Accepts multiple
+ * agents for mixed success/failed sessions.
  */
-function explicitRunPlan(agent: string) {
-  return [
-    {
-      agent,
-      decision: "include" as const,
-      reason_code: "explicit",
-      reason: "Explicitly included",
-      source: "explicit" as const,
-      sequence: 1,
-      read_only: true,
-      tier: "standard",
-      model: "provider/standard",
-      variant: null,
-      validation_errors: [],
-    },
-  ]
+function explicitRunPlan(...agents: string[]) {
+  return agents.map((agent) => ({
+    agent,
+    decision: "include" as const,
+    reason_code: "explicit",
+    reason: "Explicitly included",
+    source: "explicit" as const,
+    sequence: 1,
+    read_only: true,
+    tier: "standard",
+    model: "provider/standard",
+    variant: null,
+    validation_errors: [],
+  }))
 }
 
 /** Issue-shaped session metadata overrides for triage-issue dispatch sessions. */
@@ -365,6 +366,272 @@ describe("consolidate_dispatch", () => {
     expect(payload.run_counts.failed).toBe(1)
     expect(payload.run_counts.cancelled).toBe(1)
     expect(payload.run_counts.skipped).toBe(0)
+  })
+
+  it("excludes failed-run findings and proposals from the payload while still counting the run", async () => {
+    const guardRunId = randomUUID()
+    const failedRunId = randomUUID()
+    await setupDispatchSession([
+      runFixture({
+        agent: "divisor-guard",
+        run_id: guardRunId,
+        findings: [
+          { severity: "MEDIUM", category: "security", description: "Kept finding", root_cause: "Missing check", file: "kept.ts", line: 3 },
+        ],
+        proposals: [{ information: "Kept lesson", tag: "kept" }],
+      }),
+      runFixture({
+        agent: "divisor-adversary",
+        run_id: failedRunId,
+        status: "failed",
+        error: { code: "child_message_error", message: "session aborted during final response generation", retryable: false },
+        findings: [
+          { severity: "HIGH", category: "security", description: "Orphaned finding 1", root_cause: "Orphan cause 1", file: "orphan1.ts", line: 7 },
+          { severity: "LOW", category: "style", description: "Orphaned finding 2", root_cause: "Orphan cause 2", file: "orphan2.ts", line: 9 },
+        ],
+        proposals: [{ information: "Orphaned lesson", tag: "orphaned" }],
+      }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const payload = JSON.parse(result.output)
+    // RD-FR-025: only the successful run's submissions reach the payload.
+    expect(payload.findings).toHaveLength(1)
+    expect(payload.findings[0].description).toBe("Kept finding")
+    expect(payload.findings[0].run_ids).toEqual([guardRunId])
+    expect(payload.proposals).toHaveLength(1)
+    expect(payload.proposals[0].agent).toBe("divisor-guard")
+    expect(payload.proposals[0].information).toBe("Kept lesson")
+    // Every plan run keeps its payload slot; the failed run's entry
+    // carries an empty findings array rather than disappearing.
+    const failedEntry = payload.runs.find((run) => run.run_id === failedRunId)
+    expect(failedEntry.status).toBe("failed")
+    expect(failedEntry.findings).toEqual([])
+    // run_counts still derive from the full run list.
+    expect(payload.run_counts.total).toBe(2)
+    expect(payload.run_counts.success).toBe(1)
+    expect(payload.run_counts.failed).toBe(1)
+  })
+
+  it("emits one orphaned_submissions_excluded warning per failed run with submissions", async () => {
+    const guardRunId = randomUUID()
+    await setupDispatchSession([
+      runFixture({ agent: "divisor-architect" }),
+      runFixture({
+        agent: "divisor-guard",
+        run_id: guardRunId,
+        status: "failed",
+        error: { code: "child_message_error", message: "session aborted during final response generation", retryable: false },
+        findings: [
+          { severity: "HIGH", category: "security", description: "Orphaned finding 1", root_cause: "Orphan cause 1", file: "orphan1.ts", line: 7 },
+          { severity: "MEDIUM", category: "style", description: "Orphaned finding 2", root_cause: "Orphan cause 2", file: "orphan2.ts", line: 9 },
+        ],
+        proposals: [{ information: "Orphaned lesson", tag: "orphaned" }],
+      }),
+      // A failed run with no submissions emits no warning entry.
+      runFixture({
+        agent: "divisor-adversary",
+        status: "failed",
+        error: { code: "run_failed", message: "reviewer failed before submitting", retryable: true },
+      }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const payload = JSON.parse(result.output)
+    // Exactly one entry: the guard (2 findings + 1 proposal discarded);
+    // the empty-submission adversary is absent from warnings.
+    expect(payload.warnings).toHaveLength(1)
+    expect(payload.warnings[0]).toEqual({
+      type: "orphaned_submissions_excluded",
+      agent: "divisor-guard",
+      run_id: guardRunId,
+      discarded_findings: 2,
+      discarded_proposals: 1,
+    })
+    // The empty-submission failed run still occupies its payload slot.
+    expect(payload.runs).toHaveLength(3)
+  })
+
+  it("fails closed as INCONCLUSIVE when every run failed", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-zero-success-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    const guardRunId = randomUUID()
+    await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          run_id: guardRunId,
+          status: "failed",
+          error: { code: "child_message_error", message: "session aborted during final response generation", retryable: false },
+          findings: [
+            { severity: "HIGH", category: "security", description: "Orphaned finding", root_cause: "Orphan cause", file: "orphan.ts", line: 7 },
+          ],
+          proposals: [{ information: "Orphaned lesson", tag: "orphaned" }],
+        }),
+        runFixture({
+          agent: "divisor-adversary",
+          status: "failed",
+          error: { code: "run_failed", message: "reviewer failed before submitting", retryable: true },
+        }),
+      ],
+      { plan: explicitRunPlan("divisor-guard", "divisor-adversary") },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/fix-review-dispatch-recovery",
+          commit: "b".repeat(40), // Must match input_context.head_sha
+          workflow_id: "uf.review-council",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // RD-FR-007: zero successful runs fail closed. Success scoping must
+    // not manufacture an approving result from excluded submissions.
+    expect(finalizationResult.status).toBe("failed")
+    expect(finalizationResult.operation_verdict).toBe("INCONCLUSIVE")
+    expect(finalizationResult.artifact_path).toBeNull()
+    // The only errors are the no-success verdict mismatches — the
+    // orphaned submissions were excluded from the payload, so no
+    // run-state rejections (the pre-fix brick) ride along.
+    expect(finalizationResult.errors).toHaveLength(2)
+    expect(finalizationResult.errors.join("\n")).toContain("expected INCONCLUSIVE")
+    expect(finalizationResult.errors.join("\n")).not.toContain("must not vote or emit findings")
+    // Warnings ride alongside the fail-closed result: every orphaned
+    // submission stays visible (RD-FR-025 zero-success scenario).
+    expect(finalizationResult.warnings).toEqual([
+      {
+        type: "orphaned_submissions_excluded",
+        agent: "divisor-guard",
+        run_id: guardRunId,
+        discarded_findings: 1,
+        discarded_proposals: 1,
+      },
+    ])
+    // No successful runs means no collected proposals at all.
+    expect(finalizationResult.proposals).toBeUndefined()
+  })
+
+  it("carries an empty warnings array when every run succeeds", async () => {
+    await setupDispatchSession([
+      runFixture({
+        agent: "divisor-guard",
+        findings: [
+          { severity: "MEDIUM", category: "style", description: "Docs gap", root_cause: "No jsdoc", file: "lib.ts", line: 5 },
+        ],
+      }),
+      runFixture({ agent: "divisor-adversary" }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const payload = JSON.parse(result.output)
+    // RD-FR-025 all-success scenario: consolidation matches the
+    // pre-requirement behavior and carries the stable empty warnings
+    // shape — no exclusion warning for successful runs.
+    expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
+    expect(payload.findings).toHaveLength(1)
+    expect(payload.warnings).toEqual([])
+  })
+
+  it("finalizes a mixed session whose failed run carried accepted submissions (issue #751)", async () => {
+    const projectRoot = join(tmpdir(), `consolidate-751-repro-${randomUUID()}`)
+    await mkdir(projectRoot, { recursive: true })
+    cleanupDirs.push(projectRoot)
+
+    // Issue #751 shape: the guard child's findings and lesson proposal
+    // were accepted, then its session aborted at the model context
+    // ceiling during final-response generation. The run is recorded
+    // failed while its harvested submissions persist; one other reviewer
+    // succeeded.
+    const guardRunId = randomUUID()
+    const adversaryRunId = randomUUID()
+    await setupDispatchSession(
+      [
+        runFixture({
+          agent: "divisor-guard",
+          run_id: guardRunId,
+          status: "failed",
+          error: { code: "child_message_error", message: "session aborted during final response generation", retryable: false },
+          findings: [
+            { severity: "HIGH", category: "security", description: "Orphaned finding 1", root_cause: "Orphan cause 1", file: "orphan1.ts", line: 7 },
+            { severity: "MEDIUM", category: "security", description: "Orphaned finding 2", root_cause: "Orphan cause 2", file: "orphan2.ts", line: 9 },
+          ],
+          proposals: [{ information: "Orphaned lesson", tag: "orphaned" }],
+        }),
+        runFixture({
+          agent: "divisor-adversary",
+          run_id: adversaryRunId,
+          findings: [
+            { severity: "MEDIUM", category: "style", description: "Kept finding", root_cause: "Missing docs", file: "lib.ts", line: 5 },
+          ],
+          proposals: [{ information: "Kept lesson", tag: "kept" }],
+        }),
+      ],
+      { plan: explicitRunPlan("divisor-guard", "divisor-adversary") },
+    )
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(projectRoot))
+    const result = await tool.execute(
+      {
+        provenance: {
+          branch: "opsx/fix-review-dispatch-recovery",
+          commit: "b".repeat(40), // Must match input_context.head_sha
+          workflow_id: "uf.review-council",
+        },
+      },
+      noopContext(),
+    )
+
+    const finalizationResult = JSON.parse(result.output)
+    // The regression: before RD-FR-025 the guard's harvested findings
+    // flowed into the payload and the finalizer rejected it ("non-success
+    // run must not vote or emit findings") with no recovery path — a
+    // permanently unfinalizable dispatch. Success-scoped consolidation
+    // keeps the dispatch finalizable.
+    expect(finalizationResult.status).toBe("success")
+    expect(finalizationResult.errors).toHaveLength(0)
+    expect(finalizationResult.operation_verdict).toBe("APPROVE WITH ADVISORIES")
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+
+    // The persisted payload validates with the orphaned submissions
+    // excluded: only the successful adversary contributes.
+    const persistedPayload = finalizationResult.review_dispatch.payload
+    expect(persistedPayload.findings).toHaveLength(1)
+    expect(persistedPayload.findings[0].run_ids).toEqual([adversaryRunId])
+    const persistedGuard = persistedPayload.runs.find((run) => run.run_id === guardRunId)
+    expect(persistedGuard.status).toBe("failed")
+    expect(persistedGuard.findings).toEqual([])
+    expect(persistedPayload.run_counts.total).toBe(2)
+    expect(persistedPayload.run_counts.success).toBe(1)
+    expect(persistedPayload.run_counts.failed).toBe(1)
+
+    // The warning names the failed run with its discarded counts.
+    expect(finalizationResult.warnings).toEqual([
+      {
+        type: "orphaned_submissions_excluded",
+        agent: "divisor-guard",
+        run_id: guardRunId,
+        discarded_findings: 2,
+        discarded_proposals: 1,
+      },
+    ])
+
+    // Returned proposals come from the successful run only.
+    expect(finalizationResult.proposals).toHaveLength(1)
+    expect(finalizationResult.proposals[0].agent).toBe("divisor-adversary")
+    expect(finalizationResult.proposals[0].information).toBe("Kept lesson")
   })
 
   it("maps triage-issue command to triage workflow result", async () => {
@@ -1242,13 +1509,13 @@ describe("consolidate_dispatch", () => {
     expect(payload).not.toHaveProperty("artifact_path")
   })
 
-  it("returns a triage payload without provenance that finalizes unmodified", async () => {
+  it("returns a triage payload without provenance that finalizes after stripping observability fields", async () => {
     const projectRoot = join(tmpdir(), `consolidate-triage-payload-${randomUUID()}`)
     await mkdir(projectRoot, { recursive: true })
     cleanupDirs.push(projectRoot)
 
-    // No proposals: the returned payload stays schema-exact so it can be
-    // submitted to finalize_review_dispatch without agent-side transformation.
+    // No proposals and no failed runs: the returned payload carries no
+    // observability data beyond the (always present) empty warnings array.
     const correlationId = await setupDispatchSession(
       [
         runFixture({
@@ -1274,11 +1541,21 @@ describe("consolidate_dispatch", () => {
     expect(returnedPayload.runs[0].workflow_verdict).toBe("NEEDS-CLARIFICATION")
     expect(returnedPayload.workflow_result).toEqual({ kind: "triage", value: "NEEDS-CLARIFICATION" })
 
-    // Submit the returned payload unmodified: structural (strict schema)
-    // and semantic validation must both pass with native run verdicts.
+    // The result always carries the top-level warnings observability field
+    // (RD-FR-025 stable shape — empty when nothing was excluded), and may
+    // carry proposals. The finalizer payload schema is strict, so the
+    // caller strips those non-payload fields before external finalization
+    // (the split the tool description documents); payload content itself is
+    // submitted unmodified.
+    const payloadForFinalization = { ...returnedPayload }
+    delete payloadForFinalization.proposals
+    delete payloadForFinalization.warnings
+
+    // Submit the returned payload: structural (strict schema) and semantic
+    // validation must both pass with native run verdicts.
     const finalizationResult = await finalizeReviewDispatch(
       {
-        payload: returnedPayload,
+        payload: payloadForFinalization,
         provenance: {
           branch: "opsx/dispatch-finalize-determinism",
           commit: "c".repeat(40),

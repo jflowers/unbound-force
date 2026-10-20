@@ -323,6 +323,37 @@ Each entry follows the format: `- <change-name>: <summary>`.
   synced byte-identical. (Spec:
   openspec/changes/fix-dispatch-verdict-derivation/,
   Fixes: #764)
+- fix-review-dispatch-recovery: Review-dispatch sessions can no
+  longer be bricked by a failed child run's accepted submissions:
+  `consolidate_dispatch` now scopes its finalization payload to
+  successful runs, excluding orphaned findings and proposals with
+  machine-readable `orphaned_submissions_excluded` warnings
+  (agent, run id, counts), and a reviewer run that aborts
+  mid-final-response after submitting (child message error) is
+  reclassified as a success run with a `post_submission_abort`
+  audit record so its submissions count. `consolidate_dispatch`
+  and `dispatch_status` accept an optional explicit
+  `correlation_id` (recovery from a fresh session after a
+  restart) and `dispatch_status` reports per-run token usage; run
+  prompts are persisted and session metadata refreshed on
+  re-dispatch, enabling reliable fix-loop re-runs. Two new
+  recovery tools in the review-dispatch plugin:
+  `discard_orphaned_submissions(correlation_id, agents?)` empties
+  orphaned submissions from failed runs with an audit block
+  (refuses successful runs), and
+  `redispatch_failed_runs(correlation_id, agents?, timeout?)`
+  re-runs failed reviewers from their original prompts and plan
+  entries, archiving prior run files under `superseded/` (a re-run
+  that exits before execution restores the prior run file to its
+  active path, keeping the session consolidatable).
+  Fail-closed semantics preserved: zero-success dispatches still
+  finalize INCONCLUSIVE; finalizer validation unchanged.
+  consolidate_dispatch results now always carry top-level
+  warnings/proposals observability fields on the no-provenance
+  path; callers forwarding to the external
+  finalize_review_dispatch tool must strip them (documented in
+  the tool description). (Spec:
+  openspec/changes/fix-review-dispatch-recovery/, Fixes: #751)
 - fix-tool-args-schema-mismatch: uf-workflow (8) and uf-finale
   (3) tool factories now declare parameters via the
   SDK-recognized zod `args` contract instead of plain

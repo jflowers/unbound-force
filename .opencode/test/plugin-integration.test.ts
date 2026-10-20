@@ -147,6 +147,7 @@ describe("plugin integration with a fake OpenCode client", () => {
         "acquire_sibling_evidence",
         "build_review_prompts",
         "consolidate_dispatch",
+        "discard_orphaned_submissions",
         "dispatch_agent_run",
         "dispatch_review_runs",
         "dispatch_status",
@@ -155,6 +156,7 @@ describe("plugin integration with a fake OpenCode client", () => {
         "plan_review_dispatch",
         "prepare_lesson_learning",
         "read_assessment_fields",
+        "redispatch_failed_runs",
         "submit_lesson_proposal",
         "submit_review_findings",
       ])
