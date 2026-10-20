@@ -728,4 +728,83 @@ describe("dispatch_review_runs", () => {
       })
     })
   })
+
+  // ── #735 golden contract ───────────────────────────────────
+
+  // #735: uf.triage-issue.md documents that dispatch_review_runs returns
+  // `status`, `runs_completed`, `runs_failed`, and `runs_skipped` counters,
+  // consolidated `findings`, `proposals` for lesson processing, and any
+  // `warnings` — but at filing time the tool did not return the findings,
+  // proposals, or warnings arrays. The tool now carries all seven fields as
+  // structured metadata beside the `output` summary string. This golden test
+  // pins that reconciliation: it executes the tool through the plugin tool
+  // registry using the documented triage inputs (uf.triage-issue.md,
+  // "Dispatch Review Runs") and asserts the full documented envelope, so
+  // future divergence on either side — the prose documenting a field the
+  // tool lacks, or the tool dropping a documented field — fails here. The
+  // same contract sentence appears in uf.review-council.md, uf.review-pr.md,
+  // and uf.address-feedback.md. The pinned reconciliation is recorded in
+  // #735 when this change lands.
+  describe("#735 golden contract: documented output envelope", () => {
+    it("returns status, run counters, findings, proposals, and warnings for documented triage inputs", async () => {
+      await withBun(async () => {
+        const { directory } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // Seed the in-process submission store for the child session the
+        // fake client creates for this single included run (its first
+        // session.create returns "child-session-0"), so harvested findings
+        // and proposals flow through the persisted run file into the
+        // returned envelope — proving the documented fields carry real data.
+        _getSubmissionStore().set("child-session-0", {
+          findings: [
+            {
+              severity: "LOW",
+              category: "documentation",
+              description: "Documented dispatch_review_runs output contract is not pinned by a test",
+              root_cause: "uf.triage-issue.md documented fields the tool did not return (#735)",
+              file: null,
+              line: null,
+            },
+          ],
+          proposals: [{ information: "Pin documented tool output contracts with golden tests", tag: "issue-triage" }],
+        })
+
+        // Documented inputs per uf.triage-issue.md: mode triage, command
+        // triage-issue, issue_content, input_context, plan_entries,
+        // session_metadata, max_parallel_runs, budget_usd,
+        // per_run_timeout_ms, and review_context. Triage mode rejects
+        // diff_path and changed_files, so neither is passed.
+        const input = makeTriageInput([makePlanEntry({ agent: "divisor-guard", sequence: 1 })])
+        input.budget_usd = 5
+        input.per_run_timeout_ms = 30_000
+        input.review_context = "Repository context: unbound-force meta repo. Duplicate candidates: none."
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        // The summary string carries the status beside the structured envelope.
+        expect(response.output).toContain("dispatch_review_runs: ok")
+        const meta = response.metadata as Record<string, unknown>
+        // The seven documented envelope fields (uf.triage-issue.md):
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+        expect(meta.runs_failed).toBe(0)
+        expect(meta.runs_skipped).toBe(0)
+        expect(Array.isArray(meta.findings)).toBe(true)
+        expect(Array.isArray(meta.proposals)).toBe(true)
+        expect(Array.isArray(meta.warnings)).toBe(true)
+        // Findings and proposals flow through from the child submission.
+        const findings = meta.findings as Array<Record<string, unknown>>
+        expect(findings).toHaveLength(1)
+        expect(findings[0]?.category).toBe("documentation")
+        const proposals = meta.proposals as Array<Record<string, unknown>>
+        expect(proposals).toHaveLength(1)
+        expect(proposals[0]?.tag).toBe("issue-triage")
+      })
+    })
+  })
 })
