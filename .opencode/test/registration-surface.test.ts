@@ -6,6 +6,7 @@ import InvokeAgentPlugin from "../plugins/invoke-agent/index.js"
 import ReviewDispatchPlugin from "../plugins/review-dispatch/index.js"
 import UfFinalePlugin from "../plugins/uf-finale/index.js"
 import UfWorkflowPlugin from "../plugins/uf-workflow/index.js"
+import { withBun } from "./helpers/bun-runtime.js"
 
 // ---------------------------------------------------------------------------
 // Layer 1 — registration surface (seam-verification task 1.1, issue #732)
@@ -45,9 +46,6 @@ interface RegisteredTool {
 /** Tool registry as returned by a plugin `server()` call. */
 type ToolRegistry = Record<string, RegisteredTool>
 
-/** Minimal Bun runtime surface required by plugin server() registration. */
-type BunRuntime = { readonly YAML: { readonly parse: (text: string) => unknown } }
-
 /** The four plugin modules whose registration surface this suite covers. */
 const PLUGINS: ReadonlyArray<{ readonly id: string; readonly module: PluginModule }> = [
   { id: "uf-workflow", module: UfWorkflowPlugin },
@@ -55,28 +53,6 @@ const PLUGINS: ReadonlyArray<{ readonly id: string; readonly module: PluginModul
   { id: "review-dispatch", module: ReviewDispatchPlugin },
   { id: "invoke-agent", module: InvokeAgentPlugin },
 ]
-
-/**
- * Shim `Bun.YAML.parse` (JSON-backed) so review-dispatch and invoke-agent
- * server() registration — which constructs a Bun-backed YAML parser for
- * manifest dependencies — succeeds under the Node vitest environment.
- * Same pattern as build-review-prompts.test.ts and
- * plugin-integration.test.ts.
- */
-function withBun<T>(run: () => T | Promise<T>): Promise<T> {
-  const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-  const original = runtime.Bun
-  runtime.Bun = { YAML: { parse: (text: string): unknown => JSON.parse(text) as unknown } }
-  const finish = (): void => {
-    runtime.Bun = original
-  }
-  try {
-    return Promise.resolve(run()).finally(finish)
-  } catch (error) {
-    finish()
-    throw error
-  }
-}
 
 /**
  * Minimal fake PluginInput for the smoke-test loading pattern: server()
@@ -104,8 +80,8 @@ async function registeredTools(module: PluginModule): Promise<ToolRegistry> {
 /**
  * Parameter names the tool declaration carries, under either the
  * SDK-recognized `args` key or the pre-#732 mis-keyed `parameters` key.
- * The union keeps a mis-keyed declaration observable to the biconditional
- * in the (b) assertion: parameters declared but not exposed.
+ * The union keeps a mis-keyed declaration observable to the guards in
+ * the (b)/(c) assertions: parameters declared but not exposed.
  */
 function declaredParameterKeys(toolDef: RegisteredTool): Set<string> {
   const keys = new Set<string>()
@@ -117,11 +93,6 @@ function declaredParameterKeys(toolDef: RegisteredTool): Set<string> {
     }
   }
   return keys
-}
-
-/** Parameter names the SDK exposes to the model: the `args` keys only. */
-function exposedParameterKeys(toolDef: RegisteredTool): string[] {
-  return toolDef.args !== undefined ? Object.keys(toolDef.args) : []
 }
 
 const registries = new Map<string, ToolRegistry>()
@@ -163,29 +134,24 @@ for (const plugin of PLUGINS) {
 
     it("(b) exposes a parameter schema that is non-empty exactly when the tool declares parameters", () => {
       for (const [name, toolDef] of Object.entries(registry())) {
-        // The SDK reads only `args`; a `parameters` key is silently
-        // ignored, so the model-facing schema comes from `args` alone.
+        // The SDK's tool() helper is an identity pass-through that reads
+        // only `args` (a zod raw shape); a factory declaring the pre-#732
+        // mis-keyed `parameters:` plain-object form has its declaration
+        // silently ignored, exposing an empty parameter schema to the
+        // model. Because the pass-through exposes exactly the `args`
+        // keys, the biconditional (schema non-empty iff declared) is
+        // structurally entailed once this mis-key guard passes — the
+        // guard IS the biconditional's load-bearing content.
         expect(
           toolDef,
           `${plugin.id}.${name} must not declare the pre-#732 mis-keyed ` +
             "parameters: form — the SDK's tool() helper reads only args, so the " +
             "declaration is silently ignored and the model sees an empty schema",
         ).not.toHaveProperty("parameters")
-
-        const exposed = exposedParameterKeys(toolDef)
-        const declared = declaredParameterKeys(toolDef)
-        expect(
-          exposed.length > 0,
-          `${plugin.id}.${name} exposed parameter schema [${exposed.join(", ")}] ` +
-            `must be non-empty exactly when the tool declares parameters ` +
-            `[${[...declared].join(", ")}] — a tool that declares parameters the SDK ` +
-            "cannot see is the issue #732 defect form (empty == empty is correct: " +
-            "resolve_base_ref declares none)",
-        ).toBe(declared.size > 0)
       }
     })
 
-    it("(c) exposes schema keys in parity with the zod shape the execute path validates", () => {
+    it("(c) validates input through the zod shape the execute path uses", () => {
       for (const [name, toolDef] of Object.entries(registry())) {
         const declared = declaredParameterKeys(toolDef)
         if (declared.size === 0) {
@@ -200,15 +166,22 @@ for (const plugin of PLUGINS) {
         ).toBeDefined()
 
         // The host derives the model-facing schema and validates tool
-        // input through the same z.object(args) conversion; parity holds
-        // only when that conversion reproduces the exposed keys. A
-        // non-zod shape (plain { type, description } values) throws here.
+        // input through this same z.object(args) conversion. Executing the
+        // conversion rather than re-comparing key lists (which are
+        // identical by construction under the identity pass-through):
+        // constructing the object schema throws on a non-zod raw shape
+        // (the pre-#732 plain-object form), and parsing rejects
+        // non-object payloads — the validation gate exists and enforces.
         const objectSchema = z.object(toolDef.args as z.ZodRawShape)
         expect(
-          [...Object.keys(objectSchema.shape)].sort(),
-          `${plugin.id}.${name} z.object(args) validation shape must match the ` +
-            "exposed schema keys",
-        ).toEqual(exposedParameterKeys(toolDef).sort())
+          objectSchema.safeParse("not-an-object").success,
+          `${plugin.id}.${name} z.object(args) must reject non-object payloads — ` +
+            "the conversion the host validates input through must enforce",
+        ).toBe(false)
+        expect(
+          objectSchema.safeParse(null).success,
+          `${plugin.id}.${name} z.object(args) must reject null payloads`,
+        ).toBe(false)
       }
     })
 

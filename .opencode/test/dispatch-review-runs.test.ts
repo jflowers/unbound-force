@@ -242,6 +242,47 @@ function makeTriageInput(planEntries: Record<string, unknown>[]): Record<string,
   }
 }
 
+function makeFeedbackSessionMetadata(): Record<string, unknown> {
+  return {
+    command: "address-feedback",
+    mode: "feedback",
+    full: false,
+    input_context: {
+      kind: "local",
+      pr_number: null,
+      base_ref: "main",
+      base_sha: VALID_SHA,
+      head_ref: "opsx/feedback-golden",
+      head_sha: VALID_SHA2,
+    },
+    change_profile: {
+      kind: "diff",
+      lines: 100,
+      files: 3,
+      components: 1,
+      security_sensitive: false,
+      user_facing: false,
+      categories: ["standard"],
+      tier: "standard",
+    },
+    plan: [],
+    coverage: { preflight_verdict: "PASS", checks_total: 5, checks_passed: 5 },
+  }
+}
+
+function makeFeedbackInput(diffPath: string, planEntries: Record<string, unknown>[]): Record<string, unknown> {
+  return {
+    mode: "feedback",
+    command: "address-feedback",
+    diff_path: diffPath,
+    changed_files: "src/foo.ts",
+    input_context: "pr 42: base main, head opsx/feedback-golden",
+    plan_entries: planEntries,
+    max_parallel_runs: 4,
+    session_metadata: makeFeedbackSessionMetadata(),
+  }
+}
+
 // ── Tests ───────────────────────────────────────────────────
 
 describe("dispatch_review_runs", () => {
@@ -804,6 +845,133 @@ describe("dispatch_review_runs", () => {
         const proposals = meta.proposals as Array<Record<string, unknown>>
         expect(proposals).toHaveLength(1)
         expect(proposals[0]?.tag).toBe("issue-triage")
+      })
+    })
+  })
+
+  // ── Remaining documented input variants (task 2.3 completion) ──
+
+  // The #735 golden above pins the triage input variant
+  // (uf.triage-issue.md). The same seven-field contract sentence is
+  // documented at three more sites with two more input variants: code
+  // mode (uf.review-council.md:256 and uf.review-pr.md:372 — review-pr
+  // also routes command review-council per its documented inputs) and
+  // feedback mode (uf.address-feedback.md:338). These goldens execute
+  // each remaining variant through the plugin tool registry with its
+  // documented inputs and assert the same envelope, so all four
+  // dispatch_review_runs sites are pinned under their documented input
+  // variants (metrics.md drift baseline 47/47/0).
+  describe("#735 golden contract: remaining documented input variants", () => {
+    it("returns the seven documented envelope fields for documented code-mode inputs (uf.review-council.md:256, uf.review-pr.md:372)", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // Seed the in-process submission store for the child session the
+        // fake client creates for this single included run, so harvested
+        // findings and proposals flow through the persisted run file
+        // into the returned envelope.
+        _getSubmissionStore().set("child-session-0", {
+          findings: [
+            {
+              severity: "MEDIUM",
+              category: "test-quality",
+              description: "Code-mode golden coverage was missing for dispatch_review_runs",
+              root_cause: "Only the triage input variant executed (metrics.md drift-baseline gap)",
+              file: "src/foo.ts",
+              line: 1,
+            },
+          ],
+          proposals: [{ information: "Pin every documented input variant with golden tests", tag: "review-dispatch" }],
+        })
+
+        // Documented inputs per uf.review-council.md:256 and
+        // uf.review-pr.md:372: mode code, command review-council,
+        // diff_path, changed_files, input_context, plan_entries,
+        // session_metadata, max_parallel_runs, budget_usd,
+        // per_run_timeout_ms, and — when available — pre_flight_results,
+        // walkthrough, and review_context.
+        const input = makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })])
+        input.budget_usd = 5
+        input.per_run_timeout_ms = 30_000
+        input.pre_flight_results = "Pre-flight: 18 of 18 CI checks pass."
+        input.walkthrough = "Adds a service layer for report generation."
+        input.review_context = "Repository context: unbound-force meta repo."
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        expect(response.output).toContain("dispatch_review_runs: ok")
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+        expect(meta.runs_failed).toBe(0)
+        expect(meta.runs_skipped).toBe(0)
+        expect(Array.isArray(meta.findings)).toBe(true)
+        expect(Array.isArray(meta.proposals)).toBe(true)
+        expect(Array.isArray(meta.warnings)).toBe(true)
+        const findings = meta.findings as Array<Record<string, unknown>>
+        expect(findings).toHaveLength(1)
+        expect(findings[0]?.category).toBe("test-quality")
+        const proposals = meta.proposals as Array<Record<string, unknown>>
+        expect(proposals).toHaveLength(1)
+        expect(proposals[0]?.tag).toBe("review-dispatch")
+      })
+    })
+
+    it("returns the seven documented envelope fields for documented feedback-mode inputs (uf.address-feedback.md:338)", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        _getSubmissionStore().set("child-session-0", {
+          findings: [
+            {
+              severity: "MEDIUM",
+              category: "documentation",
+              description: "Feedback-mode golden coverage was missing for dispatch_review_runs",
+              root_cause: "Only the triage input variant executed (metrics.md drift-baseline gap)",
+              file: null,
+              line: null,
+            },
+          ],
+          proposals: [{ information: "Pin every documented input variant with golden tests", tag: "feedback-triage" }],
+        })
+
+        // Documented inputs per uf.address-feedback.md:338: mode feedback,
+        // command address-feedback, changed_files, input_context,
+        // plan_entries, session_metadata, max_parallel_runs, budget_usd,
+        // per_run_timeout_ms, and review_context; diff_path rides along
+        // as a required input for non-triage modes.
+        const input = makeFeedbackInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })])
+        input.budget_usd = 5
+        input.per_run_timeout_ms = 30_000
+        input.review_context = "Feedback item 1 of 1 — assessment panel context."
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        expect(response.output).toContain("dispatch_review_runs: ok")
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+        expect(meta.runs_failed).toBe(0)
+        expect(meta.runs_skipped).toBe(0)
+        expect(Array.isArray(meta.findings)).toBe(true)
+        expect(Array.isArray(meta.proposals)).toBe(true)
+        expect(Array.isArray(meta.warnings)).toBe(true)
+        const findings = meta.findings as Array<Record<string, unknown>>
+        expect(findings).toHaveLength(1)
+        expect(findings[0]?.category).toBe("documentation")
+        const proposals = meta.proposals as Array<Record<string, unknown>>
+        expect(proposals).toHaveLength(1)
+        expect(proposals[0]?.tag).toBe("feedback-triage")
       })
     })
   })

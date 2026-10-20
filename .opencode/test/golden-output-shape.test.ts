@@ -7,6 +7,7 @@ import { dirname, join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ToolResult } from "../lib/uf-workflow-types.js"
+import { formatUnleashExit, type UnleashExitData, type UnleashExitVariant } from "../lib/unleash-templates.js"
 import {
   LESSON_PROPOSAL_BEGIN,
   LESSON_PROPOSAL_END,
@@ -20,6 +21,7 @@ import UfWorkflowPlugin from "../plugins/uf-workflow/index.js"
 import samplePayload from "../../schemas/review-dispatch/samples/sample-review-dispatch.json"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
+import { withBun } from "./helpers/bun-runtime.js"
 
 // ---------------------------------------------------------------------------
 // Golden output-shape contract tests (seam-verification task 2.2, DE-002)
@@ -36,7 +38,8 @@ import matrixFixture from "./fixtures/review-dispatch/matrix.json"
 // Coverage: 43 of the 47 documented sites. The four dispatch_review_runs
 // sites (uf.triage-issue.md:263, uf.review-council.md:276,
 // uf.review-pr.md:394, uf.address-feedback.md:358) belong to task 2.3
-// and are intentionally not exercised here.
+// and are pinned in dispatch-review-runs.test.ts instead — one golden
+// per documented input variant (triage, code, feedback).
 //
 // Per-plugin site counts (registered-tool attribution):
 // - uf-workflow: 21 sites -- get_progress x4 (uf.unleash.md:55,
@@ -95,9 +98,6 @@ vi.mock("node:child_process", () => ({
 // Shared test infrastructure
 // ---------------------------------------------------------------------------
 
-/** Minimal Bun runtime surface required by review-dispatch registration. */
-type BunRuntime = { readonly YAML: { readonly parse: (text: string) => unknown } }
-
 /** Runtime view of one registered tool definition. */
 interface RegisteredTool {
   readonly execute: (
@@ -108,22 +108,6 @@ interface RegisteredTool {
 
 /** Tool registry as returned by a plugin `server()` call. */
 type ToolRegistry = Record<string, RegisteredTool>
-
-/** Shim Bun.YAML.parse (JSON-backed) so review-dispatch server() registration succeeds under Node. */
-function withBun<T>(run: () => T | Promise<T>): Promise<T> {
-  const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-  const original = runtime.Bun
-  runtime.Bun = { YAML: { parse: (text: string): unknown => JSON.parse(text) as unknown } }
-  const finish = (): void => {
-    runtime.Bun = original
-  }
-  try {
-    return Promise.resolve(run()).finally(finish)
-  } catch (error) {
-    finish()
-    throw error
-  }
-}
 
 const scratchDirectories: string[] = []
 const dispatchSessionDirs: string[] = []
@@ -609,6 +593,15 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
       const data = expectOk(
         await callEnvelopeTool<{ text: string }>(registry, "format_unleash_exit", args),
       )
+      // Tool==lib equivalence: the registered tool strips `variant` and
+      // renders through the same pure lib function the renderer goldens
+      // pin per variant (unleash-formatters.test.ts), so the full
+      // variant-specific documented output — not just the shared skeleton
+      // below — cannot drift between tool and renderer.
+      const { variant, ...fields } = args
+      expect(data).toStrictEqual({
+        text: formatUnleashExit(variant as UnleashExitVariant, fields as UnleashExitData),
+      })
       expect(typeof data.text).toBe("string")
       expect(data.text).toContain("## /uf.unleash paused at:")
       expect(data.text).toContain("**Reason**:")
