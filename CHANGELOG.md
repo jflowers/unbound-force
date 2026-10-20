@@ -24,19 +24,29 @@ Each entry follows the format: `- <change-name>: <summary>`.
   codifying the obligation. Layer 1 — registration
   surface: new suite `.opencode/test/registration-surface.test.ts`
   (20 tests) dynamically enumerates all 47 tools across
-  the four plugins, asserting presence, the biconditional
-  schema-non-empty-iff-declared property, and zod parity
-  between the TS and JSON-schema declarations; the
-  zod-shape fallback is covered structurally with a
-  documented transition condition. Layer 2 — documented
+  the four plugins, asserting presence with description
+  and execute, the pre-#732 `parameters:` mis-key guard
+  (the load-bearing content of the biconditional
+  schema-non-empty-iff-declared property — the SDK
+  `tool()` helper is an identity pass-through over `args`
+  alone), and execution of the `z.object(args)` conversion
+  the host validates input through (it throws on non-zod
+  shapes and rejects non-object payloads); the zod-shape
+  fallback is covered structurally with a documented
+  transition condition. Layer 2 — documented
   output shape: new suite `.opencode/test/golden-output-shape.test.ts`
   (41 tests over 43 documented-output-shape sites across
   uf-workflow/uf-finale/review-dispatch) executes each
-  documented tool call and asserts the documented fields
-  are present in the returned envelope; the fixture
-  inventory is grep-derived to prevent drift, and the
-  #735 golden contract is pinned in
-  `dispatch-review-runs.test.ts`. Layer 3 — round-trips
+  documented tool call in the suite's registry scope and
+  asserts the documented fields are present in the
+  returned envelope, with all 8 `format_unleash_exit`
+  variants additionally pinned by tool==lib equivalence
+  to the renderer goldens; the fixture inventory is
+  grep-derived to prevent drift, and the four
+  `dispatch_review_runs` sites are pinned in
+  `dispatch-review-runs.test.ts` as golden tests across
+  every documented input variant (triage — the #735
+  contract — code-mode, and feedback-mode). Layer 3 — round-trips
   and command-contract pins: write→read round-trip
   assertions in `uf-finale.test.ts` pin all 8 writer
   parameters (including `review_verdicts` and

@@ -144,7 +144,14 @@ design's five were a floor ("e.g."), not an exhaustive list.
 
 ## Drift baseline (task 2.1)
 
-**47 discovered, 47 pinned, 0 uncovered.**
+**47 discovered, 47 pinned, 0 uncovered.** The four
+`dispatch_review_runs` sites are pinned in
+`dispatch-review-runs.test.ts` — one golden per documented
+input variant (triage, code, feedback); the
+`golden-output-shape.test.ts` suite covers the other 43
+through the plugin registry, with all 8
+`format_unleash_exit` variants additionally held to
+tool==lib equivalence with the renderer goldens.
 
 Per command file: uf.unleash.md 18, uf.finale.md 9,
 uf.review-council.md 5, uf.address-feedback.md 5,
@@ -344,23 +351,35 @@ tree (7557cfa); PR #745 is noted where it already shipped pins.
   assert tool names only — stayed green. Before: the FR-004
   suite asserted args keys for 3 uf-finale tools. After:
   `registration-surface.test.ts` covers all 47 tools across
-  the 4 plugins — presence, the biconditional (schema
-  non-empty iff declared), and zod parity between the TS and
-  JSON-schema declarations. Falsification (task 1.2):
+  the 4 plugins — presence with description and execute,
+  the pre-#732 `parameters:` mis-key guard (the
+  load-bearing content of the biconditional, since the
+  SDK `tool()` pass-through exposes exactly the `args`
+  keys), and execution of the `z.object(args)` conversion
+  the host validates input through (it throws on non-zod
+  shapes and rejects non-object payloads); the zod
+  instanceof fallback stays structural with its documented
+  SDK transition condition. Falsification (task 1.2):
   reverting `normalize_model_name` to the `parameters:` form
   produced 3 targeted failures (exit 1); restoring it
   returned the suite to 905/905.
 - **#735 → Layer 2 (documented output shape).** Triage-issue
   prose documented findings/proposals/warnings output arrays
-  the tool did not return at filing time. Before: the
+  the tool did not return at filing time.   Before: the
   prose↔tool contract was unverified on both sides
   (`dispatch-review-runs.test.ts`, 17 tests, no golden).
-  After: `golden-output-shape.test.ts` executes every
-  documented-output-shape site and asserts the documented
+  After: `golden-output-shape.test.ts` executes the 43
+  sites in its registry scope and asserts the documented
   fields in the returned envelope (41 tests / 43 sites,
-  grep-derived fixtures, drift baseline 47/47/0); the
-  reconciled #735 contract is pinned as a golden test (+1,
-  18 total) asserting the seven documented fields.
+  grep-derived fixtures; all 8 `format_unleash_exit`
+  variants additionally pinned by tool==lib equivalence
+  with the renderer goldens); the four
+  `dispatch_review_runs` sites are pinned in
+  `dispatch-review-runs.test.ts` as golden tests across
+  every documented input variant — triage (the reconciled
+  #735 contract asserting the seven documented fields),
+  code-mode, and feedback-mode (+3, 20 total) — so the
+  drift baseline 47/47/0 holds per documented input.
 - **#707/#737 → Layer 3 (round-trips + command-contract
   pins).** The `write_unleash_summary` invocation went
   unpinned while finales shipped with null unleashSummary.
@@ -383,21 +402,26 @@ Exclusion: **#693** (advisor runs with empty profiles
 resolved no model) — resolved by the host-resolution fix, not
 a seam the three layers catch; motivation only.
 
-Aggregate: before 888 tests / 32 files → after 947 tests /
-34 files (+59 tests, +2 suites). Per layer: Layer 1 +20 (new
-suite); Layer 2 +41 (new suite) +1 (golden); Layer 3 +22 Go
+Aggregate: before 888 tests / 32 files (7557cfa) → 947
+tests / 34 files at the phase gates (+59 tests, +2 suites);
+the merged tree measures 985 tests / 35 files after follow-on
+branch commits and the feedback-round input-variant goldens
+(`npx vitest run`, re-verified). Per layer: Layer 1 +20 (new
+suite); Layer 2 +41 (new suite) +3 (goldens: triage #735,
+code-mode, feedback-mode); Layer 3 +22 Go
 subtests and +4 in-place round-trip assertions, against −3
 retired FR-004 assertions (`uf-finale.test.ts` 72 → 69 tests;
 the retired block covered 3 uf-finale tools and is superseded
 by 47-tool coverage).
 
-Final verification state (phase gates 1–5): `make lint` —
-0 issues; `go test -race -count=1 ./...` — 13 packages ok;
-`make plugin-test` — 34 files / 947 tests, coverage 94.95%
-statements / 87.33% branches / 98.54% functions / 95.15%
-lines; `openspec validate seam-verification --type change
---strict` — clean except the known benign
-`originating_issue` warning (identical on 16 prior changes).
+Final verification state (re-verified after the PR-783
+feedback round): `make lint` — 0 issues; `go test -race
+-count=1 ./...` — 13 packages ok; `make plugin-test` —
+35 files / 985 tests, coverage 95.05% statements / 87.45%
+branches / 98.58% functions / 95.24% lines; `openspec
+validate seam-verification --type change --strict` —
+clean except the known benign `originating_issue` warning
+(identical on 16 prior changes).
 
 ## Constitution alignment (task 5.5)
 
