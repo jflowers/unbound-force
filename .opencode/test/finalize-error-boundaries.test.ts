@@ -408,8 +408,9 @@ describe("finalize strict schema boundaries", () => {
   })
 
   it("rejects consolidate result-wrapper observability fields on the payload", async () => {
-    // consolidate_dispatch returns { ...result, proposals, warnings }:
-    // the observability added by this change rides on the result
+    // consolidate_dispatch returns { ...result, proposals?, warnings? }
+    // (each key omitted when empty — PR #776): the observability added by
+    // this change rides on the result
     // wrapper only. A caller that forwards those wrapper fields as
     // payload keys must be rejected — ReviewDispatchPayloadSchema is
     // strict at the root too.

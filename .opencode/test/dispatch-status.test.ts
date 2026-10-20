@@ -497,6 +497,7 @@ describe("consolidate_dispatch correlation_id (design D3)", () => {
     expect(payload.correlation_id).toBe(correlationId)
     expect(payload.verdict).toBe("APPROVE")
     expect(payload.run_counts.success).toBe(1)
-    expect(payload.warnings).toEqual([])
+    // No exclusions: the warnings key is omitted when empty (PR #776).
+    expect(payload.warnings).toBeUndefined()
   })
 })

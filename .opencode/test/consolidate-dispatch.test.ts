@@ -522,7 +522,7 @@ describe("consolidate_dispatch", () => {
     expect(finalizationResult.proposals).toBeUndefined()
   })
 
-  it("carries an empty warnings array when every run succeeds", async () => {
+  it("omits the warnings key when every run succeeds", async () => {
     await setupDispatchSession([
       runFixture({
         agent: "divisor-guard",
@@ -537,12 +537,12 @@ describe("consolidate_dispatch", () => {
     const result = await tool.execute({}, noopContext())
 
     const payload = JSON.parse(result.output)
-    // RD-FR-025 all-success scenario: consolidation matches the
-    // pre-requirement behavior and carries the stable empty warnings
-    // shape — no exclusion warning for successful runs.
+    // RD-FR-025 all-success scenario: no exclusion warning for successful
+    // runs, so the warnings key is omitted entirely — mirroring proposals
+    // (PR #776).
     expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
     expect(payload.findings).toHaveLength(1)
-    expect(payload.warnings).toEqual([])
+    expect(payload.warnings).toBeUndefined()
   })
 
   it("finalizes a mixed session whose failed run carried accepted submissions (issue #751)", async () => {
@@ -731,11 +731,32 @@ describe("consolidate_dispatch", () => {
     expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
   })
 
-  it("returns error when no dispatch session directory exists", async () => {
+  it("fails closed as not_found when no dispatch session exists for the session", async () => {
     const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
     const result = await tool.execute({}, noopContext())
 
-    expect(result.output).toContain("no dispatch session found")
+    // RD-FR-027: an unresolvable id fails closed with the same
+    // not_found envelope dispatch_status emits for the condition
+    // (PR #776), not a generic error string.
+    const payload = JSON.parse(result.output)
+    expect(payload.status).toBe("not_found")
+    expect(payload.message).toBe("no dispatch session for this session")
+    expect(payload.runs).toEqual([])
+  })
+
+  it("fails closed as not_found for a supplied correlation_id with no dispatch session directory", async () => {
+    const correlationId = randomUUID()
+    _getSessionCorrelationMap().set("consolidate-session", correlationId)
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    // Resolved-id shape mirrors dispatch_status: correlation_id echoed,
+    // no message key (PR #776).
+    const payload = JSON.parse(result.output)
+    expect(payload.status).toBe("not_found")
+    expect(payload.correlation_id).toBe(correlationId)
+    expect(payload.runs).toEqual([])
   })
 
   it("returns error when dispatch directory exists but has no run files", async () => {
@@ -1515,7 +1536,7 @@ describe("consolidate_dispatch", () => {
     cleanupDirs.push(projectRoot)
 
     // No proposals and no failed runs: the returned payload carries no
-    // observability data beyond the (always present) empty warnings array.
+    // observability data — the warnings key is omitted when empty (PR #776).
     const correlationId = await setupDispatchSession(
       [
         runFixture({
@@ -1541,9 +1562,10 @@ describe("consolidate_dispatch", () => {
     expect(returnedPayload.runs[0].workflow_verdict).toBe("NEEDS-CLARIFICATION")
     expect(returnedPayload.workflow_result).toEqual({ kind: "triage", value: "NEEDS-CLARIFICATION" })
 
-    // The result always carries the top-level warnings observability field
-    // (RD-FR-025 stable shape — empty when nothing was excluded), and may
-    // carry proposals. The finalizer payload schema is strict, so the
+    // The result carries the top-level warnings observability field when
+    // anything was excluded (RD-FR-025) and may carry proposals; both keys
+    // are omitted when empty (PR #776). The finalizer payload schema is
+    // strict, so the
     // caller strips those non-payload fields before external finalization
     // (the split the tool description documents); payload content itself is
     // submitted unmodified.

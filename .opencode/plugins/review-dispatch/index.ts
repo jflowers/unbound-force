@@ -2826,6 +2826,11 @@ function makeProvenance(
  *
  * Pure predicate over its arguments (Constitution IV — Testability): no
  * I/O, no clocks, no store access.
+ *
+ * @param result Raw executor result to evaluate.
+ * @param harvestedFindings Findings harvested from the child session's submission store.
+ * @param harvestedProposals Lesson proposals harvested from the child session's submission store.
+ * @returns True exactly when the failed run must be reclassified to success per RD-FR-026.
  */
 export function shouldReclassifyToSuccess(
   result: InvokeAgentResult,
@@ -2929,17 +2934,16 @@ function resolvePlanEntryRuntime(
  * consolidate_dispatch. `runData` is null when the run exited before child
  * execution (policy load, agent validation, or model resolution failure):
  * those early exits never wrote run files before the extraction and still
- * do not.
+ * do not. `persisted` records whether the run file actually reached disk;
+ * redispatch_failed_runs gates its success outcome on it (DR-FR-002).
  */
 export interface ExecuteDispatchRunOutcome {
   /** Raw executor result; caller-visible status/error preserved. */
   readonly result: InvokeAgentResult
-  /** Findings harvested from the child session's submission store. */
-  readonly harvestedFindings: readonly z.infer<typeof RunFindingSchema>[]
-  /** Lesson proposals harvested from the child session's submission store. */
-  readonly harvestedProposals: readonly LessonProposal[]
-  /** Persisted run record; null when the run exited before child execution. */
+  /** Run record for the run file; null when the run exited before child execution. */
   readonly runData: PersistedRunData | null
+  /** True iff the run file was written to disk; false for early exits and failed writes. */
+  readonly persisted: boolean
   /** Dispatch session correlation id the run was recorded under. */
   readonly correlation_id: string
   /** Run id; also embedded in runData whenever a run file was written. */
@@ -2959,7 +2963,9 @@ export interface ExecuteDispatchRunOutcome {
  * child session via the shared executeAgentSession executor; harvest
  * submitted findings and lesson proposals; apply the RD-FR-026
  * post-submission reclassification; and persist the run file to the
- * dispatch session directory (best effort). Every step is behavior-identical
+ * dispatch session directory atomically (best effort for
+ * dispatch_agent_run — the outcome's `persisted` flag records whether
+ * the write reached disk). Every step is behavior-identical
  * to the pre-extraction dispatchAgentRun body. Pre-execution failures
  * (policy_load_failed, unknown_agent, tier_model_unavailable,
  * host_model_unavailable, cancelled) return an outcome whose runData is
@@ -2969,7 +2975,7 @@ export interface ExecuteDispatchRunOutcome {
  * @param options Resolved run inputs: agent, prompt, model resolution, sequence, correlation id.
  * @param context Calling tool context used for the cancellation signal and host model resolution.
  * @param deps Injected planner dependencies, client, session context, and project root.
- * @returns The executor result, harvested submissions, persisted run record, and ids.
+ * @returns The executor result, run record, persistence flag, and ids.
  */
 export async function executeDispatchRun(
   options: ExecuteDispatchRunOptions,
@@ -2982,8 +2988,7 @@ export async function executeDispatchRun(
   const earlyExit = (result: InvokeAgentResult): ExecuteDispatchRunOutcome => ({
     result,
     runData: null,
-    harvestedFindings: [],
-    harvestedProposals: [],
+    persisted: false,
     correlation_id: options.correlationId,
     run_id: randomUUID(),
   })
@@ -3177,19 +3182,32 @@ export async function executeDispatchRun(
     // non-reclassified run — populated only at the RD-FR-026 hook above.
     post_submission_abort: postSubmissionAbort,
   }
+  let persisted = false
+  const dir = dispatchSessionDir(options.correlationId)
+  // Write-temp-then-rename keeps the active run file whole: a mid-write
+  // failure can never truncate it, and the .tmp suffix keeps the file
+  // invisible to the run-*.json discovery glob (PR #776, issue #751).
+  const activePath = join(dir, `run-${options.agent}.json`)
+  const tempPath = `${activePath}.${runId}.tmp`
   try {
-    const dir = dispatchSessionDir(options.correlationId)
     await mkdir(dir, { recursive: true })
-    await writeFile(join(dir, `run-${options.agent}.json`), JSON.stringify(runData, null, 2), "utf8")
+    await writeFile(tempPath, JSON.stringify(runData, null, 2), "utf8")
+    await rename(tempPath, activePath)
+    persisted = true
   } catch {
-    // Persistence is best-effort; the result is authoritative.
+    // Persistence is best-effort for dispatch_agent_run: the in-memory
+    // result stays authoritative. redispatch_failed_runs gates its
+    // success outcome on `persisted` and restores the prior run file
+    // when the replacement write failed (DR-FR-002, issue #751).
+    // Best-effort cleanup: a half-written temp file is inert to the
+    // run-*.json discovery glob but is removed when possible.
+    await unlink(tempPath).catch(() => {})
   }
 
   return {
     result,
     runData,
-    harvestedFindings,
-    harvestedProposals,
+    persisted,
     correlation_id: options.correlationId,
     run_id: runId,
   }
@@ -3668,11 +3686,12 @@ export function createConsolidateDispatchTool(
       // Resolve the correlation_id: an explicit parameter takes precedence over
       // the session map — set by prior dispatch_agent_run calls — per design D3
       // (task 4.1), so consolidation can recover a dispatch from a fresh parent
-      // session (issue #751). When neither resolves, the pre-existing
-      // fail-closed error is preserved unchanged.
+      // session (issue #751). When neither resolves, the tool fails closed as
+      // not_found with the same envelope dispatch_status emits for the
+      // condition (RD-FR-027, PR #776).
       const correlationId = input.correlation_id ?? sessionCorrelationMap.get(context.sessionID)
       if (correlationId === undefined) {
-        return { output: "consolidate_dispatch error: no dispatch session found for this session; call dispatch_agent_run first" }
+        return { output: JSON.stringify({ status: "not_found", message: "no dispatch session for this session", runs: [] }) }
       }
 
       // Load session metadata persisted by dispatch_agent_run (latest
@@ -3687,6 +3706,20 @@ export function createConsolidateDispatchTool(
         }
         sessionMetadata = parsed2.data
       } catch {
+        // Distinguish a correlation id that resolves to no session on disk
+        // (fail closed as not_found, mirroring the dispatch_status envelope
+        // per RD-FR-027) from a session directory that exists but carries no
+        // metadata file (an actionable error: re-supply session metadata).
+        let sessionDirExists = false
+        try {
+          await readdir(dir)
+          sessionDirExists = true
+        } catch {
+          sessionDirExists = false
+        }
+        if (!sessionDirExists) {
+          return { output: JSON.stringify({ status: "not_found", correlation_id: correlationId, runs: [] }) }
+        }
         return {
           output:
             "consolidate_dispatch error: no session metadata found; pass session_metadata on a dispatch_agent_run call",
@@ -3696,7 +3729,7 @@ export function createConsolidateDispatchTool(
       // Read all run files from the dispatch session directory.
       const readResults = await readRunFiles(dir)
       if (readResults === null) {
-        return { output: `consolidate_dispatch error: no dispatch session directory found for correlation_id ${correlationId}` }
+        return { output: JSON.stringify({ status: "not_found", correlation_id: correlationId, runs: [] }) }
       }
 
       if (readResults.length === 0) {
@@ -3855,7 +3888,8 @@ export function createConsolidateDispatchTool(
           output: JSON.stringify(
             // warnings ride along on the finalization wrapper only — the
             // payload handed to finalizeReviewDispatch stays schema-exact.
-            { ...result, proposals: collectedProposals.length > 0 ? collectedProposals : undefined, warnings },
+            // The key is omitted when empty, mirroring proposals (PR #776).
+            { ...result, proposals: collectedProposals.length > 0 ? collectedProposals : undefined, warnings: warnings.length > 0 ? warnings : undefined },
             null,
             2,
           ),
@@ -3866,8 +3900,8 @@ export function createConsolidateDispatchTool(
         output: JSON.stringify(
           // The payload stays schema-exact; warnings (and proposals) are
           // result-level observability the caller strips before external
-          // finalization.
-          { ...payload, proposals: collectedProposals.length > 0 ? collectedProposals : undefined, warnings },
+          // finalization. Both keys are omitted when empty (PR #776).
+          { ...payload, proposals: collectedProposals.length > 0 ? collectedProposals : undefined, warnings: warnings.length > 0 ? warnings : undefined },
           null,
           2,
         ),
@@ -5365,6 +5399,23 @@ function createDiscardOrphanedSubmissionsTool(): ReturnType<typeof tool> {
       // shares its audit timestamp.
       const discardedAt = new Date().toISOString()
 
+      // Single construction point for per-run results (PR #776): every
+      // branch routes through one builder owning the no-change defaults,
+      // so a hand-repeated literal cannot drift from the result contract.
+      const discardResult = (
+        agent: string,
+        runId: string | null,
+        status: DiscardRunStatus,
+        fields: Partial<DiscardRunResult> = {},
+      ): DiscardRunResult => ({
+        agent,
+        run_id: runId,
+        status,
+        discarded_findings: 0,
+        discarded_proposals: 0,
+        ...fields,
+      })
+
       for (const { file, run } of targets) {
         // Refuse successful runs (DR-FR-001): the request for this run is
         // rejected and the file is left untouched. Per-run refusal, not a
@@ -5372,14 +5423,9 @@ function createDiscardOrphanedSubmissionsTool(): ReturnType<typeof tool> {
         // recovery of the remaining failed runs — with the refusal kept
         // machine-readable in the summary.
         if (run.status === "success") {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            status: "refused",
-            discarded_findings: 0,
-            discarded_proposals: 0,
+          results.push(discardResult(run.agent, run.run_id, "refused", {
             reason: 'run status is "success"; successful runs are never discard targets (DR-FR-001)',
-          })
+          }))
           continue
         }
 
@@ -5389,13 +5435,7 @@ function createDiscardOrphanedSubmissionsTool(): ReturnType<typeof tool> {
         // keeps a repeated discard idempotent and preserves any prior
         // discarded_submissions audit block.
         if (run.findings.length === 0 && run.proposals.length === 0) {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            status: "no_orphaned_submissions",
-            discarded_findings: 0,
-            discarded_proposals: 0,
-          })
+          results.push(discardResult(run.agent, run.run_id, "no_orphaned_submissions"))
           continue
         }
 
@@ -5416,50 +5456,43 @@ function createDiscardOrphanedSubmissionsTool(): ReturnType<typeof tool> {
             note: "Orphaned submissions discarded per DR-FR-001 (fix-review-dispatch-recovery design D4, issue #751): this non-success run's harvested submissions could never contribute to consolidation (RD-FR-025 success scoping), so the operator discarded them to finalize the dispatch from its successful runs. The removed submissions are no longer recoverable from this file; only their counts are recorded here.",
           },
         }
+        // Write-temp-then-rename: a mid-write failure (crash, ENOSPC) can
+        // never truncate the active run file — an unreadable run file would
+        // strand the dispatch exactly as issue #751 describes. The .tmp
+        // suffix keeps the half-written file invisible to the run-*.json
+        // discovery glob.
+        const activePath = join(dir, file)
+        const tempPath = `${activePath}.${run.run_id}.tmp`
         try {
-          await writeFile(join(dir, file), JSON.stringify(rewritten, null, 2), "utf8")
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            status: "discarded",
+          await writeFile(tempPath, JSON.stringify(rewritten, null, 2), "utf8")
+          await rename(tempPath, activePath)
+          results.push(discardResult(run.agent, run.run_id, "discarded", {
             discarded_findings: run.findings.length,
             discarded_proposals: run.proposals.length,
-          })
+          }))
         } catch (error: unknown) {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            status: "error",
-            discarded_findings: 0,
-            discarded_proposals: 0,
+          // Best-effort cleanup of a half-written temp file; the active run
+          // file is untouched either way.
+          await unlink(tempPath).catch(() => {})
+          results.push(discardResult(run.agent, run.run_id, "error", {
             reason: `failed to rewrite ${file}: ${errorText(error)}`,
-          })
+          }))
         }
       }
 
       // Unreadable run files matching the requested scope: reported for
       // observability, never rewritten (status unverifiable — fail-safe).
       for (const agent of scopedUnreadableAgents(unreadableFiles, filter)) {
-        results.push({
-          agent,
-          run_id: null,
-          status: "unreadable",
-          discarded_findings: 0,
-          discarded_proposals: 0,
+        results.push(discardResult(agent, null, "unreadable", {
           reason: "run file could not be read or parsed; left untouched",
-        })
+        }))
       }
 
       // Named agents with no run file at all: one not_found entry each.
       for (const agent of missingAgentNames(input.agents, results.map((result) => result.agent))) {
-        results.push({
-          agent,
-          run_id: null,
-          status: "not_found",
-          discarded_findings: 0,
-          discarded_proposals: 0,
+        results.push(discardResult(agent, null, "not_found", {
           reason: "no run file for this agent in the dispatch session directory",
-        })
+        }))
       }
 
       const summary: DiscardOrphanedSubmissionsSummary = {
@@ -5603,11 +5636,13 @@ interface RedispatchFailedRunsSummary {
  * Successful runs — including post-submission-abort reclassifications whose
  * files say "success" — are never re-run; a run named in the agents filter
  * whose status is not "failed" is refused per run. A re-run that exits
- * BEFORE writing a replacement run file — a pre-execution early exit
- * (runData null, e.g. tier_model_unavailable) or an unexpected
- * executeDispatchRun throw — restores the archived prior file to its
- * active path, returning the session to its pre-attempt state: the prior
- * failed run is active again and consolidatable via RD-FR-025 exclusion.
+ * BEFORE producing a persisted replacement run file — a pre-execution
+ * early exit (runData null, e.g. tier_model_unavailable), an unexpected
+ * executeDispatchRun throw, or a replacement whose run-file write never
+ * reached disk (the outcome's persisted flag is false) — restores the
+ * archived prior file to its active path, returning the session to its
+ * pre-attempt state: the prior failed run is active again and
+ * consolidatable via RD-FR-025 exclusion.
  * Reported as the distinct "early_exit" (or "error") outcome noting the
  * restoration in the reason. Runs whose files predate prompt persistence
  * (no persisted prompt) or whose original plan entry no longer matches
@@ -5623,9 +5658,9 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       "entry (model, tier, variant, sequence, source, read-only) through the identical dispatch execution path; " +
       "sibling evidence is embedded in the reused prompt. The prior run file is moved to a superseded/ subdirectory " +
       "before the replacement is written, so each plan entry keeps exactly one active run file (replacement, not " +
-      "duplication) while the archive preserves the audit trail. A re-run that exits before child execution (or whose " +
-      "execution throws) renames the archived prior file back to its active path, so the session returns to its " +
-      "pre-attempt state and stays consolidatable. A re-run that succeeds contributes to " +
+      "duplication) while the archive preserves the audit trail. A re-run that exits before child execution, throws, " +
+      "or fails to persist its replacement run file renames the archived prior file back to its active path, so the " +
+      "session returns to its pre-attempt state and stays consolidatable. A re-run that succeeds contributes to " +
       "consolidation; one that fails again is handled by RD-FR-025 exclusion at consolidation. Successful runs " +
       "(including post-submission-abort reclassifications) are never re-run. correlation_id is required — the " +
       "recovery operator typically runs from a fresh parent session after a restart.",
@@ -5722,6 +5757,26 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       const supersededDir = join(dir, "superseded")
       const results: RedispatchRunResult[] = []
 
+      // Single construction point for per-run results (PR #776): every
+      // branch routes through one builder owning the no-change defaults,
+      // so a hand-repeated literal cannot drift from the result contract.
+      const redispatchResult = (
+        agent: string,
+        runId: string | null,
+        outcome: RedispatchRunOutcome,
+        fields: Partial<RedispatchRunResult> = {},
+      ): RedispatchRunResult => ({
+        agent,
+        run_id: runId,
+        outcome,
+        superseded_run_file: null,
+        new_run_id: null,
+        new_status: null,
+        findings: 0,
+        proposals: 0,
+        ...fields,
+      })
+
       for (const { file, run } of ordered) {
         // Refuse non-failed runs (DR-FR-002): only failed runs are redispatch
         // targets — runs reclassified per RD-FR-026 say "success" and are
@@ -5729,17 +5784,9 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         // mis-scoped agent name must not block recovery of the remaining
         // failed runs.
         if (run.status !== "failed") {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            outcome: "refused",
-            superseded_run_file: null,
-            new_run_id: null,
-            new_status: null,
-            findings: 0,
-            proposals: 0,
+          results.push(redispatchResult(run.agent, run.run_id, "refused", {
             reason: `run status is "${run.status}"; only failed runs are redispatch targets (DR-FR-002)`,
-          })
+          }))
           continue
         }
 
@@ -5758,17 +5805,9 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
             entry.decision === "include",
         )
         if (planEntry === undefined) {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            outcome: "no_plan_entry",
-            superseded_run_file: null,
-            new_run_id: null,
-            new_status: null,
-            findings: 0,
-            proposals: 0,
+          results.push(redispatchResult(run.agent, run.run_id, "no_plan_entry", {
             reason: `no included plan entry matches ${run.agent}/${run.source}/${run.sequence} in the session metadata; DR-FR-002 requires reusing the original plan entry`,
-          })
+          }))
           continue
         }
 
@@ -5777,17 +5816,9 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         // reported per run, no archive move (fail-soft).
         const promptText = run.prompt
         if (typeof promptText !== "string") {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            outcome: "missing_prompt",
-            superseded_run_file: null,
-            new_run_id: null,
-            new_status: null,
-            findings: 0,
-            proposals: 0,
+          results.push(redispatchResult(run.agent, run.run_id, "missing_prompt", {
             reason: "run file predates prompt persistence (fix-review-dispatch-recovery task 5.1); the original prompt is unavailable",
-          })
+          }))
           continue
         }
 
@@ -5804,17 +5835,9 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           await mkdir(supersededDir, { recursive: true })
           await rename(join(dir, file), join(supersededDir, supersededName))
         } catch (error: unknown) {
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            outcome: "error",
-            superseded_run_file: null,
-            new_run_id: null,
-            new_status: null,
-            findings: 0,
-            proposals: 0,
+          results.push(redispatchResult(run.agent, run.run_id, "error", {
             reason: `failed to archive prior run file to superseded/: ${errorText(error)}`,
-          })
+          }))
           continue
         }
 
@@ -5852,32 +5875,42 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           if (outcome.runData === null) {
             const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
             if (restore.restored) {
-              results.push({
-                agent: run.agent,
-                run_id: run.run_id,
-                outcome: "early_exit",
-                superseded_run_file: null,
-                new_run_id: null,
-                new_status: null,
-                findings: 0,
-                proposals: 0,
+              results.push(redispatchResult(run.agent, run.run_id, "early_exit", {
                 reason: `the re-run exited before child execution, so no replacement run file was written; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
                 error: outcome.result.error ?? undefined,
-              })
+              }))
               continue
             }
-            results.push({
-              agent: run.agent,
-              run_id: run.run_id,
-              outcome: "error",
+            results.push(redispatchResult(run.agent, run.run_id, "error", {
               superseded_run_file: `superseded/${supersededName}`,
-              new_run_id: null,
-              new_status: null,
-              findings: 0,
-              proposals: 0,
               reason: `the re-run exited before child execution and the prior run file could not be restored from superseded/${supersededName} to ${file} (${errorText(restore.error)}); operator intervention required — the agent has no active run file and the prior run is preserved in the superseded archive`,
               error: outcome.result.error ?? undefined,
-            })
+            }))
+            continue
+          }
+
+          // Persistence gate (PR #776, DR-FR-002): a replacement that never
+          // reached disk must not report redispatched. The in-memory runData
+          // is not a persistence-success signal; a silently-swallowed write
+          // failure would leave the agent with no active run file (the prior
+          // is archived under superseded/, invisible to the discovery glob),
+          // recreating the issue #751 stranding. Treat a failed replacement
+          // write exactly like the throw path: restore the archived prior
+          // file, else surface operator-intervention-required.
+          if (!outcome.persisted) {
+            const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
+            if (restore.restored) {
+              results.push(redispatchResult(run.agent, run.run_id, "error", {
+                reason: `the replacement run file could not be persisted; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
+                error: outcome.result.error ?? undefined,
+              }))
+              continue
+            }
+            results.push(redispatchResult(run.agent, run.run_id, "error", {
+              superseded_run_file: `superseded/${supersededName}`,
+              reason: `the replacement run file could not be persisted and the prior run file could not be restored from superseded/${supersededName} to ${file} (${errorText(restore.error)}); operator intervention required — the agent has no active run file and the prior run is preserved in the superseded archive`,
+              error: outcome.result.error ?? undefined,
+            }))
             continue
           }
 
@@ -5885,17 +5918,14 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           // persisted status (post-RD-FR-026 reclassification) is reported
           // as new_status: a re-run that fails again is handled by RD-FR-025
           // exclusion at consolidation, not here.
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            outcome: "redispatched",
+          results.push(redispatchResult(run.agent, run.run_id, "redispatched", {
             superseded_run_file: `superseded/${supersededName}`,
             new_run_id: outcome.runData.run_id,
             new_status: outcome.runData.status,
             findings: outcome.runData.findings.length,
             proposals: outcome.runData.proposals.length,
             error: outcome.runData.error ?? undefined,
-          })
+          }))
         } catch (error: unknown) {
           // The shared core threw without writing a replacement run file:
           // restore the archived prior file to its active path so the
@@ -5903,62 +5933,31 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           // left with no active run file for this plan entry.
           const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
           if (restore.restored) {
-            results.push({
-              agent: run.agent,
-              run_id: run.run_id,
-              outcome: "error",
-              superseded_run_file: null,
-              new_run_id: null,
-              new_status: null,
-              findings: 0,
-              proposals: 0,
+            results.push(redispatchResult(run.agent, run.run_id, "error", {
               reason: `executeDispatchRun threw: ${errorText(error)}; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
-            })
+            }))
             continue
           }
-          results.push({
-            agent: run.agent,
-            run_id: run.run_id,
-            outcome: "error",
+          results.push(redispatchResult(run.agent, run.run_id, "error", {
             superseded_run_file: `superseded/${supersededName}`,
-            new_run_id: null,
-            new_status: null,
-            findings: 0,
-            proposals: 0,
             reason: `executeDispatchRun threw: ${errorText(error)}; restoring the prior run file from superseded/${supersededName} to ${file} failed: ${errorText(restore.error)}; operator intervention required — the agent has no active run file and the prior run is preserved in the superseded archive`,
-          })
+          }))
         }
       }
 
       // Unreadable run files matching the requested scope: reported for
       // observability, never executed (status unverifiable — fail-safe).
       for (const agent of scopedUnreadableAgents(unreadableFiles, filter)) {
-        results.push({
-          agent,
-          run_id: null,
-          outcome: "unreadable",
-          superseded_run_file: null,
-          new_run_id: null,
-          new_status: null,
-          findings: 0,
-          proposals: 0,
+        results.push(redispatchResult(agent, null, "unreadable", {
           reason: "run file could not be read or parsed; left untouched",
-        })
+        }))
       }
 
       // Named agents with no run file at all: one not_found entry each.
       for (const agent of missingAgentNames(input.agents, results.map((result) => result.agent))) {
-        results.push({
-          agent,
-          run_id: null,
-          outcome: "not_found",
-          superseded_run_file: null,
-          new_run_id: null,
-          new_status: null,
-          findings: 0,
-          proposals: 0,
+        results.push(redispatchResult(agent, null, "not_found", {
           reason: "no run file for this agent in the dispatch session directory",
-        })
+        }))
       }
 
       const summary: RedispatchFailedRunsSummary = {

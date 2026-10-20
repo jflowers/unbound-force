@@ -5,7 +5,8 @@
 // RD-FR-007 fail-closed preserved).
 //
 // This file absorbs and replaces the transient task-6.2 smoke checks
-// (scratch-redispatch-smoke.test.ts, deleted in this same change). Every
+// (scratch-redispatch-smoke.test.ts, a transient scratch file that was
+// never committed to the branch). Every
 // scenario the smoke file pinned — input validation, not_found,
 // fail-closed missing session metadata, replacement-not-duplication,
 // refusal of named non-failed runs, missing_prompt, no_plan_entry,
@@ -377,7 +378,7 @@ describe("discard_orphaned_submissions", () => {
       expect(payload.run_counts.success).toBe(3)
       expect(payload.findings).toHaveLength(1)
       expect(payload.findings[0].run_ids).toEqual([guardRun.run_id])
-      expect(payload.warnings).toEqual([])
+      expect(payload.warnings).toBeUndefined()
 
       const finalized = JSON.parse(
         (await hooks.tool.consolidate_dispatch.execute(finalizeArgs(correlationId), noopContext())).output,
@@ -385,7 +386,7 @@ describe("discard_orphaned_submissions", () => {
       expect(finalized.status).toBe("success")
       expect(finalized.operation_verdict).toBe("APPROVE WITH ADVISORIES")
       expect(finalized.errors).toEqual([])
-      expect(finalized.warnings).toEqual([])
+      expect(finalized.warnings).toBeUndefined()
     })
   })
 
@@ -612,7 +613,11 @@ describe("discard_orphaned_submissions", () => {
     const { correlationId, dir } = await setupSession([failedRun], [planEntry("divisor-scribe", { sequence: 1 })])
     const runPath = join(dir, "run-divisor-scribe.json")
     const before = await readFile(runPath, "utf8")
-    await chmod(runPath, 0o444)
+    // The rewrite is atomic (write-temp-then-rename), so a read-only run
+    // file no longer blocks it: rename only needs directory write
+    // permission. A read-only session directory blocks the temp write
+    // itself, failing the rewrite while leaving the original intact.
+    await chmod(dir, 0o555)
     try {
       await withBun(async () => {
         const project = await scratchProject()
@@ -635,7 +640,7 @@ describe("discard_orphaned_submissions", () => {
         expect(await readFile(runPath, "utf8")).toBe(before)
       })
     } finally {
-      await chmod(runPath, 0o644)
+      await chmod(dir, 0o755)
     }
   })
 
@@ -668,7 +673,7 @@ describe("discard_orphaned_submissions", () => {
       expect(finalized.errors.length).toBeGreaterThan(0)
       // The submissions are gone, so no orphaned-submission warning rides
       // along — but the verdict stays fail-closed.
-      expect(finalized.warnings).toEqual([])
+      expect(finalized.warnings).toBeUndefined()
     })
   })
 })
@@ -806,7 +811,7 @@ describe("redispatch_failed_runs", () => {
       )
       expect(payload.run_counts.total).toBe(2)
       expect(payload.run_counts.success).toBe(2)
-      expect(payload.warnings).toEqual([])
+      expect(payload.warnings).toBeUndefined()
 
       // Consolidation uses the original success plus the replacement, and
       // the dispatch finalizes.
@@ -1193,6 +1198,55 @@ describe("redispatch_failed_runs", () => {
       expect(finalized.status).toBe("success")
       expect(finalized.operation_verdict).toBe("APPROVE")
       expect(finalized.errors).toEqual([])
+    })
+  })
+
+  it("reports an error outcome when the replacement run file cannot be persisted", async () => {
+    // DR-FR-002 persistence gate (PR #776): a replacement whose run-file
+    // write never reached disk must not report redispatched. The child
+    // prompt flips the session directory read-only after the archive
+    // step, so the replacement write fails AND the prior file cannot be
+    // restored out of superseded/ — the operator-intervention branch.
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [planEntry("divisor-guard")])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const base = fakeClient()
+      const client = {
+        session: {
+          ...base.session,
+          prompt: async (...args: never[]) => {
+            await chmod(dir, 0o555)
+            return base.session.prompt(...args)
+          },
+        },
+      } as unknown as Parameters<typeof activate>[0]
+      const hooks = await activate(client, project)
+
+      try {
+        const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+        const data = JSON.parse(result.output)
+        expect(data.status).toBe("ok")
+        expect(data.redispatched_runs).toBe(0)
+        expect(data.runs).toHaveLength(1)
+        expect(data.runs[0].outcome).toBe("error")
+        expect(data.runs[0].run_id).toBe(guardRun.run_id)
+        expect(data.runs[0].new_run_id).toBeNull()
+        expect(data.runs[0].new_status).toBeNull()
+        expect(data.runs[0].superseded_run_file).toBe(`superseded/run-divisor-guard-${guardRun.run_id}.json`)
+        expect(data.runs[0].reason).toContain("could not be persisted")
+        expect(data.runs[0].reason).toContain("operator intervention required")
+      } finally {
+        // Cleanup needs a writable directory (afterEach rm's it).
+        await chmod(dir, 0o755)
+      }
+
+      // The agent has no active run file — the prior run survives only
+      // in the superseded archive, and the result says so instead of
+      // claiming a redispatch that never reached disk.
+      expect((await readdir(dir)).filter((f) => f.startsWith("run-") && f.endsWith(".json"))).toEqual([])
+      expect(await readdir(join(dir, "superseded"))).toEqual([`run-divisor-guard-${guardRun.run_id}.json`])
     })
   })
 
