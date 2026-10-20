@@ -151,3 +151,11 @@ re-dispatches (fix loops) run against the current plan.
   (e.g. a fix-loop re-dispatch with a refreshed plan)
 - **THEN** the supplied metadata is persisted for the session,
   replacing the earlier metadata file
+
+#### Scenario: Malformed correlation id rejected
+
+- **GIVEN** a recovery tool call whose explicit correlation id is
+  not a valid UUID
+- **WHEN** the tool validates its input
+- **THEN** the call fails closed with a validation error before any
+  session resolution is attempted
