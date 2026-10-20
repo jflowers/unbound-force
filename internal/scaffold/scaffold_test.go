@@ -181,6 +181,23 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	demoNextSteps := between(t, command, "4. **Next Steps**:", "Then persist the summary")
 	stepTenPersistence := between(t, command, "Then persist the summary", "## Guardrails")
 
+	// Step-heading-anchored spans for the seam pins below. Each
+	// span covers one pipeline step (or one review-dispatch
+	// sequence) so every pin proves the tool is invoked by its
+	// consuming step, not merely mentioned elsewhere in the
+	// command.
+	progressTracking := between(t, command, "### TodoWrite Progress Tracking", "### 0. Startup Cleanup")
+	startupCleanup := between(t, command, "### 0. Startup Cleanup", "### 1. Branch Safety Gate")
+	branchGateStep := between(t, command, "### 1. Branch Safety Gate", "### 2. Resumability Detection")
+	resumeDetection := between(t, command, "### 2. Resumability Detection", "### 3. Step 1 -- Clarify")
+	clarifyStep := between(t, command, "### 3. Step 1 -- Clarify", "### 4. Step 2 -- Plan")
+	specReviewDispatch := between(t, command, "### 6. Step 4 -- Spec Review", "**Processing results**")
+	implementExecution := between(t, command, "### 7. Step 5 -- Implement", "### 8. Step 6 -- Code Review")
+	codeReviewDispatch := between(t, command, "### 8. Step 6 -- Code Review", "**Processing results**")
+	codeReviewStep := between(t, command, "### 8. Step 6 -- Code Review", "### 9. Step 7 -- Retrospective")
+	retrospectiveStep := between(t, command, "### 9. Step 7 -- Retrospective", "### 10. Step 8 -- Demo")
+	demoCompletion := between(t, command, "### 10. Step 8 -- Demo", "## Guardrails")
+
 	t.Run("spec review exit routes through format_unleash_exit", func(t *testing.T) {
 		if !strings.Contains(specReviewExit, "format_unleash_exit") {
 			t.Error("spec review exit missing format_unleash_exit call")
@@ -324,6 +341,381 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		}
 		if strings.Contains(command, "Format the output as:") {
 			t.Error("command still carries the hand-rolled demo output template")
+		}
+	})
+
+	// Pin: resume re-initialization reads persisted state
+	// through get_progress before rebuilding the TodoWrite list.
+	t.Run("progress tracking re-initializes through get_progress", func(t *testing.T) {
+		if !strings.Contains(progressTracking, "get_progress") {
+			t.Error("progress tracking section missing get_progress invocation")
+		}
+		if !strings.Contains(progressTracking, `command: "uf.unleash"`) {
+			t.Error("progress tracking get_progress invocation missing command parameter")
+		}
+		for _, field := range []string{"completed_steps", "current_step"} {
+			if !strings.Contains(progressTracking, field) {
+				t.Errorf("progress tracking get_progress consumption missing %s result field", field)
+			}
+		}
+	})
+
+	// Pin: startup cleanup enumerates and clears stale worktrees
+	// through the forge worktree tools before any pipeline logic.
+	t.Run("startup cleanup routes through the forge worktree tools", func(t *testing.T) {
+		if !strings.Contains(startupCleanup, "forge_worktree_list") {
+			t.Error("startup cleanup missing forge_worktree_list invocation")
+		}
+		if !strings.Contains(startupCleanup, "forge_worktree_cleanup") {
+			t.Error("startup cleanup missing forge_worktree_cleanup invocation")
+		}
+		if !strings.Contains(startupCleanup, "cleanup_all: true") {
+			t.Error("startup cleanup forge_worktree_cleanup invocation missing cleanup_all parameter")
+		}
+	})
+
+	// Pin: the branch safety gate is the parameterless
+	// uf_unleash_branch_gate call whose payload sets the tier
+	// and feature directory for the whole pipeline.
+	t.Run("branch safety gate routes through uf_unleash_branch_gate", func(t *testing.T) {
+		if !strings.Contains(branchGateStep, "uf_unleash_branch_gate") {
+			t.Error("branch safety gate missing uf_unleash_branch_gate invocation")
+		}
+		if !strings.Contains(branchGateStep, "(no parameters)") {
+			t.Error("branch safety gate invocation must remain parameterless")
+		}
+		for _, field := range []string{"workflow_tier", "feature_dir"} {
+			if !strings.Contains(branchGateStep, field) {
+				t.Errorf("branch safety gate payload consumption missing %s field", field)
+			}
+		}
+	})
+
+	// Pin: resumability detection routes through
+	// uf_unleash_detect_resume with the tier-resolved inputs.
+	t.Run("resumability detection routes through uf_unleash_detect_resume", func(t *testing.T) {
+		if !strings.Contains(resumeDetection, "uf_unleash_detect_resume") {
+			t.Error("resumability detection missing uf_unleash_detect_resume invocation")
+		}
+		for _, param := range []string{"feature_dir: FEATURE_DIR", "workflow_tier: WORKFLOW_TIER"} {
+			if !strings.Contains(resumeDetection, param) {
+				t.Errorf("resumability detection invocation missing %s parameter", param)
+			}
+		}
+		for _, field := range []string{"step_statuses", "resume_from", "all_complete", "unchecked_count"} {
+			if !strings.Contains(resumeDetection, field) {
+				t.Errorf("resumability detection consumption missing %s result field", field)
+			}
+		}
+	})
+
+	// Pin: the clarify step scans markers, queries Dewey when
+	// available, and resolves questions through the dedicated
+	// clarification tools rather than hand-rolled spec edits.
+	t.Run("clarify routes through scan_clarifications and resolve_clarification", func(t *testing.T) {
+		if !strings.Contains(clarifyStep, "scan_clarifications") {
+			t.Error("clarify step missing scan_clarifications invocation")
+		}
+		if !strings.Contains(clarifyStep, "resolve_clarification") {
+			t.Error("clarify step missing resolve_clarification invocation")
+		}
+		if !strings.Contains(clarifyStep, "dewey_semantic_search") {
+			t.Error("clarify step missing dewey_semantic_search availability probe")
+		}
+		for _, param := range []string{"feature_dir:", "question:", "answer:", "source:"} {
+			if !strings.Contains(clarifyStep, param) {
+				t.Errorf("clarify resolve_clarification invocation missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: the clarify exit renders through the
+	// format_unleash_exit clarify variant with the scanned
+	// question/context pairs.
+	t.Run("clarify exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(clarifyStep, "format_unleash_exit") {
+			t.Error("clarify exit missing format_unleash_exit call")
+		}
+		if !strings.Contains(clarifyStep, `variant: "clarify"`) {
+			t.Error("clarify exit missing clarify variant")
+		}
+		if !strings.Contains(clarifyStep, "questions: [{question, context}, ...]") {
+			t.Error("clarify exit missing questions parameter")
+		}
+	})
+
+	// Pin: both review steps resolve their immutable base ref
+	// through the offline resolve_base_ref tool.
+	t.Run("review dispatch resolves the base ref through resolve_base_ref", func(t *testing.T) {
+		if !strings.Contains(specReviewDispatch, "resolve_base_ref") {
+			t.Error("spec review dispatch missing resolve_base_ref invocation")
+		}
+		if !strings.Contains(codeReviewDispatch, "resolve_base_ref") {
+			t.Error("code review dispatch missing resolve_base_ref invocation")
+		}
+		if !strings.Contains(specReviewDispatch, "(no network access)") ||
+			!strings.Contains(codeReviewDispatch, "(no network access)") {
+			t.Error("resolve_base_ref invocation lost the no-network-access contract")
+		}
+	})
+
+	// Pin: both review steps plan their dispatch through
+	// plan_review_dispatch with the mode-specific plan inputs.
+	t.Run("review dispatch plans through plan_review_dispatch", func(t *testing.T) {
+		if !strings.Contains(specReviewDispatch, "plan_review_dispatch") {
+			t.Error("spec review dispatch missing plan_review_dispatch invocation")
+		}
+		if !strings.Contains(codeReviewDispatch, "plan_review_dispatch") {
+			t.Error("code review dispatch missing plan_review_dispatch invocation")
+		}
+		if !strings.Contains(specReviewDispatch, "mode `specs`") {
+			t.Error("spec review plan_review_dispatch invocation missing specs mode")
+		}
+		if !strings.Contains(codeReviewDispatch, "mode `code`") {
+			t.Error("code review plan_review_dispatch invocation missing code mode")
+		}
+		for _, param := range []string{"full: false", "augment: false", "changed_files"} {
+			if !strings.Contains(specReviewDispatch, param) ||
+				!strings.Contains(codeReviewDispatch, param) {
+				t.Errorf("plan_review_dispatch invocation missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: both review steps fan out through dispatch_review_runs
+	// with the shared dispatch parameters and their
+	// mode-specific context.
+	t.Run("review dispatch runs reviewers through dispatch_review_runs", func(t *testing.T) {
+		if !strings.Contains(specReviewDispatch, "dispatch_review_runs") {
+			t.Error("spec review dispatch missing dispatch_review_runs invocation")
+		}
+		if !strings.Contains(codeReviewDispatch, "dispatch_review_runs") {
+			t.Error("code review dispatch missing dispatch_review_runs invocation")
+		}
+		for _, param := range []string{
+			"diff_path",
+			"changed_files",
+			"input_context",
+			"plan_entries",
+			"session_metadata",
+			"max_parallel_runs",
+			"budget_usd",
+			"per_run_timeout_ms",
+		} {
+			if !strings.Contains(specReviewDispatch, param) ||
+				!strings.Contains(codeReviewDispatch, param) {
+				t.Errorf("dispatch_review_runs invocation missing %s parameter", param)
+			}
+		}
+		if !strings.Contains(specReviewDispatch, "review_context") {
+			t.Error("spec review dispatch_review_runs invocation missing review_context parameter")
+		}
+		if !strings.Contains(codeReviewDispatch, "pre_flight_results") {
+			t.Error("code review dispatch_review_runs invocation missing pre_flight_results parameter")
+		}
+		if !strings.Contains(specReviewDispatch, "exactly once") ||
+			!strings.Contains(codeReviewDispatch, "exactly once") {
+			t.Error("dispatch_review_runs invocation lost the exactly-once contract")
+		}
+	})
+
+	// Pin: both review steps finalize through consolidate_dispatch
+	// with the review-council workflow provenance.
+	t.Run("review dispatch consolidates through consolidate_dispatch", func(t *testing.T) {
+		if !strings.Contains(specReviewDispatch, "consolidate_dispatch") {
+			t.Error("spec review dispatch missing consolidate_dispatch invocation")
+		}
+		if !strings.Contains(codeReviewDispatch, "consolidate_dispatch") {
+			t.Error("code review dispatch missing consolidate_dispatch invocation")
+		}
+		if !strings.Contains(specReviewDispatch, `workflow_id: "uf.review-council"`) ||
+			!strings.Contains(codeReviewDispatch, `workflow_id: "uf.review-council"`) {
+			t.Error("consolidate_dispatch invocation missing workflow_id provenance parameter")
+		}
+		if !strings.Contains(specReviewDispatch, "40-character head") ||
+			!strings.Contains(codeReviewDispatch, "40-character head") {
+			t.Error("consolidate_dispatch invocation missing head SHA provenance requirement")
+		}
+	})
+
+	// Pin: implement reads the task breakdown through parse_tasks
+	// before any delegation.
+	t.Run("implement parses tasks through parse_tasks", func(t *testing.T) {
+		if !strings.Contains(implementExecution, "parse_tasks") {
+			t.Error("implement step missing parse_tasks invocation")
+		}
+		if !strings.Contains(implementExecution, `tasks_path: FEATURE_DIR + "tasks.md"`) {
+			t.Error("implement parse_tasks invocation missing tasks_path parameter")
+		}
+		for _, field := range []string{"total_tasks", "done_count", "all_done"} {
+			if !strings.Contains(implementExecution, field) {
+				t.Errorf("implement parse_tasks consumption missing %s result field", field)
+			}
+		}
+	})
+
+	// Pin: implement records progress through mark_task_complete
+	// immediately after each successful delegation.
+	t.Run("implement marks tasks complete through mark_task_complete", func(t *testing.T) {
+		if !strings.Contains(implementExecution, "mark_task_complete") {
+			t.Error("implement step missing mark_task_complete invocation")
+		}
+		for _, param := range []string{"tasks_path:", "task_id:"} {
+			if !strings.Contains(implementExecution, param) {
+				t.Errorf("implement mark_task_complete invocation missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: parallel implement execution isolates workers through
+	// the forge worktree lifecycle tools.
+	t.Run("implement parallel workers route through the forge worktree tools", func(t *testing.T) {
+		for _, tool := range []string{
+			"forge_worktree_create",
+			"forge_spawn_subtask",
+			"forge_worktree_merge",
+			"forge_worktree_cleanup",
+		} {
+			if !strings.Contains(implementExecution, tool) {
+				t.Errorf("implement parallel execution missing %s invocation", tool)
+			}
+		}
+		if !strings.Contains(implementExecution, "task ID, and current commit hash") {
+			t.Error("implement forge_worktree_create invocation missing its parameter contract")
+		}
+		if !strings.Contains(implementExecution, "files from the task") {
+			t.Error("implement forge_spawn_subtask invocation missing its parameter contract")
+		}
+		if !strings.Contains(implementExecution, "cleanup_all: true") {
+			t.Error("implement forge_worktree_cleanup invocation missing cleanup_all parameter")
+		}
+	})
+
+	// Pin: worktree merges are verified through
+	// scan_conflict_markers before cleanup proceeds.
+	t.Run("implement scans merge residue through scan_conflict_markers", func(t *testing.T) {
+		if !strings.Contains(implementExecution, "scan_conflict_markers") {
+			t.Error("implement step missing scan_conflict_markers invocation")
+		}
+		if !strings.Contains(implementExecution, "paths: [files affected by the merge]") {
+			t.Error("implement scan_conflict_markers invocation missing paths parameter")
+		}
+	})
+
+	// Pin: the implement worker-failure exit renders through the
+	// format_unleash_exit implement-worker-failed variant.
+	t.Run("implement worker-failure exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(implementExecution, "format_unleash_exit") {
+			t.Error("implement step missing format_unleash_exit call")
+		}
+		if !strings.Contains(implementExecution, `variant: "implement-worker-failed"`) {
+			t.Error("implement step missing implement-worker-failed variant")
+		}
+		for _, param := range []string{
+			"phase: [phase number]",
+			"failed_task: [task ID and description]",
+			"error: [error details from worker]",
+		} {
+			if !strings.Contains(implementExecution, param) {
+				t.Errorf("implement worker-failure exit missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: the merge-conflict exit renders through the
+	// format_unleash_exit implement-merge-conflict variant.
+	t.Run("implement merge-conflict exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(implementExecution, `variant: "implement-merge-conflict"`) {
+			t.Error("implement step missing implement-merge-conflict variant")
+		}
+		for _, param := range []string{
+			"phase: [phase number]",
+			"conflicting_files: [paths from the scan result]",
+		} {
+			if !strings.Contains(implementExecution, param) {
+				t.Errorf("implement merge-conflict exit missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: the phase-checkpoint exit renders through the
+	// format_unleash_exit implement-phase-checkpoint variant.
+	t.Run("implement phase-checkpoint exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(implementExecution, `variant: "implement-phase-checkpoint"`) {
+			t.Error("implement step missing implement-phase-checkpoint variant")
+		}
+		for _, param := range []string{
+			"phase: [phase number]",
+			"failed_command: [the command that failed]",
+			"output: [error output]",
+		} {
+			if !strings.Contains(implementExecution, param) {
+				t.Errorf("implement phase-checkpoint exit missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: the code-review preflight exit renders through the
+	// format_unleash_exit code-review-preflight variant.
+	t.Run("code-review preflight exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(codeReviewStep, "format_unleash_exit") {
+			t.Error("code review step missing format_unleash_exit call")
+		}
+		if !strings.Contains(codeReviewStep, `variant: "code-review-preflight"`) {
+			t.Error("code review step missing code-review-preflight variant")
+		}
+		if !strings.Contains(codeReviewStep, "findings: [branch-caused failures with full output]") {
+			t.Error("code-review preflight exit missing findings parameter")
+		}
+	})
+
+	// Pin: the no-success exit renders through the
+	// format_unleash_exit code-review-no-success variant.
+	t.Run("code-review no-success exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(codeReviewStep, `variant: "code-review-no-success"`) {
+			t.Error("code review step missing code-review-no-success variant")
+		}
+		if !strings.Contains(codeReviewStep, "reasons: [which reviewers ran or failed, and why]") {
+			t.Error("code-review no-success exit missing reasons parameter")
+		}
+	})
+
+	// Pin: the iterations-exhausted exit renders through the
+	// format_unleash_exit code-review-iterations-exhausted
+	// variant.
+	t.Run("code-review iterations-exhausted exit routes through format_unleash_exit", func(t *testing.T) {
+		if !strings.Contains(codeReviewStep, `variant: "code-review-iterations-exhausted"`) {
+			t.Error("code review step missing code-review-iterations-exhausted variant")
+		}
+		for _, param := range []string{"persistent_findings:", "circular_dependencies:"} {
+			if !strings.Contains(codeReviewStep, param) {
+				t.Errorf("code-review iterations-exhausted exit missing %s parameter", param)
+			}
+		}
+	})
+
+	// Pin: the retrospective stores learnings through
+	// dewey_store_learning when Dewey is available.
+	t.Run("retrospective stores learnings through dewey_store_learning", func(t *testing.T) {
+		if !strings.Contains(retrospectiveStep, "dewey_store_learning") {
+			t.Error("retrospective missing dewey_store_learning invocation")
+		}
+		if !strings.Contains(retrospectiveStep, "If Dewey is available") {
+			t.Error("retrospective missing the Dewey availability guard")
+		}
+		if !strings.Contains(retrospectiveStep, "with tags including") {
+			t.Error("retrospective dewey_store_learning invocation missing tags parameter")
+		}
+	})
+
+	// Pin: pipeline completion clears the progress state through
+	// clear_progress.
+	t.Run("completion clears progress state through clear_progress", func(t *testing.T) {
+		if !strings.Contains(demoCompletion, "clear_progress") {
+			t.Error("pipeline completion missing clear_progress invocation")
+		}
+		if !strings.Contains(demoCompletion, `command: "uf.unleash"`) {
+			t.Error("completion clear_progress invocation missing command parameter")
 		}
 	})
 }

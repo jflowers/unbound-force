@@ -113,39 +113,6 @@ describe("UfFinalePlugin", () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tool definition args schema exposure (FR-004)
-// ---------------------------------------------------------------------------
-
-describe("uf_finale tool definition args schema exposure", () => {
-  const mockExec: GitExec = () => ""
-
-  it("exposes uf_finale_commit_context tool definition args: rawModelId", () => {
-    const definition = createUfFinaleCommitContextTool(mockExec, "/fake")
-
-    expect(Object.keys(definition.args).sort()).toEqual(["rawModelId"])
-  })
-
-  it("exposes uf_finale_create_pr tool definition args: title, body, targetRepo", () => {
-    const definition = createUfFinaleCreatePrTool(mockExec, "/fake")
-
-    expect(Object.keys(definition.args).sort()).toEqual([
-      "body",
-      "targetRepo",
-      "title",
-    ])
-  })
-
-  it("exposes uf_finale_ci_poll tool definition args: prNumber, timeoutMinutes", () => {
-    const definition = createUfFinaleCiPollTool(mockExec, "/fake")
-
-    expect(Object.keys(definition.args).sort()).toEqual([
-      "prNumber",
-      "timeoutMinutes",
-    ])
-  })
-})
-
-// ---------------------------------------------------------------------------
 // uf_finale_startup tests
 // ---------------------------------------------------------------------------
 
@@ -1255,6 +1222,22 @@ describe("uf_finale_pr_context", () => {
       expect(result.data?.unleashSummary?.tier).toBe("openspec")
       expect(result.data?.unleashSummary?.reviewVerdicts.codeReview?.verdict).toBe(
         "APPROVE WITH ADVISORIES",
+      )
+      // The remaining writer parameters (seam-verification 3.1): feature_dir
+      // renames to featureDir, and the review-gate/learnings structures
+      // survive the JSON round-trip intact — both nested verdicts keep
+      // their {verdict, iterations} shape with the snake_case gate keys
+      // renamed to specReview/codeReview, and the learnings path list
+      // arrives element-for-element.
+      expect(result.data?.unleashSummary?.featureDir).toBe(writerInput.feature_dir)
+      expect(result.data?.unleashSummary?.reviewVerdicts.specReview).toStrictEqual(
+        writerInput.review_verdicts.spec_review,
+      )
+      expect(result.data?.unleashSummary?.reviewVerdicts.codeReview).toStrictEqual(
+        writerInput.review_verdicts.code_review,
+      )
+      expect(result.data?.unleashSummary?.learningsStored).toStrictEqual(
+        writerInput.learnings_stored,
       )
     }
   })

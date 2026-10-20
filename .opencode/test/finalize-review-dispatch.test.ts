@@ -451,6 +451,15 @@ describe("finalize review dispatch persistence", () => {
     const raw = await readFile(result.artifact_path!, "utf8")
     const summary = parseReviewDispatchArtifact(raw, basename(result.artifact_path!))
     expect(summary).not.toBeNull()
+    // Coverage audit (seam-verification 3.2): the resume decision
+    // consumes exactly these summary fields — mode/branch select the
+    // artifact, writtenAt picks the most recent (source breaks ties),
+    // verdict feeds isApprovingVerdict, and headSha drives the
+    // code-equality / specs-ancestor freshness rules. The parser reads
+    // nothing else from the envelope (artifact_type is pinned by the
+    // non-null assertion; workflow_result is not consumed), so these
+    // six pins close the writer-reader seam; decision semantics over
+    // them live in unleash-resume.test.ts.
     expect(summary).toMatchObject({
       source: basename(result.artifact_path!),
       mode: payload.mode,

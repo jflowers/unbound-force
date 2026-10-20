@@ -19,6 +19,46 @@ Each entry follows the format: `- <change-name>: <summary>`.
   so `/uf.finale` emits `Closes #<N>` for every tier; and
   `WORKFLOW_TIERS` gaining `quick` across gate, resume, templates,
   and finale.
+- seam-verification: Added three test layers verifying the
+  seams prose→tool migrations create, plus pack rule DE-007
+  codifying the obligation. Layer 1 — registration
+  surface: new suite `.opencode/test/registration-surface.test.ts`
+  (20 tests) dynamically enumerates all 47 tools across
+  the four plugins, asserting presence, the biconditional
+  schema-non-empty-iff-declared property, and zod parity
+  between the TS and JSON-schema declarations; the
+  zod-shape fallback is covered structurally with a
+  documented transition condition. Layer 2 — documented
+  output shape: new suite `.opencode/test/golden-output-shape.test.ts`
+  (41 tests over 43 documented-output-shape sites across
+  uf-workflow/uf-finale/review-dispatch) executes each
+  documented tool call and asserts the documented fields
+  are present in the returned envelope; the fixture
+  inventory is grep-derived to prevent drift, and the
+  #735 golden contract is pinned in
+  `dispatch-review-runs.test.ts`. Layer 3 — round-trips
+  and command-contract pins: write→read round-trip
+  assertions in `uf-finale.test.ts` pin all 8 writer
+  parameters (including `review_verdicts` and
+  `learnings_stored`); the dispatch-artifact resume-parser
+  round-trip in `finalize-review-dispatch.test.ts`
+  confirms every consumed field pinned; and Go-side
+  command-contract pins expand `TestUnleashCommand_ToolRoutingContracts`
+  (`internal/scaffold/scaffold_test.go`) from 10 → 32
+  subtests — census-complete: every tool the `uf.unleash`
+  command text invokes is pinned or excluded as a
+  non-migration seam. Determinism pack
+  `.opencode/uf/packs/determinism.md` bumped 1.1.0 →
+  1.2.0, adding DE-007 [MUST] (seam verification: a
+  prose→tool migration increment must verify the seams
+  it creates in the same increment — registration
+  surface, documented output shape, round-trips;
+  tasks.md must include a seam-verification task naming
+  the three layers; violations are CRITICAL), with the
+  matching authoring-time hook in
+  `.opencode/skills/determinism-first/SKILL.md`. Pack and
+  skill remain repo-local; no scaffold-mirror changes.
+  (Spec: openspec/changes/seam-verification/, Refs: #765)
 - router-pattern-codification: Extended the determinism
   policy one level, from step-level extraction to
   sequence-level collapse (the Router Pattern: the agent

@@ -67,6 +67,15 @@ consumes them, so later readers can still recognize correct
 output. Behavioral guards written in prose are interim
 mitigations, not the mechanism of record.
 
+A prose→tool migration increment carries the discipline into
+planning: its `tasks.md` MUST include a seam-verification
+task naming the three layers — the registration surface
+(tool registration and input-schema parity), the documented
+output shape, and write→read round-trips. An increment whose
+seam tests are red or absent is not complete. Rule DE-007
+(`.opencode/uf/packs/determinism.md`) is the matching
+review rule.
+
 ## Chains Without Judgment Collapse Too
 
 Extraction does not stop at single steps. A fixed sequence of
@@ -103,5 +112,5 @@ output legitimately varies with context.
 - Constitution Principle VI, "Deterministic Execution"
   (`.specify/memory/constitution.md`)
 - "Determinism gate" Behavioral Rule in `AGENTS.md`
-- Review rules DE-001 through DE-006
+- Review rules DE-001 through DE-007
   (`.opencode/uf/packs/determinism.md`)

@@ -1,7 +1,7 @@
 ---
 pack_id: determinism
 language: Any
-version: 1.1.0
+version: 1.2.0
 ---
 
 <!-- repo-local governance pack (not a scaffold asset);
@@ -17,11 +17,11 @@ execute in tools rather than be re-reasoned from prose.
 
 Rules carry RFC 2119 markers with severity mapping to the
 severity pack. Violations of the [MUST] rules (DE-001,
-DE-003, DE-005) are CRITICAL findings; the [SHOULD] rules (DE-002,
-DE-004, DE-006) are guidance that is valuable but not universally
-applicable. The rules govern new and modified instruction;
-existing prose is migrated opportunistically at review time,
-not retroactively.
+DE-003, DE-005, DE-007) are CRITICAL findings; the [SHOULD] rules
+(DE-002, DE-004, DE-006) are guidance that is valuable but not
+universally applicable. The rules govern new and modified
+instruction; existing prose is migrated opportunistically at
+review time, not retroactively.
 
 ---
 
@@ -88,3 +88,19 @@ the required sequence of calls. Shipped precedent:
   inside the tool as constants or pure functions. A tool whose
   contract requires the agent to pre-compute its internal routing
   re-introduces the orchestration DE-005 removes.
+
+---
+
+## Seam Verification
+
+- **DE-007** [MUST] A prose→tool migration increment MUST
+  verify the seams it creates in the same increment: the
+  registration surface (tool registration plus input-schema
+  parity), the documented output shape, and write→read
+  round-trips. An increment whose seam tests are red or
+  absent is not complete. At authoring time, the increment's
+  tasks.md MUST include a seam-verification task naming the
+  three layers (registration surface, documented output
+  shape, round-trips). Shipped precedent: Layer 1
+  registration-surface tests, Layer 2 golden output-shape
+  tests, Layer 3 round-trip audits.
