@@ -943,7 +943,7 @@ Each entry follows the format: `- <change-name>: <summary>`.
   rollback testdata, Node engine range (^22.22.2 ||
   ^24.15.0 || >=26.0.0) declared in `engines` fields,
   AGENTS.md/README documentation) as
-  dedicated commit c3b24ca6, separate from the command-doc
+  dedicated commit 02b593e2, separate from the command-doc
   and plugin-tool commits. `make check` green (924 plugin
   tests, coverage 94.62%/87.2%). Supersedes the repo-wide
   1.4.10 pin from review-council-multi-model-fanout.

@@ -54,7 +54,7 @@ asset-prefix contract test.
 > `fix-triage-issue-dispatch-docs` change (maintainer-approved
 > 1.4.10 → 1.19.0 update with its full lockstep set —
 > `openspec/changes/fix-triage-issue-dispatch-docs/`, FR-007,
-> dedicated commit c3b24ca6). The remainder of this requirement
+> dedicated commit 02b593e2). The remainder of this requirement
 > (lockstep manifest tracking, MIT licenses, exact versions,
 > lock integrity hashes, verification gates, rollback) remains
 > in force against the current pin.
