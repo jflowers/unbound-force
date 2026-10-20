@@ -668,9 +668,12 @@ describe("discard_orphaned_submissions", () => {
       const finalized = JSON.parse(
         (await hooks.tool.consolidate_dispatch.execute(finalizeArgs(correlationId), noopContext())).output,
       )
-      expect(finalized.status).toBe("failed")
+      // fix-dispatch-verdict-derivation (issue #764): zero-success
+      // finalization persists an INCONCLUSIVE artifact instead of being
+      // rejected by a value mismatch — the verdict stays fail-closed.
+      expect(finalized.status).toBe("success")
       expect(finalized.operation_verdict).toBe("INCONCLUSIVE")
-      expect(finalized.errors.length).toBeGreaterThan(0)
+      expect(finalized.errors).toEqual([])
       // The submissions are gone, so no orphaned-submission warning rides
       // along — but the verdict stays fail-closed.
       expect(finalized.warnings).toBeUndefined()
@@ -1083,9 +1086,12 @@ describe("redispatch_failed_runs", () => {
       const finalized = JSON.parse(
         (await hooks.tool.consolidate_dispatch.execute(finalizeArgs(correlationId), noopContext())).output,
       )
-      expect(finalized.status).toBe("failed")
+      // fix-dispatch-verdict-derivation (issue #764): zero-success
+      // finalization persists an INCONCLUSIVE artifact instead of being
+      // rejected by a value mismatch — the verdict stays fail-closed.
+      expect(finalized.status).toBe("success")
       expect(finalized.operation_verdict).toBe("INCONCLUSIVE")
-      expect(finalized.errors.length).toBeGreaterThan(0)
+      expect(finalized.errors).toEqual([])
     })
   })
 

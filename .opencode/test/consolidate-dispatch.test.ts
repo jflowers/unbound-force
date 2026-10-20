@@ -498,15 +498,17 @@ describe("consolidate_dispatch", () => {
     const finalizationResult = JSON.parse(result.output)
     // RD-FR-007: zero successful runs fail closed. Success scoping must
     // not manufacture an approving result from excluded submissions.
-    expect(finalizationResult.status).toBe("failed")
+    // fix-dispatch-verdict-derivation (issue #764): emission and
+    // validation now share calculatedWorkflowValue, so the zero-success
+    // panel finalizes as INCONCLUSIVE instead of being rejected by a
+    // value mismatch — the fail-closed verdict is the persisted result.
+    expect(finalizationResult.status).toBe("success")
     expect(finalizationResult.operation_verdict).toBe("INCONCLUSIVE")
-    expect(finalizationResult.artifact_path).toBeNull()
-    // The only errors are the no-success verdict mismatches — the
-    // orphaned submissions were excluded from the payload, so no
-    // run-state rejections (the pre-fix brick) ride along.
-    expect(finalizationResult.errors).toHaveLength(2)
-    expect(finalizationResult.errors.join("\n")).toContain("expected INCONCLUSIVE")
-    expect(finalizationResult.errors.join("\n")).not.toContain("must not vote or emit findings")
+    expect(finalizationResult.artifact_path).toContain(".uf/artifacts/dispatch/")
+    // The orphaned submissions were excluded from the payload, so no
+    // run-state rejections (the pre-fix brick) ride along, and the
+    // derived value matches the calculated zero-vote outcome.
+    expect(finalizationResult.errors).toEqual([])
     // Warnings ride alongside the fail-closed result: every orphaned
     // submission stays visible (RD-FR-025 zero-success scenario).
     expect(finalizationResult.warnings).toEqual([
