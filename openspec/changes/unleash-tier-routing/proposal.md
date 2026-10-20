@@ -48,22 +48,33 @@ Supporting changes:
   risk floors (security-sensitive, auth, data-loss, or
   public-API-breaking changes floor at OpenSpec or above).
 - `/uf.unleash` accepts a description argument. Issue references
-  (`#NNN` or GitHub issue URLs) are resolved via
-  `gh issue view --json title,body,number`; issue content is
-  treated as untrusted data. If no argument is given, the
-  pipeline asks one interactive question ("What do you want to
-  build?").
+  (`#NNN` or GitHub issue URLs) are resolved via the tested
+  `uf_unleash_resolve_issue` tool — reference detection, `gh
+  issue view --json title,body,number` behind an injectable
+  runner, and fail-closed error envelopes for gh missing /
+  unauthenticated / not-found; issue content is treated as
+  untrusted data. If no argument is given, the pipeline asks one
+  interactive question ("What do you want to build?").
 - A new `uf_unleash_route_decision` tool deterministically
-  records the routing decision, creates the `quick/<name>`
+  records the routing decision, mechanically enforces the risk
+  floors (rejecting a `quick` decision when any floor signal is
+  passed), creates the `quick/<name>`
   branch when tier is quick, and auto-checkpoints the route
   step.
-- Quick-tier progress is tracked in a
-  `.uf/artifacts/unleash/<branch>.md` progress artifact so
-  resumability detection stays filesystem-marker based.
+- Quick-tier progress derives from the existing checkpoint
+  system: `uf_delegate_command` auto-checkpoints the implement
+  step, the quick tier records a `quick-pre-flight` claim only
+  after its blocking pre-flight gate passes, and
+  `uf_unleash_detect_resume` derives completion from both
+  on-disk claims, keeping resumability filesystem-marker
+  based.
 - `WORKFLOW_TIERS` gains `quick`, rippling through the branch
   gate, resumability detection, exit/demo templates, and
   `/uf.finale` (which now supports `quick/*` branches and
-  references the originating issue when one was resolved).
+  references the originating issue when one was resolved). The
+  resolved issue number is threaded through delegation prompts
+  and re-keyed checkpoint state so `/uf.finale` emits
+  `Closes #<N>` for every tier, not just quick.
 
 Routing is fully autonomous: the pipeline announces its tier
 decision and rationale, then proceeds without a confirmation
@@ -108,9 +119,30 @@ capability as new requirements)
 - `internal/scaffold/assets/opencode/plugins/uf-finale/index.ts`
   and `uf.review-council.md`: `quick/*` awareness; issue-number
   threading.
+- Live counterparts (byte-identical mirrors of the scaffold
+  assets above): `.opencode/commands/uf.unleash.md`,
+  `.opencode/commands/uf.review-council.md`,
+  `.opencode/commands/uf.finale.md`,
+  `.opencode/skills/tier-routing/SKILL.md`,
+  `.opencode/lib/branch-classification.ts`,
+  `.opencode/lib/unleash-templates.ts`,
+  `.opencode/plugins/uf-workflow/index.ts`,
+  `.opencode/plugins/uf-finale/index.ts`.
 - `.opencode/test/`: new and updated tests for all of the above.
-- `website` repo docs (`common-workflows.md`): routing guidance
-  replaces the manual tier-selection advice.
+- `website` repo docs (`content/docs/getting-started/common-workflows.md`):
+  routing guidance replaces the manual tier-selection advice;
+  delivered via branch `docs/unleash-tier-routing` and PR
+  unbound-force/website#315 (merge pending; will close
+  unbound-force/website#314 on merge per the cross-repo
+  documentation rule).
+- `unleash-deterministic-tools` (pending sibling change): its
+  design.md and specs/unleash/spec.md are amended to reference
+  `uf_unleash_route_decision`; that change MUST archive after
+  this one lands.
+- Content coverage: blog assessed — no (capability announcement
+  deferred to release notes / CHANGELOG); tutorial assessed —
+  no (tier routing is an agent-facing workflow, not a
+  user-facing feature).
 - Divergence note: the vdev templates in this repo are ahead of
   the uf release that sibling repos last scaffolded (v0.17.0).
   Sibling repos pick this up on their next release re-scaffold;
@@ -148,8 +180,8 @@ tier-routing skill is a standalone reusable asset.
 
 Every routing decision is recorded by a tested tool with JSON
 output including provenance (tier, change name, rationale,
-issue). The quick-tier progress artifact and existing checkpoint
-system keep pipeline state inspectable end to end.
+issue). The existing checkpoint
+system keeps pipeline state inspectable end to end.
 
 ### IV. Testability
 
@@ -177,7 +209,9 @@ from switching branches over uncommitted work.
 **Assessment**: PASS
 
 Judgment lives in the rubric skill; the deterministic parts of
-routing — recording the decision, creating the `quick/<name>`
+routing — detecting and resolving issue references
+(`uf_unleash_resolve_issue`), recording the decision, enforcing
+the risk floors, creating the `quick/<name>`
 branch, checkpointing, resume probing — execute in plugin tools
 with tests, per the precedent set by
 `unleash-deterministic-tools`.

@@ -61,6 +61,7 @@ The framework provides:
 
 - **Speckit** (strategic): Full 9-phase pipeline for architectural work (`/speckit.specify` through `/speckit.implement`)
 - **OpenSpec** (tactical): Lightweight workflow for bug fixes and small changes (`/opsx-propose` through `/opsx-archive`)
+- **Quick** (trivial): Spec-less pipeline for trivial fixes, chores, and docs (`/uf.unleash` creates the `quick/<name>` branch; full quality gates)
 - **Constitution governance bridge**: Every proposal includes alignment assessment against the six org principles
 
 `uf init` scaffolds 65+ files into your repository: templates, scripts, commands, agents, Divisor review personas, convention packs, and the custom `unbound-force` OpenSpec schema. Use `uf init --divisor` to deploy only the PR review agents and convention packs. Use `--lang` to override language auto-detection for convention pack selection. User-owned files are skipped on re-run; tool-owned files are auto-updated when content changes.

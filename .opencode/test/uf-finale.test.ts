@@ -26,7 +26,10 @@ import {
 } from "../plugins/uf-finale/index.js"
 import UfFinalePlugin from "../plugins/uf-finale/index.js"
 import {
+  createCheckpointTool,
+  createUnleashRouteDecisionTool,
   createWriteUnleashSummaryTool,
+  type ProgressState,
   type UnleashSummary,
 } from "../plugins/uf-workflow/index.js"
 
@@ -904,6 +907,135 @@ describe("uf_finale_pr_context", () => {
     )
   })
 
+  it("re-keys an openspec route decision under the feature branch so the finale reader threads the issue (unleash-tier-routing 9.2)", async () => {
+    // End-to-end handoff for the speckit/openspec routes: the route
+    // decision (Step 1a.4) records tier-routing under the pre-route
+    // branch key (main), the pipeline re-keys it under the feature
+    // branch the delegated entry command created (Step 1a.7, checkpoint
+    // key override), and uf_finale_pr_context reads the branch-scoped
+    // state — the field /uf.finale renders as `Closes #<N>` in the PR
+    // body. The three real tools share one in-memory state store: if
+    // either side's branch-slug derivation drifted, the reader would
+    // miss and originatingIssue would stay null.
+    const files = new Map<string, string>()
+    const enoent = Object.assign(new Error("ENOENT: no such file or directory"), {
+      code: "ENOENT",
+    })
+    vi.mocked(writeFileSync).mockImplementation((pathArg, dataArg) => {
+      files.set(String(pathArg), String(dataArg))
+    })
+    vi.mocked(readFileSync).mockImplementation((pathArg) => {
+      const p = String(pathArg)
+      if (files.has(p)) return files.get(p) as string
+      throw enoent
+    })
+    vi.mocked(lstatSync).mockImplementation(() => {
+      throw enoent
+    })
+    vi.mocked(mkdirSync).mockImplementation(() => {})
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("skip gh")
+    })
+
+    // Branch state: routing ran on main; the delegated /opsx-propose
+    // created and switched to opsx/fix-token-validation before the
+    // re-key and the finale read.
+    let currentBranch = "main"
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "rev-parse --abbrev-ref HEAD") return currentBranch
+      if (cmd === "status --porcelain") return ""
+      throw new Error(`unexpected git command: ${cmd}`)
+    }
+
+    // Phase 1 — the route decision: a security-sensitive fix routed
+    // from issue #743 escalates to openspec (risk floor) and records
+    // tier-routing under the pre-route branch key.
+    const routeResult = await invokeTool<{
+      tier: string
+      change_name: string
+      branch: string
+      rationale: string
+      description: string
+      issue_number: number | null
+    }>(createUnleashRouteDecisionTool(mockExec, "/fake"), {
+      tier: "openspec",
+      change_name: "fix-token-validation",
+      rationale: "Security-sensitive fix — the risk floor routes it to openspec at minimum.",
+      description: "Fix the token validation bypass reported in the issue.",
+      issue_number: 743,
+      risk_signals: ["security-sensitive"],
+    })
+    expect(routeResult.status).toBe("ok")
+    if (routeResult.status === "ok") {
+      expect(routeResult.data?.issue_number).toBe(743)
+    }
+
+    const preRoutePath = resolve("/fake", ".uf/progress/main/uf.unleash.json")
+    const featurePath = resolve(
+      "/fake",
+      ".uf/progress/opsx-fix-token-validation/uf.unleash.json",
+    )
+    expect(files.has(preRoutePath)).toBe(true)
+    expect(files.has(featurePath)).toBe(false)
+    const preRouteState = JSON.parse(
+      files.get(preRoutePath) as string,
+    ) as ProgressState
+    expect(preRouteState.completed_steps).toEqual(["tier-routing"])
+    expect(preRouteState.data.issue_number).toBe(743)
+
+    // The delegated /opsx-propose created the feature branch.
+    currentBranch = "opsx/fix-token-validation"
+
+    // Phase 2 — the re-key (Step 1a.7): the checkpoint tool's key
+    // override re-records the route decision under the verified feature
+    // branch, data passed through from the decision unchanged.
+    if (routeResult.status !== "ok") {
+      throw new Error("route decision failed before the re-key")
+    }
+    const decision = routeResult.data
+    const rekeyResult = await invokeTool(
+      createCheckpointTool(mockExec, "/fake"),
+      {
+        command: "uf.unleash",
+        step: "tier-routing",
+        key: "opsx/fix-token-validation",
+        data: JSON.stringify({
+          tier: decision?.tier,
+          change_name: decision?.change_name,
+          description: decision?.description,
+          issue_number: decision?.issue_number,
+          rationale: decision?.rationale,
+        }),
+      },
+    )
+    expect(rekeyResult.status).toBe("ok")
+    expect(files.has(featurePath)).toBe(true)
+    const featureState = JSON.parse(
+      files.get(featurePath) as string,
+    ) as ProgressState
+    expect(featureState.completed_steps).toEqual(["tier-routing"])
+    expect(featureState.key).toBe("opsx-fix-token-validation")
+    expect(featureState.data.issue_number).toBe(743)
+
+    // Phase 3 — /uf.finale's branch-scoped reader finds the re-keyed
+    // decision and reports the issue the PR body closes.
+    const result = await invokeTool<{ originatingIssue: number | null }>(
+      createUfFinalePrContextTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.originatingIssue).toBe(743)
+    }
+    // The reader consumed the feature-branch state, not the pre-route one.
+    const stateReads = vi.mocked(readFileSync).mock.calls
+      .map((call) => String(call[0]))
+      .filter((p) => p.includes(".uf/progress/"))
+    expect(stateReads).toContain(featurePath)
+  })
+
   it("prefers the route-decision issue number over .openspec.yaml", async () => {
     // The route decision is branch-scoped; the repo-root .openspec.yaml
     // can go stale across changes. The branch-scoped record wins.
@@ -961,6 +1093,77 @@ describe("uf_finale_pr_context", () => {
           completed_steps: ["branch-safety-gate", "resumability-detection"],
           data: { issue_number: 42 },
         })
+      }
+      throw new Error("ENOENT")
+    })
+
+    const result = await invokeTool<{ originatingIssue: number | null }>(
+      createUfFinalePrContextTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.originatingIssue).toBe(123)
+    }
+  })
+
+  it("keeps the .openspec.yaml issue when the route-decision state carries a non-integer issue number", async () => {
+    // Fail closed: the tier-routing step is recorded, but the state's
+    // issue_number is a string rather than a positive integer. The
+    // guard must reject it and let .openspec.yaml stand.
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "opsx/some-change"
+      throw new Error("skip")
+    }
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("skip gh")
+    })
+    vi.mocked(readFileSync).mockImplementation((pathArg) => {
+      const p = String(pathArg)
+      if (p.includes(".openspec.yaml")) {
+        return "name: some-change\noriginating_issue: 123\n"
+      }
+      if (p.includes(".uf/progress/opsx-some-change/uf.unleash.json")) {
+        return JSON.stringify({
+          completed_steps: ["tier-routing"],
+          data: { issue_number: "42" },
+        })
+      }
+      throw new Error("ENOENT")
+    })
+
+    const result = await invokeTool<{ originatingIssue: number | null }>(
+      createUfFinalePrContextTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.originatingIssue).toBe(123)
+    }
+  })
+
+  it("keeps the .openspec.yaml issue when the route-decision state JSON is corrupt", async () => {
+    // Fail closed: an unparseable route-decision state must not crash
+    // the reader or leak a partial value — the guard's try/catch
+    // falls back to the .openspec.yaml originating issue.
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref HEAD")) return "opsx/some-change"
+      throw new Error("skip")
+    }
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error("skip gh")
+    })
+    vi.mocked(readFileSync).mockImplementation((pathArg) => {
+      const p = String(pathArg)
+      if (p.includes(".openspec.yaml")) {
+        return "name: some-change\noriginating_issue: 123\n"
+      }
+      if (p.includes(".uf/progress/opsx-some-change/uf.unleash.json")) {
+        return "{corrupt"
       }
       throw new Error("ENOENT")
     })

@@ -6,6 +6,19 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- unleash-tier-routing: Added a tier-routing step to `/uf.unleash`
+  for ON_MAIN/UNRECOGNIZED_BRANCH states: autonomous tier selection
+  via the new tier-routing skill, a `uf_unleash_route_decision` tool
+  that records the decision, mechanically enforces risk floors
+  (rejecting `quick` when a floor signal is present), and creates
+  `quick/<name>` branches; a `quick` workflow tier that runs
+  implement, pre-flight checkpoint, review council, retrospective,
+  and demo without spec artifacts; issue-reference resolution
+  (`#NNN`/URLs via `gh issue view`, untrusted-content handling)
+  threaded through delegation prompts and re-keyed checkpoint state
+  so `/uf.finale` emits `Closes #<N>` for every tier; and
+  `WORKFLOW_TIERS` gaining `quick` across gate, resume, templates,
+  and finale.
 - router-pattern-codification: Extended the determinism
   policy one level, from step-level extraction to
   sequence-level collapse (the Router Pattern: the agent

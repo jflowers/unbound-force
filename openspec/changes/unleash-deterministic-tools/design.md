@@ -421,3 +421,10 @@ is satisfied by this record.
 - **Mirror burden**: four mirrored path groups change together;
   the drift tests make divergence a build failure, not a review
   finding.
+- **Cross-change archive ordering (unleash-tier-routing)**: the
+  amended artifacts reference `uf_unleash_route_decision` and the
+  `quick` branch class delivered by the sibling
+  `unleash-tier-routing` change; this change MUST NOT archive
+  before that change lands — task 9.4 encodes the archive-gate
+  check, mirroring the constraint recorded in the sibling's
+  design (both changes carry the ordering note).

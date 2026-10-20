@@ -92,9 +92,12 @@ Speckit commands skips the completed steps, and compressed-context
 summaries are never treated as resumability evidence. OpenSpec mode
 MUST report clarify, plan, and tasks as done. Quick mode MUST report
 clarify, plan, tasks, and spec review as done (no spec artifacts
-exist to probe), MUST derive implement completion from the
-`implement` checkpoint claim `uf_delegate_command` records, and MUST
-keep code review artifact-authoritative.
+exist to probe), MUST derive implement completion from BOTH the
+`implement` checkpoint claim `uf_delegate_command` records AND the
+`quick-pre-flight` claim recorded only after the quick tier's
+pre-flight hard gate passes (as amended by unleash-tier-routing,
+which introduces the both-claims rule), and MUST keep code review
+artifact-authoritative.
 
 #### Scenario: First run over propose artifacts
 - **GIVEN** branch `opsx/some-change` has proposal, design, specs, and tasks artifacts but no `uf.unleash` checkpoint state

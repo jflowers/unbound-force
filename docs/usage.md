@@ -129,15 +129,23 @@ the spec), `/speckit.analyze` (consistency check),
 ### Go Fully Autonomous
 
 ```
-/uf.unleash
+/uf.unleash [change description]
 ```
+
+Pass a description (optionally with an issue reference
+like `#123`, which is resolved and threaded through to
+the PR); tier routing picks quick, OpenSpec, or Speckit
+automatically.
 
 Runs the full pipeline autonomously: clarify, plan,
 tasks, spec review, implement, code review, and
-retrospective. Works with both Speckit (`NNN-*` branches)
-and OpenSpec (`opsx/*` branches). Exits to human
-judgment only when it encounters ambiguity, review
-failures, or merge conflicts.
+retrospective. Works with Speckit (`NNN-*` branches),
+OpenSpec (`opsx/*` branches), and the quick tier
+(`quick/*` branches); invoked from `main` or an
+unrecognized branch, it routes to the right tier
+automatically. Exits to human judgment only when it
+encounters ambiguity, review failures, or merge
+conflicts.
 
 ### Explore Ideas
 
@@ -186,9 +194,10 @@ is detected, injecting credentials into the workspace.
 
 | Situation | Workflow | Start with |
 |-----------|----------|------------|
-| Bug fix or small task | OpenSpec | `/opsx-propose` |
-| New feature (3+ stories) | Speckit | `/speckit.specify` |
-| "Handle everything" | Either | `/uf.unleash` |
+| Trivial fix, chore, or docs | Quick | `/uf.unleash` |
+| Tactical change (< 3 stories) | OpenSpec | `/uf.unleash` or `/opsx-propose` |
+| New feature (3+ stories) | Speckit | `/uf.unleash` or `/speckit.specify` |
+| "Handle everything" | Any | `/uf.unleash` (routes automatically) |
 | Code review | Standalone | `/uf.review-council` |
 | Quality check (Go) | Standalone | `/gaze` |
 

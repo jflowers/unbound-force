@@ -228,9 +228,11 @@ aspect of code quality. You receive an **APPROVE** or
 - **[Usage Guide](docs/usage.md)** -- Common workflows,
   agents, and command reference for daily use
 - **Specification workflows** -- `/opsx-propose` for
-  small changes, `/speckit.specify` for features
-- **Autonomous pipeline** -- `/uf.unleash` runs the full
-  workflow from spec to code review in one command
+  tactical changes, `/speckit.specify` for features
+- **Autonomous pipeline** -- `/uf.unleash [description]`
+  routes to the right tier (quick, OpenSpec, or Speckit)
+  and runs the pipeline through code review in one
+  command
 - **Full tool suite** -- `uf setup` installs all
   companion tools (Gaze, Dewey, Replicator)
 - **[AGENTS.md](AGENTS.md)** -- Full reference for AI

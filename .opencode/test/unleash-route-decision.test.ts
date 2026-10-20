@@ -372,6 +372,31 @@ describe("uf_unleash_route_decision input validation", () => {
       "kebab-case",
     ],
     [
+      "quick tier with a leading hyphen in the change name",
+      { tier: "quick", change_name: "-fix", rationale: RATIONALE, description: DESCRIPTION },
+      "kebab-case",
+    ],
+    [
+      "quick tier with a trailing hyphen in the change name",
+      { tier: "quick", change_name: "fix-", rationale: RATIONALE, description: DESCRIPTION },
+      "kebab-case",
+    ],
+    [
+      "quick tier with consecutive hyphens in the change name",
+      { tier: "quick", change_name: "fix--typo", rationale: RATIONALE, description: DESCRIPTION },
+      "kebab-case",
+    ],
+    [
+      "change name over the 128-character bound",
+      {
+        tier: "quick",
+        change_name: "a".repeat(129),
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+      },
+      "change_name",
+    ],
+    [
       "unknown tier",
       { tier: "enterprise", change_name: "fix-typo", rationale: RATIONALE, description: DESCRIPTION },
       "tier",
@@ -398,6 +423,28 @@ describe("uf_unleash_route_decision input validation", () => {
       "issue_number",
     ],
     [
+      "risk_signals over the 32-entry bound",
+      {
+        tier: "openspec",
+        change_name: "fix-typo",
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+        risk_signals: Array.from({ length: 33 }, (_value, index) => `signal-${index}`),
+      },
+      "risk_signals",
+    ],
+    [
+      "risk_signals entry over the 128-character bound",
+      {
+        tier: "openspec",
+        change_name: "fix-typo",
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+        risk_signals: ["x".repeat(129)],
+      },
+      "risk_signals",
+    ],
+    [
       "unknown input key (strict schema)",
       {
         tier: "quick",
@@ -420,6 +467,64 @@ describe("uf_unleash_route_decision input validation", () => {
     // Rejected at the schema boundary — the git executor never runs.
     expect(calls).toEqual([])
     expect(writeFileSync).not.toHaveBeenCalled()
+  })
+
+  // The bounds are inclusive: a value exactly at the cap parses, routes,
+  // and checkpoints — only values beyond it are rejected by the table
+  // above. The risk-signal bounds pair with the openspec tier because a
+  // quick decision carrying any signal is a ROUTE_RISK_FLOOR rejection,
+  // not a schema question.
+  it.each([
+    [
+      "a max-length (128-character) quick-tier slug",
+      {
+        tier: "quick",
+        change_name: "a".repeat(128),
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+      },
+      `quick/${"a".repeat(128)}`,
+    ],
+    [
+      "risk_signals at the 32-entry bound",
+      {
+        tier: "openspec",
+        change_name: "fix-typo",
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+        risk_signals: Array.from({ length: 32 }, (_value, index) => `signal-${index}`),
+      },
+      "main",
+    ],
+    [
+      "a max-length (128-character) risk_signals entry",
+      {
+        tier: "openspec",
+        change_name: "fix-typo",
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+        risk_signals: ["x".repeat(128)],
+      },
+      "main",
+    ],
+  ])("accepts %s (the bound is inclusive)", async (_description, args, expectedBranch) => {
+    const { exec, calls } = fakeRouteGit({ branch: "main" })
+
+    const result = await invokeRouteDecision(exec, args)
+
+    const data = okData(result)
+    expect(data.branch).toBe(expectedBranch)
+    expect(gitCommands(calls)).toEqual(
+      expectedBranch === "main"
+        ? ["rev-parse --abbrev-ref HEAD", "status --porcelain"]
+        : [
+            "rev-parse --abbrev-ref HEAD",
+            "status --porcelain",
+            `checkout -b ${expectedBranch}`,
+            "rev-parse --abbrev-ref HEAD",
+          ],
+    )
+    expect(writtenStates()).toHaveLength(1)
   })
 })
 
@@ -471,5 +576,115 @@ describe("uf_unleash_route_decision fail-closed error envelope", () => {
       "checkout -b quick/fix-typo",
     ])
     expect(writeFileSync).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// uf_unleash_route_decision — risk floors (D4, escalate only)
+// ---------------------------------------------------------------------------
+
+describe("uf_unleash_route_decision risk floors (unleash-tier-routing D4)", () => {
+  // Every floor signal the tier-routing rubric names in Phase 4. Each one
+  // is a hard minimum of openspec, so a quick decision carrying any of
+  // them must be rejected mechanically — the floor cannot depend on the
+  // caller remembering the prose.
+  const FLOOR_SIGNALS = [
+    "security-sensitive",
+    "auth",
+    "data-loss",
+    "public-API-breaking",
+  ] as const
+
+  it.each([...FLOOR_SIGNALS])(
+    "rejects a quick decision carrying the %s signal with ROUTE_RISK_FLOOR before any git call",
+    async (signal) => {
+      const { exec, calls } = fakeRouteGit({ branch: "main" })
+
+      const result = await invokeRouteDecision(exec, {
+        tier: "quick",
+        change_name: "fix-token-validation",
+        rationale: "Single-file fix with an obvious implementation; no spec artifacts needed.",
+        description: "Fix the token validation bypass.",
+        risk_signals: [signal],
+      })
+
+      const envelope = errorEnvelope(result)
+      expect(envelope.code).toBe("ROUTE_RISK_FLOOR")
+      expect(envelope.retryable).toBe(false)
+      // The error names the signal and directs the escalation.
+      expect(envelope.message).toBe(
+        `Risk floor: the quick tier is forbidden for changes carrying risk signals (${signal}). Re-route at openspec or above — risk floors only escalate.`,
+      )
+      // The floor fires before any git access, branch creation, or
+      // checkpoint write — a rejected decision leaves the repository
+      // untouched.
+      expect(calls).toEqual([])
+      expect(writeFileSync).not.toHaveBeenCalled()
+    },
+  )
+
+  it("names every triggering signal when several floors apply", async () => {
+    const { exec, calls } = fakeRouteGit({ branch: "main" })
+
+    const result = await invokeRouteDecision(exec, {
+      tier: "quick",
+      change_name: "fix-token-validation",
+      rationale: "Single-file fix with an obvious implementation; no spec artifacts needed.",
+      description: "Fix the token validation bypass.",
+      risk_signals: ["security-sensitive", "auth"],
+    })
+
+    const envelope = errorEnvelope(result)
+    expect(envelope.code).toBe("ROUTE_RISK_FLOOR")
+    expect(envelope.message).toBe(
+      "Risk floor: the quick tier is forbidden for changes carrying risk signals (security-sensitive, auth). Re-route at openspec or above — risk floors only escalate.",
+    )
+    expect(calls).toEqual([])
+    expect(writeFileSync).not.toHaveBeenCalled()
+  })
+
+  it.each(["speckit", "openspec"] as const)(
+    "allows the %s tier to carry floor signals — floors only escalate",
+    async (tier) => {
+      const { exec, calls } = fakeRouteGit({ branch: "main" })
+
+      const result = await invokeRouteDecision(exec, {
+        tier,
+        change_name: "fix-token-validation",
+        rationale: "Security-sensitive fix — the risk floor routes it to openspec at minimum.",
+        description: "Fix the token validation bypass.",
+        risk_signals: ["security-sensitive", "auth"],
+      })
+
+      // The heavier tiers are the floor's destination, so signals pass
+      // through untouched: no branch is created and the decision records
+      // under the pre-route branch key.
+      expect(okData(result).tier).toBe(tier)
+      expect(gitCommands(calls)).toEqual([
+        "rev-parse --abbrev-ref HEAD",
+        "status --porcelain",
+      ])
+      expect(writtenStates()).toHaveLength(1)
+      expect(writtenStates()[0]?.completed_steps).toEqual(["tier-routing"])
+    },
+  )
+
+  it.each([
+    ["risk_signals omitted", undefined],
+    ["risk_signals empty", []],
+  ] as const)("allows a quick decision when %s", async (_label, riskSignals) => {
+    const { exec, calls } = fakeRouteGit({ branch: "main" })
+
+    const result = await invokeRouteDecision(exec, {
+      tier: "quick",
+      change_name: "fix-typo",
+      rationale: RATIONALE,
+      description: DESCRIPTION,
+      risk_signals: riskSignals,
+    })
+
+    expect(okData(result).branch).toBe("quick/fix-typo")
+    expect(gitCommands(calls)).toContain("checkout -b quick/fix-typo")
+    expect(writtenStates()).toHaveLength(1)
   })
 })

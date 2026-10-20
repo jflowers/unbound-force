@@ -206,8 +206,8 @@ These rules are non-negotiable. Violations are CRITICAL severity.
   to commands, agents, or skills where an executable tool is
   feasible. Violations are CRITICAL severity.
 - **Review council**: MUST run `/uf.review-council` before PR
-  submission (already executed as `/uf.unleash` Step 8;
-  do not re-run). Resolve all REQUEST CHANGES. No code
+  submission (already executed as `/uf.unleash` Step 6, Code
+  Review; do not re-run). Resolve all REQUEST CHANGES. No code
   changes between APPROVE and PR. Exempt: constitution
   amendments, docs-only, emergency hotfixes.
 - **Branch protection**: MUST NOT commit directly to `main`.
@@ -245,7 +245,7 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 
 | Command | When | Scope |
 |---------|------|-------|
-| `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 8) | 5+ Divisor agents |
+| `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 6, Code Review) | 5+ Divisor agents |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent, CI analysis |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
 
@@ -288,6 +288,7 @@ All non-trivial changes MUST be preceded by a spec workflow.
 |------|------|------|-----------|
 | Strategic | Speckit | >= 3 stories, cross-repo | `specs/NNN-*/` |
 | Tactical | OpenSpec | < 3 stories, single-repo | `openspec/changes/*/` |
+| Quick | `/uf.unleash` routing | trivial fixes, chores, docs | `quick/<name>` branch |
 
 Pipeline: `constitution → specify → clarify → plan → tasks →
 analyze → checklist → implement`
@@ -297,12 +298,17 @@ before tasks. Tasks before implementation. Spec artifacts MUST
 be committed/pushed before implementation begins.
 
 **Branches**: Speckit: `NNN-<name>`. OpenSpec: `opsx/<name>`.
+Quick: `quick/<name>` (created by `/uf.unleash` tier routing;
+no spec artifacts, full quality gates).
 
 **Originating issue**: OpenSpec changes MAY include
 `originating_issue: <N>` in `.openspec.yaml` to thread a
 GitHub issue number through to the PR body. `/uf.finale`
 reads the field and emits `Closes #<N>` after `## Summary`
 when present. The field is optional and backward compatible.
+On a branch routed by `/uf.unleash` tier routing, the route
+decision's recorded `issue_number` (branch-scoped checkpoint
+state) takes precedence over `.openspec.yaml`.
 
 **Task bookkeeping**: Mark checkboxes `[x]` immediately on
 completion. `[P]` marks parallel-eligible tasks.

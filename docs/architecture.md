@@ -27,8 +27,9 @@ severity levels and actionable recommendations.
 specification, not a blank editor. The system enforces
 a pipeline from requirements to implementation to
 review, preventing the "I built the wrong thing"
-problem. Two pipeline tiers handle everything from a
-quick bug fix to a multi-story feature.
+problem. Three pipeline tiers -- quick, OpenSpec, and Speckit --
+handle everything from a trivial fix to a multi-story feature,
+routed automatically by `/uf.unleash`.
 
 **Quality that only goes up.** CRAP scores, coverage
 ratchets, and side effect classification give you
@@ -352,23 +353,23 @@ descriptions with current vs planned capabilities.
 ## Specification Pipelines
 
 All non-trivial changes follow a specification workflow
-before implementation begins. Two pipelines handle
-different scales of work.
+before implementation begins. Three tiers handle different
+scales of work, routed automatically by `/uf.unleash`.
 
 ### Decision: Which Pipeline?
 
 ```
-  How many user stories?
+  How big is the change?
          |
-    +----+----+
-    |         |
-  < 3       3+       Not sure?
-    |         |         |
-    v         v         v
-  OpenSpec  Speckit   Start with
-                      OpenSpec,
-                      escalate if
-                      scope grows
+  +------+------+--------------+
+  |             |              |
+Trivial      < 3 stories    3+ stories
+  |             |              |
+  v             v              v
+ Quick       OpenSpec        Speckit
+
+ Not sure? Run /uf.unleash with a change
+ description -- it routes automatically.
 ```
 
 ### Strategic Pipeline (Speckit)
@@ -431,10 +432,12 @@ user stories. Creates artifacts in
 
 Runs the full pipeline autonomously -- clarify, plan,
 tasks, spec review, implement, code review, and
-retrospective. Works with both Speckit (`NNN-*` branches)
-and OpenSpec (`opsx/*` branches). Exits to human judgment
-only when it encounters ambiguity, review failures, or
-merge conflicts.
+retrospective. Works with Speckit (`NNN-*` branches),
+OpenSpec (`opsx/*` branches), and the quick tier
+(`quick/*` branches); from `main` or an unrecognized
+branch it routes to the right tier automatically. Exits
+to human judgment only when it encounters ambiguity,
+review failures, or merge conflicts.
 
 
 ## The Knowledge Layer (Dewey)

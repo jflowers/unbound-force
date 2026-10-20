@@ -2058,7 +2058,14 @@ describe("uf_unleash_detect_resume quick tier", () => {
     expect(data.all_complete).toBe(false)
     // No tasks.md exists in the quick tier — there is nothing to count.
     expect(data.unchecked_count).toBe(null)
-    expect(data.checkpoint_claims).toStrictEqual({ spec_review: false, code_review: false })
+    // No state file exists: every claim, quick-only fields included, is
+    // false.
+    expect(data.checkpoint_claims).toStrictEqual({
+      spec_review: false,
+      code_review: false,
+      implement: false,
+      quick_pre_flight: false,
+    })
 
     // The dispatch store is the only filesystem probe (fail-open empty);
     // no feature-dir reads or existence checks ever fire (D2).
@@ -2088,11 +2095,14 @@ describe("uf_unleash_detect_resume quick tier", () => {
     })
   })
 
-  it("derives implement done from the checkpoint claim uf_delegate_command records", async () => {
-    // D6: the quick tier has no tasks.md, so the implement claim that
-    // uf_delegate_command auto-checkpoints after artifact-verified success
-    // is the durable filesystem marker for the step.
-    simulateExistingState(claimedReviewState(["implement"]), "quick-fix-typo")
+  it("derives implement done only when the quick-pre-flight gate claim joins the delegation claim", async () => {
+    // D6 (unleash-tier-routing): the quick tier has no tasks.md, so
+    // implement completion is the PAIR of checkpoint claims — the
+    // `implement` claim uf_delegate_command auto-checkpoints after
+    // artifact-verified success, plus the `quick-pre-flight` claim
+    // recorded after the pre-flight hard gate passes (the gate runs
+    // mid-Step-5 AFTER the delegation checkpoint).
+    simulateExistingState(claimedReviewState(["implement", "quick-pre-flight"]), "quick-fix-typo")
     const { exec } = fakeGit({ branch: "quick/fix-typo" })
     const { deps } = fakeDeps({ featureDir: FEATURE_DIR, artifacts: {} })
 
@@ -2112,23 +2122,110 @@ describe("uf_unleash_detect_resume quick tier", () => {
     expect(data.resume_from).toBe("code_review")
     expect(data.all_complete).toBe(false)
     // Claims still never complete a review step (D4) — the claim list holds
-    // "implement", not a review verdict.
-    expect(data.checkpoint_claims).toStrictEqual({ spec_review: false, code_review: false })
+    // implement machinery, not a review verdict.
+    expect(data.checkpoint_claims).toStrictEqual({
+      spec_review: false,
+      code_review: false,
+      implement: true,
+      quick_pre_flight: true,
+    })
 
-    // The claim is appended-to, not duplicated: resumability-detection lands
-    // after the implement claim in the merged state.
+    // The claims are appended-to, not duplicated: resumability-detection lands
+    // after them in the merged state.
     const states = writtenStates()
     expect(states).toHaveLength(1)
     expect(states[0]?.completed_steps).toEqual([
       "branch-safety-gate",
       "implement",
+      "quick-pre-flight",
       "resumability-detection",
     ])
     expect(states[0]?.current_step).toBe("resumability-detection")
   })
 
-  it("routes to retrospective when the implement claim pairs with a fresh code-approve artifact", async () => {
+  it("keeps implement incomplete when only the delegation claim exists (gate pending)", async () => {
+    // The pre-flight hard gate runs mid-Step-5 AFTER the delegation
+    // auto-checkpoints `implement`. A run interrupted between the two
+    // leaves the delegation claim alone — resuming must land back at
+    // implement so the quick tier's only blocking build/test gate still
+    // runs; the claim alone must not skip past it to code review.
     simulateExistingState(claimedReviewState(["implement"]), "quick-fix-typo")
+    const { exec } = fakeGit({ branch: "quick/fix-typo" })
+    const { deps } = fakeDeps({ featureDir: FEATURE_DIR, artifacts: {} })
+
+    const result = await invokeDetectResume(exec, deps, {
+      workflow_tier: "quick",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses).toStrictEqual({
+      clarify: true,
+      plan: true,
+      tasks: true,
+      spec_review: true,
+      implement: false,
+      code_review: false,
+    })
+    expect(data.resume_from).toBe("implement")
+    expect(data.all_complete).toBe(false)
+    // The payload exposes the individual claims so the command can
+    // distinguish "implement claimed but the gate has not passed" (skip
+    // the re-delegation, run the gate) from "both claimed".
+    expect(data.checkpoint_claims).toStrictEqual({
+      spec_review: false,
+      code_review: false,
+      implement: true,
+      quick_pre_flight: false,
+    })
+  })
+
+  it("keeps implement incomplete when neither claim exists", async () => {
+    // A state file exists but claims neither implement step — the
+    // derivation must read false/false, identical to a first run.
+    simulateExistingState(claimedReviewState([]), "quick-fix-typo")
+    const { exec } = fakeGit({ branch: "quick/fix-typo" })
+    const { deps } = fakeDeps({ featureDir: FEATURE_DIR, artifacts: {} })
+
+    const result = await invokeDetectResume(exec, deps, {
+      workflow_tier: "quick",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses.implement).toBe(false)
+    expect(data.resume_from).toBe("implement")
+    expect(data.checkpoint_claims).toStrictEqual({
+      spec_review: false,
+      code_review: false,
+      implement: false,
+      quick_pre_flight: false,
+    })
+  })
+
+  it("keeps implement incomplete when only the quick-pre-flight claim exists", async () => {
+    // The gate claim without the delegation claim cannot complete
+    // implement either — both claims are required, in either arrival
+    // order.
+    simulateExistingState(claimedReviewState(["quick-pre-flight"]), "quick-fix-typo")
+    const { exec } = fakeGit({ branch: "quick/fix-typo" })
+    const { deps } = fakeDeps({ featureDir: FEATURE_DIR, artifacts: {} })
+
+    const result = await invokeDetectResume(exec, deps, {
+      workflow_tier: "quick",
+    })
+
+    const data = okData(result)
+    expect(data.step_statuses.implement).toBe(false)
+    expect(data.resume_from).toBe("implement")
+    expect(data.checkpoint_claims).toStrictEqual({
+      spec_review: false,
+      code_review: false,
+      implement: false,
+      quick_pre_flight: true,
+    })
+  })
+
+  it("routes to retrospective when both implement claims pair with a fresh code-approve artifact", async () => {
+    simulateExistingState(claimedReviewState(["implement", "quick-pre-flight"]), "quick-fix-typo")
     const { exec, calls } = fakeGit({ branch: "quick/fix-typo" })
     const { deps } = fakeDeps({
       featureDir: FEATURE_DIR,
@@ -2195,7 +2292,7 @@ describe("uf_unleash_detect_resume quick tier", () => {
     },
   )
 
-  it("accepts an omitted feature_dir for the quick tier only (strict schema)", async () => {
+  it("rejects an explicitly-empty feature_dir for the quick tier (min(1) bound)", async () => {
     // feature_dir omitted is valid input for quick — verified by the
     // success tests above. An explicitly-passed empty string stays invalid
     // for every tier (the min(1) bound), pinning the two rules apart.

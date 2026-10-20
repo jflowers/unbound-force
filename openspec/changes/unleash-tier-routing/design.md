@@ -95,12 +95,21 @@ data-loss, public-API-breaking) are hard minimums of openspec
 and can only escalate. Issue labels may inform but never
 override floors. Rationale: keeps judgment in prose where it
 evolves, per the deterministic-execution split — everything
-downstream of the judgment executes in tools.
+downstream of the judgment executes in tools. The floor itself
+is enforced downstream in the tool: the rubric identifies which
+floor signals apply (judgment), passes them to
+`uf_unleash_route_decision` as a `risk_signals` list, and the
+tool mechanically rejects a `quick` decision when any signal is
+present, failing closed with an escalation error. A MUST-level
+safety invariant cannot live only in prose; table-driven tests
+pin each signal.
 
 ### D5: uf_unleash_route_decision is deterministic and does the branch work
 
 The tool takes `{tier, change_name, rationale, description,
-issue_number?}` and does the mechanical parts: records the
+issue_number?, risk_signals?}` — `risk_signals` feeds the
+mechanical quick-tier floor rejection (D4) — and does the
+mechanical parts: records the
 decision with provenance, auto-checkpoints the route step, and
 creates/switches to `quick/<name>` when tier is quick. For
 speckit/openspec it does not create branches — the delegated
@@ -110,19 +119,37 @@ Rationale: branch creation in the tool is testable with the
 injected GitExec pattern; the child delegations keep their
 existing contracts (Composability First).
 
+Issue-number threading for speckit/openspec routes: the route
+checkpoint is recorded while still on the pre-route branch, and
+the delegated entry command creates the feature branch
+afterward — so the delegation prompt carries the resolved issue
+number, and the pipeline re-records the tier-routing checkpoint
+under the feature branch key once the Step 1a.6 gate re-run
+verifies it (the `checkpoint` tool's key override). `/uf.finale`
+keeps its simple branch-scoped read — no fallback heuristics,
+no second source of truth.
+
 ### D6: Quick resumability via checkpoint state, not a new artifact
 
 Quick tiers have no tasks.md, so resume probing needs a durable
 implement marker. The checkpoint system already provides one:
 `uf_delegate_command` auto-checkpoints the `implement` step
 after artifact-verified delegation success, and that state lives
-on disk under `.uf/progress/`. `uf_unleash_detect_resume` on a
-quick branch treats clarify/plan/tasks/spec-review as done,
-derives implement from the `implement` checkpoint claim, and
-keeps code review artifact-authoritative (dispatch review
-artifacts). Checkpoint reconciliation runs before artifact
+on disk under `.uf/progress/`. The quick tier's pre-flight hard
+gate gets its own durable completion record — the template
+records a `quick-pre-flight` checkpoint only after the gate
+passes, because the gate runs mid-step after the implement claim
+already exists and a resume deriving implement-done from the
+implement claim alone would skip the tier's only blocking
+build/test check. `uf_unleash_detect_resume` on a quick branch
+treats clarify/plan/tasks/spec-review as done, derives implement
+from BOTH the `implement` claim AND the `quick-pre-flight`
+claim, and keeps code review artifact-authoritative (dispatch
+review artifacts). Checkpoint reconciliation runs before artifact
 probing so quick-tier implement derivation reads claims in the
-same pass. Rationale: a dedicated marker file would duplicate
+same pass; when implement is claimed but the gate is not, resume
+re-enters at implement without re-delegation and runs the
+pending gate. Rationale: a dedicated marker file would duplicate
 the tested checkpoint machinery with an identical trust profile;
 reusing it preserves the "filesystem markers are authoritative"
 guardrail — resume never depends on the model's memory of a
@@ -163,3 +190,31 @@ the ripple is the safety property.
   are attacker-controllable text. Mitigation: data-only use
   (description into rubric), never instructions, mirroring
   `uf.triage-issue`'s untrusted-content guardrail.
+- **Sibling change coupling**: this change amends the pending
+  `unleash-deterministic-tools` artifacts (design.md,
+  specs/unleash/spec.md) because that change's spec references
+  `uf_unleash_route_decision`, a tool this change introduces.
+  `unleash-deterministic-tools` MUST NOT archive before
+  `unleash-tier-routing` lands; the archive-order constraint is
+  recorded in both changes.
+- **No durable coverage gate for the plugin suite**: the ~570
+  new TypeScript lines are guarded by suite-green plus a
+  recorded coverage baseline (94.61% statements, round-1
+  verification measurement, recorded in tasks.md 9.6) rather
+  than a configured threshold — adding a coverage gate is a
+  governance change requiring maintainer approval per the
+  AGENTS.md gatekeeping rule. The recorded baseline is
+  documentation, not automated evidence (a prose number
+  cannot regress-fail); a durable plugin-suite coverage
+  gate is follow-up governance work, tracked by
+  unbound-force/unbound-force#780.
+- **Prose-rendered templates**: the tier-routing
+  announcement (skill Phase 5) and the uf.unleash Step 2
+  Quick-mode display are prose templates rather than
+  tool-rendered formatters (Constitution VI DE-003
+  tension; the formatter precedent is
+  `format_unleash_exit` / `format_unleash_demo`).
+  Extracting renderers is deferred follow-up work. The
+  related plugin helper extraction (issue-reference
+  helpers, shared state-path helper) is tracked by
+  unbound-force/unbound-force#782.

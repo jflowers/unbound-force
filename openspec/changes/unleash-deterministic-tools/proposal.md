@@ -34,13 +34,17 @@ deterministic surface to plugin tools.
 - **New tools in the uf-workflow plugin** (the plugin `/uf.unleash`
   already depends on; no new plugin registration):
   - `uf_unleash_branch_gate`: branch classification (main / opsx /
-    speckit / unrecognized), workflow tier, feature directory
+    speckit / quick / unrecognized), workflow tier, feature
+    directory
     derivation, and per-tier prerequisites (opsx tasks.md
     existence; speckit spec.md existence under `specs/<branch>/`,
     derived from the branch name — replacing a
     `check-prerequisites.sh --json --require-spec` invocation that
     cannot succeed at gate time). Returns the gate
-    verdict or the exact STOP message (increment 2).
+    verdict, the per-tier prerequisite failure, or the exact
+    routing message for ON_MAIN / UNRECOGNIZED_BRANCH (rerouted
+    into tier routing by the unleash-tier-routing amendment
+    rather than a STOP; increment 2).
   - `uf_delegate_command`: generic delegation — read a command
     file, spawn a `cobalt-crush-dev` child session through the
     shared `executeAgentSession` executor, and verify the expected

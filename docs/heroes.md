@@ -76,7 +76,7 @@ By being the "Engineering Core and Adaptive Implementation Engine," Cobalt-Crush
 
 **Current Capabilities**:
 - Developer agent persona with coding conventions
-- Speckit and OpenSpec implementation workflows
+- Speckit, OpenSpec, and quick-tier implementation workflows
 - Gaze quality feedback integration
 - Convention pack adherence
 - Autonomous pipeline execution via /uf.unleash
