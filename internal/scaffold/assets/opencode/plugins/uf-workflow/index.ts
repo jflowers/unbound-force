@@ -3996,7 +3996,7 @@ export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool
         "spec-review: workflow tier selecting the recovery guidance (speckit or openspec).",
       ).optional(),
       findings: ExitStringListSchema.describe(
-        "spec-review (HIGH/CRITICAL findings with context) or code-review-preflight " +
+        "spec-review (unresolved findings with context) or code-review-preflight " +
           "(branch-caused failures as CRITICAL findings with full output).",
       ).optional(),
       change_name: ExitChangeNameSchema.describe(

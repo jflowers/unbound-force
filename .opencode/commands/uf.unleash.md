@@ -614,60 +614,88 @@ sections instead of embedding their text.
 - If the verdict is APPROVE or APPROVE WITH ADVISORIES:
   record any advisories for the final report and
   proceed to Step 5 (Implement) — approving verdicts
-  never trigger the consent gate below.
+  never trigger the decision gate below.
 
-- If the verdict is REQUEST CHANGES with only LOW and
-  MEDIUM findings (any HIGH/CRITICAL finding bypasses
-  this gate): present the spec auto-fix consent gate.
-  Spec artifacts MUST NOT be modified on LOW/MEDIUM
-  findings without explicit human consent. The
-  council's session-resume guard applies to this
-  gate: consent captured before a context compression
-  or session resume is not valid, and the question
-  MUST be re-presented on resume. Use the **question
-  tool** with the council's three options, exactly as
-  labeled below:
-  - **"Apply auto-fixes"** (consent): the parent
-    command itself applies the LOW/MEDIUM fixes per
-    `.opencode/uf/packs/severity.md` -- formatting,
-    status fields, terminology, cross-references,
-    obvious gaps, stale metadata. HIGH/CRITICAL
-    findings are report-only and MUST NOT be
-    auto-fixed.
-  - **"Review findings first"**: display the findings,
-    then the question tool re-presents the same three
-    options. No spec edits occur until a selection is
-    made.
-  - **"Skip auto-fixes -- report only"** (decline):
-    exit using the same exit path as the HIGH/CRITICAL
-    branch below (the tool-rendered `spec-review`
-    exit), making no spec edits.
+- If the verdict is REQUEST CHANGES: present the
+  per-finding spec review decision gate. The council's
+  "Spec Review Mode" MANDATORY GATE in
+  `.opencode/commands/uf.review-council.md` governs the
+  protocol -- present each finding one at a time, in
+  severity order (CRITICAL, HIGH, MEDIUM, LOW), printing
+  the finding details, per-option reasoning, and a
+  recommendation as session text, then the **question
+  tool** below it with the same options, the recommended
+  option first and labeled "(Recommended)". Repeat for
+  each finding until every finding is fixed, overridden,
+  or the human pauses. Spec artifacts MUST NOT be
+  modified and findings MUST NOT be waived without an
+  explicit per-finding human choice. The options, exactly
+  as labeled in the council protocol:
+  - **"Apply suggested fix"** (consent): the parent
+    command itself applies the suggested fix for this
+    one finding. Available for every severity -- a
+    human-directed fix is a consented edit, not an
+    autonomous auto-fix.
+  - **"Override & continue"** (waive): obtain a recorded
+    justification, then record the override (severity,
+    description, justification) in the checkpoint data
+    below and as a final-report advisory, and continue.
+  - **"Show more context"**: print the full finding
+    context, then re-present the same options. No spec
+    edit occurs.
+  - **"Pause & exit"**: stop the review, making no
+    further spec edits -- exit through the tool-rendered
+    `spec-review` exit path below.
+  - **"Apply all remaining LOW/MEDIUM fixes"** (bulk
+    shortcut, offered only when the current finding is
+    LOW/MEDIUM): apply the remaining LOW/MEDIUM
+    findings' fixes in one consented action. This option
+    MUST NOT appear for HIGH/CRITICAL findings and MUST
+    NOT modify any HIGH/CRITICAL finding.
 
-  After consented fixes, re-run the review: re-resolve
-  the immutable input, re-validate the full plan, and
-  rerun every included reviewer (not just failing or
+  While any HIGH/CRITICAL finding is unresolved, the
+  pipeline MUST NOT proceed past it: no autonomous fix,
+  waiver, or advancement to Step 5 occurs except through
+  an explicit per-finding human choice. The council's
+  session-resume guard applies to this gate: decisions
+  captured before a context compression or session
+  resume are not valid -- on resume, re-present
+  unresolved findings with fresh question-tool
+  invocations; resolutions recorded in durable
+  checkpoint data stand.
+
+  The loop completes when every finding is fixed or
+  overridden. Overrides alone require no re-run. After
+  applied fixes (per-finding choices or the bulk
+  shortcut), re-run the review: re-resolve the immutable
+  input, re-validate the full plan, and rerun every
+  included reviewer (not just failing or
   content-affected ones), reusing a single
   sibling-evidence acquisition across the iteration.
   Keep the iteration counter. Each re-run verdict is
   processed through these same rules -- the gate
-  re-presents on REQUEST CHANGES with only LOW/MEDIUM
-  findings. Cap at 3 iterations: if REQUEST CHANGES
-  persists to a fourth encounter, exit through the
-  same tool-rendered `spec-review` exit path.
+  re-presents on every REQUEST CHANGES verdict. Cap at
+  3 iterations: if REQUEST CHANGES persists to a fourth
+  encounter, exit through the tool-rendered
+  `spec-review` exit path below without presenting the
+  gate again.
 
   > CHECKPOINT: Call `checkpoint` with `command:
   > "uf.unleash"`, `step: "spec-review"`, and
-  > `data: '{"iteration": N}'`.
+  > `data: '{"iteration": N, "overrides": [...]}'` -- the
+  > overrides array carries each waived finding's
+  > severity, description, and justification (an empty
+  > array when none).
 
-- If HIGH or CRITICAL findings remain after auto-fixing
-  LOW/MEDIUM: **EXIT** by calling `format_unleash_exit`
-  with:
+- If the human chooses "Pause & exit", or the 3 iteration
+  cap is reached with findings unresolved: **EXIT** by
+  calling `format_unleash_exit` with:
 
   ```
   format_unleash_exit
     variant: "spec-review"
     tier: WORKFLOW_TIER
-    findings: [HIGH/CRITICAL findings with context]
+    findings: [unresolved findings with context]
     change_name: [change name]
   ```
 
@@ -678,11 +706,12 @@ sections instead of embedding their text.
   ```
   ## /uf.unleash paused at: spec review
 
-  **Reason**: HIGH/CRITICAL findings in spec artifacts
+  **Reason**: Unresolved spec review findings (pause or
+  iteration cap)
 
   ### Findings
 
-  [list each HIGH/CRITICAL finding with context]
+  [list each unresolved finding with context]
 
   ### What to do next
   [tier-specific recovery guidance]
@@ -1443,16 +1472,18 @@ retains its no-artifact fallback.
 
 - **NEVER pause between steps to ask for human
   confirmation** -- proceed immediately from one step to
-  the next. The single exception is the spec auto-fix
-  consent gate in Step 4: when a spec review returns
-  REQUEST CHANGES with only LOW/MEDIUM findings, the
-  question tool MUST be presented before any spec
-  artifact is modified. That gate is the only legitimate
-  mid-pipeline human interaction. The valid reasons to
-  exit the pipeline are: unanswerable clarification
-  questions, HIGH/CRITICAL spec findings, build/test
-  failures, merge conflicts, and 3 review iterations
-  exhausted. All other transitions are autonomous.
+  the next. The single exception is the per-finding spec
+  review decision gate in Step 4: when a spec review
+  returns REQUEST CHANGES, each finding's question tool
+  MUST be presented and answered before any spec
+  artifact is modified or any finding is waived. That
+  gate is the only legitimate mid-pipeline human
+  interaction. The valid reasons to exit the pipeline
+  are: unanswerable clarification questions, unresolved
+  spec findings after the per-finding gate (pause choice
+  or iteration cap), build/test failures, merge
+  conflicts, and 3 review iterations exhausted. All
+  other transitions are autonomous.
 - **NEVER modify content on `main`** -- tier routing may
   start on main, but the route decision tool creates the
   `quick/<name>` branch and the speckit/openspec entry
@@ -1463,9 +1494,11 @@ retains its no-artifact fallback.
   matching `opsx/*`, `NNN-*`, or `quick/*` has already
   committed to its workflow; missing artifacts there are
   a STOP, never a routing trigger
-- **NEVER skip spec review exit on HIGH/CRITICAL** --
+- **NEVER proceed past HIGH/CRITICAL spec findings
+  without an explicit per-finding human choice** --
   these findings block implementation to prevent wasted
-  effort on a flawed spec
+  effort on a flawed spec; "Pause & exit" still routes
+  through the tool-rendered `spec-review` exit
 - **NEVER merge worktrees with unresolved semantic
   conflicts** -- conflict markers in files after
   cherry-pick mean the merge failed and requires human

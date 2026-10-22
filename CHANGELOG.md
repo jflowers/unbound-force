@@ -261,6 +261,28 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- spec-review-per-finding-gate: Replaced the bulk spec auto-fix
+  consent gate and the HIGH/CRITICAL dead-stop in spec review
+  with a per-finding decision gate. Each REQUEST CHANGES finding
+  is presented one at a time in severity order (CRITICAL, HIGH,
+  MEDIUM, LOW) as session text with per-option reasoning and a
+  recommendation, followed by a question tool offering "Apply
+  suggested fix" (any severity -- a human-directed consented
+  edit), "Override & continue" (justification recorded in
+  checkpoint data and the final report), "Show more context",
+  "Pause & exit" (routes through the tool-rendered spec-review
+  exit), and "Apply all remaining LOW/MEDIUM fixes" (bulk
+  shortcut, LOW/MEDIUM only). The pipeline cannot proceed past a
+  HIGH/CRITICAL finding without an explicit per-finding human
+  choice; the autonomous auto-fix boundary stays LOW/MEDIUM-only
+  (severity.md gains a clarifying note); the 3-iteration
+  re-review cap, session-resume guard, and override recording
+  are retained. The spec-review exit reason string now reads
+  "Unresolved spec review findings (pause or iteration cap)".
+  Applies to `/uf.unleash` Step 4 and `/uf.review-council` Spec
+  Review Mode; scaffold mirrors and structural tests updated in
+  lockstep.
+  (Spec: openspec/changes/spec-review-per-finding-gate/, Fixes: #777)
 - ts-plugin-coverage-gate: Raised the statements coverage
   floor for the `.opencode/` TypeScript plugin suite from 90
   to 94 percent in `.opencode/vitest.config.ts`; enforced by

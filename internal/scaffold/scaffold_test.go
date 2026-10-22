@@ -156,6 +156,95 @@ func TestEmbeddedAssets_MatchSource(t *testing.T) {
 	}
 }
 
+// TestSpecReviewPerFindingGateContracts pins the structural
+// contract of the per-finding spec review decision gate across
+// the two command assets and the severity pack.
+func TestSpecReviewPerFindingGateContracts(t *testing.T) {
+	unleashContent, err := assetContent("opencode/commands/uf.unleash.md")
+	if err != nil {
+		t.Fatalf("read embedded unleash command: %v", err)
+	}
+	unleash := string(unleashContent)
+
+	councilContent, err := assetContent("opencode/commands/uf.review-council.md")
+	if err != nil {
+		t.Fatalf("read embedded review-council command: %v", err)
+	}
+	council := string(councilContent)
+
+	optionLabels := []string{
+		`"Apply suggested fix"`,
+		`"Override & continue"`,
+		`"Show more context"`,
+		`"Pause & exit"`,
+		`"Apply all remaining LOW/MEDIUM fixes"`,
+	}
+
+	t.Run("option labels present in both command assets", func(t *testing.T) {
+		for _, label := range optionLabels {
+			if !strings.Contains(unleash, label) {
+				t.Errorf("unleash command missing option label %s", label)
+			}
+			if !strings.Contains(council, label) {
+				t.Errorf("review-council command missing option label %s", label)
+			}
+		}
+	})
+
+	t.Run("mandatory gate markers retained", func(t *testing.T) {
+		if !strings.Contains(council, ">>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<") {
+			t.Error("review-council command missing MANDATORY GATE marker")
+		}
+		if !strings.Contains(council, ">>> END MANDATORY GATE <<<") {
+			t.Error("review-council command missing END MANDATORY GATE marker")
+		}
+	})
+
+	t.Run("severity-order presentation", func(t *testing.T) {
+		if !strings.Contains(unleash, "severity order (CRITICAL, HIGH, MEDIUM, LOW)") {
+			t.Error("unleash command missing severity-order presentation")
+		}
+		if !strings.Contains(council, "severity order (CRITICAL, HIGH, MEDIUM, LOW)") {
+			t.Error("review-council command missing severity-order presentation")
+		}
+	})
+
+	t.Run("no autonomous progression past high/critical", func(t *testing.T) {
+		if !strings.Contains(unleash, "MUST NOT proceed past it: no autonomous fix") {
+			t.Error("unleash command missing no-autonomous-progression rule")
+		}
+		if !strings.Contains(council, "MUST NOT proceed past a HIGH/CRITICAL finding without") {
+			t.Error("review-council command missing no-autonomous-progression rule")
+		}
+	})
+
+	t.Run("severity pack note present", func(t *testing.T) {
+		packContent, err := assetContent("opencode/uf/packs/severity.md")
+		if err != nil {
+			t.Fatalf("read embedded severity pack: %v", err)
+		}
+		if !strings.Contains(string(packContent), "Human-directed fixes vs autonomous auto-fixes") {
+			t.Error("severity pack missing human-directed vs autonomous auto-fix note")
+		}
+	})
+
+	t.Run("no stale bulk-gate option labels", func(t *testing.T) {
+		stale := []string{
+			`"Apply auto-fixes"`,
+			`"Review findings first"`,
+			`"Skip auto-fixes -- report only"`,
+		}
+		for _, label := range stale {
+			if strings.Contains(unleash, label) {
+				t.Errorf("unleash command retains stale option label %s", label)
+			}
+			if strings.Contains(council, label) {
+				t.Errorf("review-council command retains stale option label %s", label)
+			}
+		}
+	})
+}
+
 func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	content, err := assetContent("opencode/commands/uf.unleash.md")
 	if err != nil {
@@ -177,7 +266,7 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		return value[:endIndex]
 	}
 
-	specReviewExit := between(t, command, "- If HIGH or CRITICAL findings remain", "Rendered shape:")
+	specReviewExit := between(t, command, `- If the human chooses "Pause & exit"`, "Rendered shape:")
 	demoNextSteps := between(t, command, "4. **Next Steps**:", "Then persist the summary")
 	stepTenPersistence := between(t, command, "Then persist the summary", "## Guardrails")
 

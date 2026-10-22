@@ -12,7 +12,7 @@
 
 ## 1. Canonical command and pack edits
 
-- [ ] 1.1 Rewrite the Spec Review Mode MANDATORY GATE in
+- [x] 1.1 Rewrite the Spec Review Mode MANDATORY GATE in
       `.opencode/commands/uf.review-council.md` (and the
       hybrid fix policy + verdict sections that follow it)
       into the per-finding decision protocol: severity-
@@ -24,7 +24,7 @@
       LOW/MEDIUM fixes" for LOW/MEDIUM findings), override
       recording, session-resume guard, re-review and
       3-iteration-cap rules
-- [ ] 1.2 Update `/uf.unleash` Step 4 processing results in
+- [x] 1.2 Update `/uf.unleash` Step 4 processing results in
       `.opencode/commands/uf.unleash.md` to route every
       REQUEST CHANGES verdict through the per-finding
       protocol cited from uf.review-council.md; reword the
@@ -32,13 +32,13 @@
       HIGH/CRITICAL exit rule, the valid exit-reasons
       list); keep checkpoint step "spec-review" and add
       overrides to its data
-- [ ] 1.3 [P] Add the clarifying note after the Auto-Fix
+- [x] 1.3 [P] Add the clarifying note after the Auto-Fix
       Policy (Spec Review Mode) table in
       `.opencode/uf/packs/severity.md`: human-directed
       per-finding fixes (any severity, explicit consent)
       vs. autonomous auto-fixes (LOW/MEDIUM only);
       definitions and policy rows unchanged
-- [ ] 1.4 Update the spec-review exit reason string in
+- [x] 1.4 Update the spec-review exit reason string in
       `.opencode/lib/unleash-templates.ts` to "Unresolved
       spec review findings (pause or iteration cap)" plus
       its doc comments; update the `format_unleash_exit`
@@ -49,14 +49,14 @@
 
 ## 2. Scaffold mirrors and structural tests
 
-- [ ] 2.1 Sync the five scaffold mirrors from the
+- [x] 2.1 Sync the five scaffold mirrors from the
       canonical files:
       `internal/scaffold/assets/opencode/commands/uf.review-council.md`,
       `internal/scaffold/assets/opencode/commands/uf.unleash.md`,
       `internal/scaffold/assets/opencode/uf/packs/severity.md`,
       `internal/scaffold/assets/opencode/lib/unleash-templates.ts`,
       `internal/scaffold/assets/opencode/plugins/uf-workflow/index.ts`
-- [ ] 2.2 Extend `internal/scaffold/scaffold_test.go`
+- [x] 2.2 Extend `internal/scaffold/scaffold_test.go`
       structural assertions for the per-finding protocol:
       option labels present in both command assets,
       mandatory gate markers retained, severity-order
@@ -71,31 +71,31 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 [P] Add the CHANGELOG.md entry for the
+- [x] 3.1 [P] Add the CHANGELOG.md entry for the
       spec review per-finding decision gate
-- [ ] 3.2 Grep the repo for stale references to the old
+- [x] 3.2 Grep the repo for stale references to the old
       gate ("Skip auto-fixes -- report only", "Review
       findings first", "spec auto-fix consent gate") in
       commands, skills, and docs; update any citation
       sites to the new protocol
-- [ ] 3.3 [P] File the documentation issue for this
+- [x] 3.3 [P] File the documentation issue for this
       user-facing spec review behavior change before PR
       merge (documentation gate)
 
 ## 4. Verification
 
-- [ ] 4.1 Gate structure checks: grep the two command
+- [x] 4.1 Gate structure checks: grep the two command
       files for `>>> MANDATORY GATE` marker pairs, all
       five option labels, and the session-resume guard;
       confirm no HIGH/CRITICAL dead-stop branch remains
       in Step 4 processing; confirm the updated exit
       reason string in the template, the plugin
       description, and the formatter test assertions
-- [ ] 4.2 Scaffold drift tests:
+- [x] 4.2 Scaffold drift tests:
       `go test -race -count=1 ./internal/scaffold/...`
-- [ ] 4.3 Full check suite: `make check` (lint, test,
+- [x] 4.3 Full check suite: `make check` (lint, test,
       build, coverage-gate, plugin-test)
-- [ ] 4.4 Verify constitution alignment per the proposal:
+- [x] 4.4 Verify constitution alignment per the proposal:
       III (observable question-tool events, durable
       override records), IV (drift tests + structural
       assertions), V (per-finding consent), VI (judgment

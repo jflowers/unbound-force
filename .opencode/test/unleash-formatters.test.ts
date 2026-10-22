@@ -308,7 +308,7 @@ describe("formatUnleashExit golden templates", () => {
       [
         "## /uf.unleash paused at: spec review",
         "",
-        "**Reason**: HIGH/CRITICAL findings in spec artifacts",
+        "**Reason**: Unresolved spec review findings (pause or iteration cap)",
         "",
         "### Findings",
         "",
@@ -334,7 +334,7 @@ describe("formatUnleashExit golden templates", () => {
       [
         "## /uf.unleash paused at: spec review",
         "",
-        "**Reason**: HIGH/CRITICAL findings in spec artifacts",
+        "**Reason**: Unresolved spec review findings (pause or iteration cap)",
         "",
         "### Findings",
         "",
