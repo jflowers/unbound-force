@@ -261,6 +261,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- ts-plugin-coverage-gate: Raised the statements coverage
+  floor for the `.opencode/` TypeScript plugin suite from 90
+  to 94 percent in `.opencode/vitest.config.ts`; enforced by
+  the existing `plugin-test` / `make check` / Local CI
+  `plugin-tests` chain; resolves the coverage-gate deferral
+  tracked by #780. (Spec:
+  openspec/changes/ts-plugin-coverage-gate/, Closes: #780)
 - unleash-pipeline-hardening: Hardened the `/uf.unleash`
   pipeline against the failure modes surfaced by the
   fullsend field audit. Delegation: `resolveHostModel` is
