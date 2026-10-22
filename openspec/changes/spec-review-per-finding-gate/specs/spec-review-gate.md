@@ -63,9 +63,12 @@ these options, with the recommended option first and labeled
   MUST require a recorded justification before continuing.
 - `"Show more context"` — print the full finding context,
   then re-present the same options. No spec edit occurs.
-- `"Pause & exit"` — stop the pipeline through the existing
-  tool-rendered `spec-review` exit path
-  (`format_unleash_exit`), making no further spec edits.
+- `"Pause & exit"` — stop the review, making no further
+  spec edits. The `/uf.unleash` embedding exits through
+  the existing tool-rendered `spec-review` exit path
+  (`format_unleash_exit`); a standalone
+  `/uf.review-council` run stops and reports the
+  unresolved findings.
 
 When the current finding is LOW or MEDIUM, the invocation
 MUST additionally offer:
@@ -156,8 +159,12 @@ re-validate the full plan, rerun every included reviewer
 with a single sibling-evidence acquisition, and keep the
 iteration counter. The per-finding gate re-presents on each
 REQUEST CHANGES re-run. The 3-iteration cap is unchanged:
-on a fourth REQUEST CHANGES encounter, the command MUST
-exit through the tool-rendered `spec-review` exit path.
+on a fourth REQUEST CHANGES encounter, the `/uf.unleash`
+pipeline embedding MUST exit through the tool-rendered
+`spec-review` exit path, and a standalone
+`/uf.review-council` run MUST follow the existing
+iteration-limit escalation (ask the user whether to
+continue or stop).
 
 #### Scenario: Fix Then Re-Review
 
@@ -173,9 +180,11 @@ exit through the tool-rendered `spec-review` exit path.
 - **GIVEN** the verdict is REQUEST CHANGES for the fourth
   encounter (iteration counter at 3)
 - **WHEN** the command processes the verdict
-- **THEN** the command MUST exit via `format_unleash_exit`
-  variant `spec-review` without presenting the
-  per-finding gate
+- **THEN** the `/uf.unleash` embedding MUST exit via
+  `format_unleash_exit` variant `spec-review` without
+  presenting the per-finding gate; a standalone
+  `/uf.review-council` run MUST ask the user whether to
+  continue or stop
 
 ### FR-006: Session-Resume Guard for the Per-Finding Gate
 
