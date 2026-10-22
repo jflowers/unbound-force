@@ -925,7 +925,7 @@ describe("uf_finale_pr_context", () => {
       rationale: string
       description: string
       issue_number: number | null
-    }>(createUnleashRouteDecisionTool(mockExec, "/fake"), {
+    }>(createUnleashRouteDecisionTool(mockExec, "/fake", () => true), {
       tier: "openspec",
       change_name: "fix-token-validation",
       rationale: "Security-sensitive fix — the risk floor routes it to openspec at minimum.",

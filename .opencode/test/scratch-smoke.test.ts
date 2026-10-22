@@ -70,6 +70,7 @@ describe("provider-free scratch-repository smoke test", () => {
       expect(Object.keys(dispatchHooks.tool).sort()).toEqual([
         "acquire_sibling_evidence",
         "build_review_prompts",
+        "capture_review_diff",
         "consolidate_dispatch",
         "discard_orphaned_submissions",
         "dispatch_agent_run",
@@ -152,7 +153,6 @@ describe("provider-free scratch-repository smoke test", () => {
       "mark_task_complete",
       "normalize_model_name",
       "parse_tasks",
-      "persist_unleash_summary",
       "resolve_base_ref",
       "resolve_clarification",
       "scan_clarifications",

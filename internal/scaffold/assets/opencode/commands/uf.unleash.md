@@ -42,30 +42,50 @@ resolves.
 
 <protect>
 
-> **SESSION-RESUME GUARD**: If you are resuming this
-> command after context compression or a session restart,
-> STOP and re-read this entire template before continuing.
-> Do NOT infer which steps are complete from compressed
-> context summaries. Only the `uf_unleash_detect_resume`
-> result (checkpoint state plus dispatch artifacts, with
-> artifact evidence authoritative) determines resumability.
+> **SESSION-RESUME GUARD (re-anchor rule)**: After ANY context
+> compression (auto-compaction, the `compress` tool) or a
+> session restart, do NOT infer progress from the compression
+> summary. Re-anchor on durable state instead:
+>
+> 1. Call `get_progress` with `command: "uf.unleash"`. Its
+>    `completed_steps` and `phases` records are authoritative.
+> 2. Call `parse_tasks` on the feature dir's `tasks.md`
+>    (speckit and openspec tiers). Checked boxes are
+>    authoritative.
+> 3. Where the compression summary disagrees with either
+>    result, the durable tool result wins.
+> 4. NEVER re-run a phase pre-flight checkpoint whose
+>    `phases["<N>"].verdict` is `"green"` — continue with the
+>    next incomplete task or phase.
+> 5. NEVER re-verify a task `parse_tasks` reports done.
+>    `mark_task_complete` is idempotent — a duplicate call is
+>    safe; re-doing completed work is not.
+>
+> At pipeline start (before Step 0), only the
+> `uf_unleash_detect_resume` result (checkpoint state plus
+> dispatch artifacts, with artifact evidence authoritative)
+> determines resumability.
 
 Step tools checkpoint automatically as they complete; the
 review-loop iteration checkpoints and the completion
 `clear_progress` call remain explicit.
 
-### TodoWrite Progress Tracking
+### TodoWrite Progress Tracking (display aid)
 
-Use the **TodoWrite tool** for live session visibility.
-At pipeline start, initialize TodoWrite with all 11 steps
-(Steps 0-10) as `pending`. Before starting each step,
-mark it `in_progress`. After completing each step, mark
-it `completed`. This runs alongside the `checkpoint`
-tool progress tracking — both MUST be maintained.
+The `checkpoint` tool is the durable record of truth;
+TodoWrite is a RECOMMENDED live-session display aid.
+Use it for visibility when helpful — initialize the
+step list at pipeline start and update it as steps
+complete — but the `checkpoint` tool's state
+(`completed_steps`, `phases`) governs resumability and
+re-anchoring. Maintaining TodoWrite is NOT a
+requirement, and a stale TodoWrite list never
+overrides durable state.
 
-On resume from compressed context, call `get_progress`
-with `command: "uf.unleash"` and re-initialize the
-TodoWrite list from the returned state:
+On resume, follow the SESSION-RESUME GUARD re-anchor
+rule (`get_progress` with `command: "uf.unleash"` and
+`parse_tasks`); if you maintain a TodoWrite list,
+re-initialize it from those durable results:
 `completed_steps` entries become `completed`, the
 `current_step` becomes `in_progress`, and remaining
 steps become `pending`.
@@ -75,14 +95,14 @@ steps become `pending`.
 Before any pipeline logic, clean up stale worktrees from
 previous interrupted runs:
 
-1. Call `forge_worktree_list` with the project path.
-2. If any worktrees exist, call `forge_worktree_cleanup`
+1. Call `replicator_forge_worktree_list` with the project path.
+2. If any worktrees exist, call `replicator_forge_worktree_cleanup`
    with `cleanup_all: true` to remove them.
 3. This cleanup does NOT affect resumability -- spec.md,
    plan.md, tasks.md, and task checkboxes live in the main
    working directory, not in worktrees.
 
-If `forge_worktree_list` is not available (Replicator
+If `replicator_forge_worktree_list` is not available (Replicator
 not installed), skip this step silently.
 
 Proceed immediately to the Branch Safety Gate. Do NOT ask for
@@ -189,11 +209,17 @@ message as the step announcement, then:
    re-apply the rubric with the floor enforced, and call
    `uf_unleash_route_decision` again with tier `openspec` or
    `speckit` (never quick), then continue from substep 5 with
-   the escalated tier. On other failures (DIRTY_TREE,
-   ROUTE_ON_TIER_BRANCH, ROUTE_DECISION_ERROR), emit the
-   envelope's message and **STOP**. Never pre-check
-   `git status` or create branches yourself — the tool owns
-   both.
+   the escalated tier. On `DIRTY_TREE`, call
+   `format_unleash_exit` with variant
+   `tier-routing-dirty-tree`, passing the route decision's
+   failure message as `message`, and emit the returned
+   `{text}` verbatim; on `ROUTE_TIER_TOOLING`, do the same
+   with variant `tier-routing-missing-tooling` (its failure
+   message already names the missing paths and the scaffolded
+   tiers). On other failures (ROUTE_ON_TIER_BRANCH,
+   ROUTE_DECISION_ERROR), emit the envelope's message and
+   **STOP**. Never pre-check `git status` or create branches
+   yourself — the tool owns both.
 
 5. **Start the routed workflow**:
    - **speckit**: delegate to the `cobalt-crush-dev` agent
@@ -517,23 +543,44 @@ sections instead of embedding their text.
 1. Announce: "Spec review starting -- dispatching the
    review council directly via the review-dispatch
    plugin (no child driver session)."
-2. Call `resolve_base_ref` (no network access) and
-   announce the resolved base ref and its SHA. SHA and
-   ref validation failures MUST stop the step
-   (fail-closed, no fallback).
-3. Capture the immutable input context:
-   - Resolve the head SHA via `git rev-parse HEAD`.
-   - Capture tracked changes via
-     `git diff <base_sha> -- .` and untracked files
-     via `git ls-files --others --exclude-standard`
-     (treated as full-content additions in the diff).
-   - Save the combined diff to a file.
-   - Derive the raw `changed_files` list with per-file
-     insertion/deletion counts.
-   - If HEAD equals the base SHA and the working tree
-     carries the change (no commits ahead), the input
-     context is the uncommitted local path:
-     `uncommitted: true` with `pr_number: null`.
+2. Call `capture_review_diff` once, passing
+   `feature_dir: FEATURE_DIR` when the branch gate
+   reported one. The tool includes untracked and
+   git-ignored files under the feature dir (feature
+   dirs ignored via `.git/info/exclude` are
+   captured; untracked noise outside the feature
+   dir is not), resolves the base ref offline
+   through the `resolve_base_ref` core
+   (no network access), announces the resolved
+   ref and its SHA, falls back to
+   `uncommitted-local` mode when no base resolves
+   or the base is not an ancestor of HEAD (stale
+   fork -- the reason is recorded in
+   `fallback_reason`), assembles the combined
+   diff, computes per-file insertion/deletion
+   counts, and saves the bounded diff file.
+   Result shape (abridged): `{ "mode": "base",
+   "base": { "ref": "origin/main", "sha":
+   "<40-char>", "source": "origin/main",
+   "head_sha": "<40-char>", "diverged": false },
+   "diff_path": "<saved patch>", "diff_bytes":
+   1234, "files": [{ "path": "src/a.ts",
+   "additions": 3, "deletions": 1 }],
+   "total_files": 1, "total_additions": 3,
+   "total_deletions": 1, "excluded": [] }`.
+   Tool errors (`invalid_input`, `git_error`,
+   `diff_too_large`, `io_error`) MUST stop the
+   step (fail-closed, no fallback).
+3. Derive the immutable input context from the
+   tool result: when `mode` is
+   `uncommitted-local` (or HEAD equals the base
+   SHA and the working tree carries the change --
+   no commits ahead), the input context is the
+   uncommitted local path: `uncommitted: true`
+   with `pr_number: null`; otherwise use the PR
+   path when one exists. `changed_files` is the
+   tool's `files` list; `diff_path` is the tool's
+   saved diff file.
 4. Discover reviewer agents: enumerate the regular
    `divisor-*.md` files in `.opencode/agents/`, strip
    the `.md` extension, and sort the list. Zero
@@ -546,8 +593,10 @@ sections instead of embedding their text.
    `changed_files` list. Display the plan JSON exactly
    as returned. Proceed only when the plan status is
    `ready`, `workflow_result` is null, and `errors` is
-   empty; otherwise finalize the failed dispatch and
-   exit.
+   empty; otherwise finalize the failed dispatch, then
+   call `format_unleash_exit` with variant
+   `planner-failure`, passing the plan's `errors` array
+   as `reasons`, and emit the returned `{text}` verbatim.
 6. Call `dispatch_review_runs` exactly once with mode
    `specs`, command `review-council`, `diff_path` (the
    saved diff file), `changed_files`, `input_context`,
@@ -717,8 +766,20 @@ skill (invoke the `skill` tool with name `pre-flight`)
 and use its CI Workflow Parsing phase to discover the
 exact CI commands from `.github/workflows/`. Also run
 its Local Tool Detection phase to discover additional
-tools from config files. This is the shared pre-flight
-logic used by `/uf.review-council` and `/uf.review-pr`.
+   tools from config files. This is the shared pre-flight
+   logic used by `/uf.review-council` and `/uf.review-pr`.
+
+**Mechanical tasks use repo tooling**: when a task
+   describes a mechanical procedure and the repository
+   ships a skill or script for it (e.g. a `renumber-adr`
+   skill for ADR renumbering), the delegation prompt MUST
+   name that skill or script and pass the reference
+   through to the child agent, so the child runs the full
+   procedure (for `renumber-adr`, including its
+   in-flight-claims step). When no skill or script exists,
+   implement the procedure directly; when one exists but
+   was not used, the task's completion summary MUST record
+   why.
 
 **For each phase in tasks.md**:
 
@@ -764,7 +825,7 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    On failure, emit the envelope's error and **STOP**.
 
 3. **Parallel execution**: check if
-   `forge_worktree_create` is available.
+   `replicator_forge_worktree_create` is available.
 
    **If Swarm worktrees are available**:
 
@@ -779,10 +840,10 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
       the next batch.
 
    c. For each `[P]` task in the current batch:
-      - Call `forge_worktree_create` with the project
+      - Call `replicator_forge_worktree_create` with the project
         path, task ID, and current commit hash to create
         a dedicated worktree.
-      - Call `forge_spawn_subtask` with the task
+      - Call `replicator_forge_spawn_subtask` with the task
         description, files from the task, and the
         worktree path.
 
@@ -791,7 +852,7 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    e. **If any worker fails**: stop spawning new workers
       (do not start the next batch). Wait for any
       already-running workers to complete or fail. Then
-      call `forge_worktree_cleanup` with `cleanup_all:
+      call `replicator_forge_worktree_cleanup` with `cleanup_all:
       true` to remove all worktrees. **EXIT** by calling
       `format_unleash_exit` with:
 
@@ -824,7 +885,7 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
 
    f. After all workers in a batch complete successfully,
       merge each worktree back:
-      - Call `forge_worktree_merge` for each worktree.
+      - Call `replicator_forge_worktree_merge` for each worktree.
         This uses cherry-pick to apply the worker's
         commits to the main branch.
       - After each merge, scan the affected files for
@@ -841,9 +902,9 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
         [{line, marker}]}], clean, warnings}`. On failure,
         emit the envelope's error and **STOP**.
       - If `clean: true`: merge succeeded. Call
-        `forge_worktree_cleanup` for that worktree.
+        `replicator_forge_worktree_cleanup` for that worktree.
       - If `conflicts` is non-empty: auto-resolution
-        failed. Call `forge_worktree_cleanup` with
+        failed. Call `replicator_forge_worktree_cleanup` with
         `cleanup_all: true`. **EXIT** by calling
         `format_unleash_exit` with:
 
@@ -899,8 +960,39 @@ logic used by `/uf.review-council` and `/uf.review-pr`.
    pre-flight skill in `hard-gate` mode to execute all
    detected CI and local tool commands.
 
-   - If all pass: proceed to the next phase.
-   - If any fail: **EXIT** by calling
+   - **Inventory match**: when the skill's procedure
+     calls for establishing a baseline (its Phase 4a),
+     first call `get_progress` with `command:
+     "uf.unleash"` and compare each failing check
+     against every recorded `phases[*].inventory`
+     entry. A failure whose name matches a recorded
+     entry inherits that entry's classification — do
+     NOT build a new baseline worktree for it.
+
+   - **Record the durable phase checkpoint** before
+     deciding to proceed or exit:
+
+     ```
+     checkpoint
+       command: "uf.unleash"
+       step: "implement-phase-[N]"
+       phase:
+         number: [N]
+         verdict: "green" | "failed"
+         inventory:
+           - name: [failing check]
+             classification: pre-existing | environmental
+                            | change-caused
+     ```
+
+     `verdict` is `"green"` when every check passed or
+     every failure was classified `pre-existing` or
+     `environmental` (inventory carries those entries);
+     otherwise `"failed"` (inventory carries every
+     classified failure).
+
+   - If green: proceed to the next phase.
+   - If failed: **EXIT** by calling
      `format_unleash_exit` with:
 
      ```
@@ -1012,23 +1104,46 @@ text.
    a. Announce: "Code review starting -- dispatching the
       review council directly via the review-dispatch
       plugin (no child driver session)."
-   b. Call `resolve_base_ref` (no network access) and
-      announce the resolved base ref and its SHA. SHA
-      and ref validation failures MUST stop the step
-      (fail-closed, no fallback).
-   c. Capture the immutable input context:
-      - Resolve the head SHA via `git rev-parse HEAD`.
-      - Capture tracked changes via
-        `git diff <base_sha> -- .` and untracked files
-        via `git ls-files --others --exclude-standard`
-        (treated as full-content additions in the diff).
-      - Save the combined diff to a file.
-      - Derive the raw `changed_files` list with
-        per-file insertion/deletion counts.
-      - If HEAD equals the base SHA and the working
-        tree carries the change (no commits ahead), the
-        input context is the uncommitted local path:
-        `uncommitted: true` with `pr_number: null`.
+   b. Call `capture_review_diff` once, passing
+      `feature_dir: FEATURE_DIR` when the branch
+      gate reported one. The tool includes
+      untracked and git-ignored files under the
+      feature dir (feature dirs ignored via
+      `.git/info/exclude` are captured; untracked
+      noise outside the feature dir is not),
+      resolves the base ref offline through
+      the `resolve_base_ref` core
+      (no network access), announces the
+      resolved ref and its SHA, falls back to
+      `uncommitted-local` mode when no base
+      resolves or the base is not an ancestor of
+      HEAD (stale fork -- the reason is recorded
+      in `fallback_reason`), assembles the
+      combined diff, computes per-file
+      insertion/deletion counts, and saves the
+      bounded diff file. Result shape (abridged):
+      `{ "mode": "base", "base": { "ref":
+      "origin/main", "sha": "<40-char>", "source":
+      "origin/main", "head_sha": "<40-char>",
+      "diverged": false }, "diff_path": "<saved
+      patch>", "diff_bytes": 1234, "files":
+      [{ "path": "src/a.ts", "additions": 3,
+      "deletions": 1 }], "total_files": 1,
+      "total_additions": 3, "total_deletions": 1,
+      "excluded": [] }`. Tool errors
+      (`invalid_input`, `git_error`,
+      `diff_too_large`, `io_error`) MUST stop the
+      step (fail-closed, no fallback).
+   c. Derive the immutable input context from the
+      tool result: when `mode` is
+      `uncommitted-local` (or HEAD equals the base
+      SHA and the working tree carries the change
+      -- no commits ahead), the input context is
+      the uncommitted local path:
+      `uncommitted: true` with `pr_number: null`;
+      otherwise use the PR path when one exists.
+      `changed_files` is the tool's `files` list;
+      `diff_path` is the tool's saved diff file.
    d. Discover reviewer agents: enumerate the regular
       `divisor-*.md` files in `.opencode/agents/`,
       strip the `.md` extension, and sort the list.
@@ -1041,7 +1156,10 @@ text.
       exactly as returned. Proceed only when the plan
       status is `ready`, `workflow_result` is null, and
       `errors` is empty; otherwise finalize the failed
-      dispatch and exit.
+      dispatch, then call `format_unleash_exit` with
+      variant `planner-failure`, passing the plan's
+      `errors` array as `reasons`, and emit the returned
+      `{text}` verbatim.
    f. Call `dispatch_review_runs` exactly once with mode
       `code`, command `review-council`, `diff_path` (the
       saved diff file), `changed_files`, `input_context`,

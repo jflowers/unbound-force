@@ -146,6 +146,7 @@ describe("plugin integration with a fake OpenCode client", () => {
       expect(Object.keys(dispatchHooks.tool).sort()).toEqual([
         "acquire_sibling_evidence",
         "build_review_prompts",
+        "capture_review_diff",
         "consolidate_dispatch",
         "discard_orphaned_submissions",
         "dispatch_agent_run",

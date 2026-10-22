@@ -120,6 +120,16 @@ async function invokeDemoTool(
  * payload per variant, keyed by the variant the renderer dispatches on.
  */
 const REPRESENTATIVE_EXIT_DATA: { readonly [V in UnleashExitVariant]: UnleashExitDataMap[V] } = {
+  "tier-routing-dirty-tree": { message: "Working tree is not clean." },
+  "tier-routing-missing-tooling": {
+    message:
+      "The speckit tier requires the entry command(s) .opencode/commands/speckit.specify.md, which do not exist in this repository.",
+  },
+  "planner-failure": {
+    reasons: [
+      "discovered agent divisor-ghost has no reviewer-manifest entry. Remediation: add an entry for divisor-ghost to .uf/reviewer-capabilities.yaml (reviewers are keyed by agent name), or stop discovering it.",
+    ],
+  },
   clarify: { questions: [{ question: "Which backend?", context: "spec.md:12" }] },
   "spec-review": { tier: "openspec", findings: ["HIGH: ambiguous story"] },
   "implement-worker-failed": { phase: 1, failed_task: "2.1 Extract renderers", error: "worker failed" },
@@ -148,10 +158,13 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("UNLEASH_EXIT_VARIANTS", () => {
-  it("enumerates the eight exit variants in command order", () => {
+  it("enumerates the eleven exit variants in command order", () => {
     // The tool's zod enum and the lib's renderer dispatch both derive from
     // this list, so pinning it pins the whole exit surface.
     expect(UNLEASH_EXIT_VARIANTS).toEqual([
+      "tier-routing-dirty-tree",
+      "tier-routing-missing-tooling",
+      "planner-failure",
       "clarify",
       "spec-review",
       "implement-worker-failed",
@@ -176,6 +189,77 @@ describe("formatUnleashExit golden templates", () => {
   // guidance sentence, and list item as a single line by design, so goldens
   // match actual output, never hand-wrapped markdown — and the joined string
   // carries no trailing newline.
+
+  it("renders the tier-routing-dirty-tree exit surfacing the route-decision failure", () => {
+    const rendered = formatUnleashExit("tier-routing-dirty-tree", {
+      message: "Working tree is not clean. Uncommitted changes present.",
+    })
+
+    expect(rendered).toBe(
+      [
+        "## /uf.unleash paused at: tier routing",
+        "",
+        "**Reason**: Dirty working tree rejected the route decision",
+        "",
+        "**Route decision failure**: Working tree is not clean. Uncommitted changes present.",
+        "",
+        "### What to do next",
+        "Inspect `git status`, clean or stash the uncommitted work, then re-run `/uf.unleash` — tier routing re-derives the decision on the next run.",
+        "",
+        "### Then resume",
+        "Run `/uf.unleash` to continue from tier routing.",
+      ].join("\n"),
+    )
+  })
+
+  it("renders the tier-routing-missing-tooling exit naming scaffolded alternatives", () => {
+    const rendered = formatUnleashExit("tier-routing-missing-tooling", {
+      message:
+        "The speckit tier requires the entry command(s) .opencode/commands/speckit.specify.md, which do not exist in this repository.",
+    })
+
+    expect(rendered).toBe(
+      [
+        "## /uf.unleash paused at: tier routing",
+        "",
+        "**Reason**: Chosen tier's entry commands are not scaffolded",
+        "",
+        "**Route decision failure**: The speckit tier requires the entry command(s) .opencode/commands/speckit.specify.md, which do not exist in this repository.",
+        "",
+        "### What to do next",
+        "Re-route at a tier whose entry commands exist (the failure message lists them), or scaffold the missing command, then re-run `/uf.unleash`.",
+        "",
+        "### Then resume",
+        "Run `/uf.unleash` to continue from tier routing.",
+      ].join("\n"),
+    )
+  })
+
+  it("renders the planner-failure exit surfacing plan errors with remediation", () => {
+    const rendered = formatUnleashExit("planner-failure", {
+      reasons: [
+        "discovered agent divisor-ghost has no reviewer-manifest entry. Remediation: add an entry for divisor-ghost to .uf/reviewer-capabilities.yaml (reviewers are keyed by agent name), or stop discovering it.",
+      ],
+    })
+
+    expect(rendered).toBe(
+      [
+        "## /uf.unleash paused at: review planning",
+        "",
+        "**Reason**: Review dispatch planner failed to produce a ready plan",
+        "",
+        "### Plan errors",
+        "",
+        "- discovered agent divisor-ghost has no reviewer-manifest entry. Remediation: add an entry for divisor-ghost to .uf/reviewer-capabilities.yaml (reviewers are keyed by agent name), or stop discovering it.",
+        "",
+        "### What to do next",
+        "Repair the configuration named in the errors (the plan errors carry remediation), then re-run the review step.",
+        "",
+        "### Then resume",
+        "Run `/uf.unleash` to continue from the review step.",
+      ].join("\n"),
+    )
+  })
 
   it("renders the clarify exit with numbered questions, per-question context, and the plan-step resume", () => {
     const rendered = formatUnleashExit("clarify", {

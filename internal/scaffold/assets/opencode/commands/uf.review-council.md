@@ -123,34 +123,37 @@ values for a PR review. Ensure both exact commit objects are available
 without checking out or switching branches; fetch the immutable objects
 when necessary and verify their hashes before diffing.
 
-Without a PR, call `resolve_base_ref` to determine the best available
-base ref. The tool tries `upstream/main`, `origin/main`, then `main`
-(no network access) and returns the ref name, its resolved SHA, and a
-source label. If the tool returns failure, abort the review with its
-error message — do not fall back or proceed without a valid base.
-Announce the selected base ref and its source before continuing.
+Without a PR, call `capture_review_diff` once, passing
+`feature_dir` when the branch name or workflow tier identifies one
+(OpenSpec: `openspec/changes/<name>/`, Speckit: `specs/<branch>/`).
+The tool includes untracked and git-ignored files under the feature
+dir (feature dirs ignored via `.git/info/exclude` are captured;
+untracked noise outside the feature dir is not). Internally the
+tool will call `resolve_base_ref` to determine the best available
+base ref, which tries `upstream/main`, `origin/main`, then `main`
+(no network access), announces the resolved ref and its SHA, falls
+back to `uncommitted-local` mode when no base resolves or the base
+is not an ancestor of HEAD (stale fork — the reason is recorded in
+`fallback_reason`), assembles the combined diff, computes per-file
+insertion/deletion counts, and saves the bounded diff file. Tool
+errors (`invalid_input`, `git_error`, `diff_too_large`, `io_error`)
+MUST stop the review — do not fall back or proceed without a valid
+diff. Announce the resolved mode, base ref, and source before
+continuing.
 
-Use the returned ref as the base and the current branch head. Resolve
-the head ref to an immutable SHA and record a local context with null
-`pr_number`. Use only the resolved `base_sha...head_sha` afterward when
-the branch head differs from base. When the branch head resolves to the
-same SHA as base (no commits ahead) but the working tree holds
-uncommitted changes, review the working tree instead of failing closed:
-record a local context with `uncommitted: true`, treat the resolved
-`base_sha` as the immutable base, and derive the reviewed diff from the
-working tree — tracked edits via `git diff <base_sha> -- .` and untracked
-files via `git ls-files --others --exclude-standard`, each treated as a
-full-content addition. If changed fixes are not represented by either a
-newly resolved immutable head SHA or an uncommitted working-tree diff, do
-not review a stale snapshot; stop and request an immutable local snapshot
-or commit before rerunning.
+Use the tool's returned `base` fields as the immutable base context
+and its `files` array as the changed-file list. Resolve the head
+ref to an immutable SHA and record a local context with null
+`pr_number`. Set `uncommitted: true` when the tool returns mode
+`uncommitted-local`. Use only the resolved `base_sha...head_sha`
+afterward.
 
-Derive the planner's raw `changed_files` from the exact reviewed diff:
-the immutable `base_sha...head_sha` diff for committed or PR input, or
-the working-tree diff for uncommitted local input. Pass each path and its
-non-negative inserted/deleted counts. Use zero for an unavailable
-binary-side count. Do not pre-classify, pre-prune, or otherwise replace
-planner policy.
+Derive the planner's raw `changed_files` from the tool's `files`
+array for local input, or from the immutable `base_sha...head_sha`
+diff for PR input. Pass each path and its non-negative
+inserted/deleted counts. Use zero for an unavailable binary-side
+count. Do not pre-classify, pre-prune, or otherwise replace planner
+policy.
 
 ### Auto-Detection (when no explicit mode or PR is present)
 

@@ -302,6 +302,8 @@ function mockGh(responses: ReadonlyArray<readonly [RegExp, string]>): void {
 const GIT_BRANCH = "git rev-parse --abbrev-ref HEAD"
 const GIT_HEAD = "git rev-parse HEAD"
 const SHA_A = "1".repeat(40)
+/** HEAD reported by resolve_base_ref in the golden fixture. */
+const SHA_HEAD = "5".repeat(40)
 const MERGE_BASE = "3".repeat(40)
 const LESSON_COMMIT = "b".repeat(40)
 /** Reviewed head SHA persisted in goldenSessionMetadata; consolidate provenance must match it. */
@@ -735,21 +737,25 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     expect(data.text).toContain("openspec/changes/golden-change/")
   })
 
-  it("resolve_base_ref [uf.review-council.md:126] returns the ref, resolved SHA, and source label", async () => {
+  it("resolve_base_ref [uf.review-council.md:126] returns the ref, resolved SHA, source label, HEAD sha, and divergence flag", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
     // upstream/main is absent from the map, so its probe throws and the
     // tool falls through to the next candidate, exactly like a missing ref.
-    mockGit({ "git rev-parse --verify origin/main": SHA_A })
+    mockGit({
+      "git rev-parse --verify origin/main": SHA_A,
+      "git rev-parse --verify HEAD": SHA_HEAD,
+      [`git merge-base --is-ancestor ${SHA_A} HEAD`]: "",
+    })
 
     const data = expectOk(
-      await callEnvelopeTool<{ ref: string; sha: string; source: string }>(
+      await callEnvelopeTool<{ ref: string; sha: string; source: string; head_sha: string; diverged: boolean }>(
         registry,
         "resolve_base_ref",
         {},
       ),
     )
-    expect(data).toEqual({ ref: "origin/main", sha: SHA_A, source: "origin/main" })
+    expect(data).toEqual({ ref: "origin/main", sha: SHA_A, source: "origin/main", head_sha: SHA_HEAD, diverged: false })
   })
 
   it("normalize_model_name [uf.address-feedback.md:733] returns normalized and the unknown-model fallback", async () => {
@@ -1073,7 +1079,7 @@ const CONSOLIDATE_SITES: ReadonlyArray<{
   { site: "uf.address-feedback.md:473", command: "address-feedback", mode: "feedback", metadataOverrides: {} },
 ]
 
-describe("golden output shapes -- review-dispatch registry (14 documented sites)", () => {
+describe("golden output shapes -- review-dispatch registry (15 documented sites)", () => {
   it.each(PLAN_SITES)(
     "plan_review_dispatch [$site] returns a ready plan with workflow_result null and empty errors",
     async ({ args }) => {
@@ -1345,5 +1351,59 @@ describe("golden output shapes -- review-dispatch registry (14 documented sites)
       sha256: fileSha256,
       excerpt: "observable behavior",
     })
+  })
+
+  it("capture_review_diff [uf.unleash.md:539] returns mode, base, bounded diff path, per-file counts, and writes a readable patch", async () => {
+    const directory = await makeScratchProject()
+    const registry = await loadRegistry(ReviewDispatchPlugin, directory)
+    await writeProjectFile(directory, "openspec/changes/golden/proposal.md", "alpha\nbeta\n")
+    // upstream/main is absent from the map, so its probe throws and the
+    // candidate loop falls through to origin/main, exactly like a missing ref.
+    mockGit({
+      "git rev-parse --verify origin/main": SHA_A,
+      "git rev-parse --verify HEAD": SHA_HEAD,
+      [`git merge-base --is-ancestor ${SHA_A} HEAD`]: "",
+      [`git diff --no-renames ${SHA_A}`]:
+        "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      [`git diff --no-renames --numstat ${SHA_A}`]: "1\t1\tsrc/a.ts\n",
+      "git ls-files --others --exclude-standard -- openspec/changes/golden": "",
+      "git ls-files --others --ignored --exclude-standard -- openspec/changes/golden":
+        "openspec/changes/golden/proposal.md\n",
+    })
+
+    const result = await callEnvelopeTool<{
+      mode: string
+      base: { ref: string; sha: string; source: string; head_sha: string; diverged: boolean } | null
+      diff_path: string
+      diff_bytes: number
+      files: Array<{ path: string; additions: number; deletions: number }>
+      total_files: number
+      total_additions: number
+      total_deletions: number
+      excluded: Array<{ path: string; reason: string }>
+    }>(registry, "capture_review_diff", { feature_dir: "openspec/changes/golden" })
+
+    expect(result.mode).toBe("base")
+    expect(result.base).toEqual({
+      ref: "origin/main",
+      sha: SHA_A,
+      source: "origin/main",
+      head_sha: SHA_HEAD,
+      diverged: false,
+    })
+    expect(result.files).toEqual([
+      { path: "src/a.ts", additions: 1, deletions: 1 },
+      { path: "openspec/changes/golden/proposal.md", additions: 2, deletions: 0 },
+    ])
+    expect(result.total_files).toBe(2)
+    expect(result.total_additions).toBe(3)
+    expect(result.total_deletions).toBe(1)
+    expect(result.excluded).toEqual([])
+    // Write -> read round-trip: the saved patch exists and is readable.
+    await expect(stat(result.diff_path)).resolves.toBeTruthy()
+    const written = await readFile(result.diff_path, "utf8")
+    expect(written).toContain("+++ b/openspec/changes/golden/proposal.md")
+    expect(written).toContain("+alpha")
+    expect(result.diff_bytes).toBe(Buffer.byteLength(written, "utf8"))
   })
 })

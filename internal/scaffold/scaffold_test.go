@@ -1274,12 +1274,13 @@ var expectedAssetPaths = []string{
 	"opencode/lib/uf-workflow-types.ts",
 	// UF finale plugin (1)
 	"opencode/plugins/uf-finale/index.ts",
-	// Shared lib modules (7)
+	// Shared lib modules (8)
 	"opencode/lib/agent-executor.ts",
 	"opencode/lib/branch-classification.ts",
 	"opencode/lib/review-dispatch-artifact.ts",
 	"opencode/lib/review-dispatch-lesson-proposal.ts",
 	"opencode/lib/review-dispatch-sibling-evidence.ts",
+	"opencode/lib/review-diff.ts",
 	"opencode/lib/reviewer-manifest.ts",
 	"opencode/lib/unleash-templates.ts",
 	// Reproducible plugin package inputs (2)
@@ -1320,6 +1321,7 @@ var task42CanonicalAssets = []struct {
 	{asset: "opencode/lib/review-dispatch-artifact.ts", source: ".opencode/lib/review-dispatch-artifact.ts"},
 	{asset: "opencode/lib/review-dispatch-lesson-proposal.ts", source: ".opencode/lib/review-dispatch-lesson-proposal.ts"},
 	{asset: "opencode/lib/review-dispatch-sibling-evidence.ts", source: ".opencode/lib/review-dispatch-sibling-evidence.ts"},
+	{asset: "opencode/lib/review-diff.ts", source: ".opencode/lib/review-diff.ts"},
 	{asset: "opencode/lib/reviewer-manifest.ts", source: ".opencode/lib/reviewer-manifest.ts"},
 	{asset: "opencode/lib/unleash-templates.ts", source: ".opencode/lib/unleash-templates.ts"},
 	{asset: "opencode/package-lock.json", source: ".opencode/package-lock.json"},
@@ -2080,6 +2082,7 @@ func TestIsToolOwned(t *testing.T) {
 		// Tool-owned: review-dispatch acquisition module
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
+		{"opencode/lib/review-diff.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
 		{"opencode/lib/unleash-templates.ts", true},
@@ -2735,6 +2738,7 @@ func TestIsDivisorAsset(t *testing.T) {
 		// Divisor acquisition implementation
 		{"opencode/lib/review-dispatch-lesson-proposal.ts", true},
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
+		{"opencode/lib/review-diff.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
 		{"opencode/lib/unleash-templates.ts", true},

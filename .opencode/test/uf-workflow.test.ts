@@ -148,7 +148,6 @@ describe("UfWorkflowPlugin", () => {
       "mark_task_complete",
       "normalize_model_name",
       "parse_tasks",
-      "persist_unleash_summary",
       "resolve_base_ref",
       "resolve_clarification",
       "scan_clarifications",
@@ -181,6 +180,8 @@ describe("resolve_base_ref", () => {
   it("returns upstream/main when it resolves", async () => {
     const mockExec: GitExec = (args: string[]) => {
       const cmd = args.join(" ")
+      if (cmd.startsWith("merge-base")) return ""
+      if (cmd.includes("rev-parse") && cmd.includes("HEAD")) return "head456def789"
       if (cmd.includes("upstream/main")) return "abc123def456"
       throw new Error("not found")
     }
@@ -192,6 +193,8 @@ describe("resolve_base_ref", () => {
         ref: "upstream/main",
         sha: "abc123def456",
         source: "upstream/main",
+        head_sha: "head456def789",
+        diverged: false,
       })
     }
   })
@@ -199,6 +202,8 @@ describe("resolve_base_ref", () => {
   it("falls back to origin/main when upstream/main fails", async () => {
     const mockExec: GitExec = (args: string[]) => {
       const cmd = args.join(" ")
+      if (cmd.startsWith("merge-base")) return ""
+      if (cmd.includes("rev-parse") && cmd.includes("HEAD")) return "head456def789"
       if (cmd.includes("upstream/main")) throw new Error("not found")
       if (cmd.includes("origin/main")) return "def789abc012"
       throw new Error("not found")
@@ -211,6 +216,8 @@ describe("resolve_base_ref", () => {
         ref: "origin/main",
         sha: "def789abc012",
         source: "origin/main",
+        head_sha: "head456def789",
+        diverged: false,
       })
     }
   })
@@ -218,6 +225,8 @@ describe("resolve_base_ref", () => {
   it("falls back to main when remote-tracking refs fail", async () => {
     const mockExec: GitExec = (args: string[]) => {
       const cmd = args.join(" ")
+      if (cmd.startsWith("merge-base")) return ""
+      if (cmd.includes("rev-parse") && cmd.includes("HEAD")) return "head456def789"
       if (cmd.includes("upstream/main")) throw new Error("not found")
       if (cmd.includes("origin/main")) throw new Error("not found")
       if (cmd.includes("main")) return "789012abc345"
@@ -231,6 +240,30 @@ describe("resolve_base_ref", () => {
         ref: "main",
         sha: "789012abc345",
         source: "main",
+        head_sha: "head456def789",
+        diverged: false,
+      })
+    }
+  })
+
+  it("flags divergence when the base is not an ancestor of HEAD", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.startsWith("merge-base")) throw new Error("not an ancestor")
+      if (cmd.includes("rev-parse") && cmd.includes("HEAD")) return "head456def789"
+      if (cmd.includes("upstream/main")) return "abc123def456"
+      throw new Error("not found")
+    }
+
+    const result = await invokeResolveBaseRef(mockExec)
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data).toStrictEqual({
+        ref: "upstream/main",
+        sha: "abc123def456",
+        source: "upstream/main",
+        head_sha: "head456def789",
+        diverged: true,
       })
     }
   })
@@ -498,6 +531,118 @@ describe("checkpoint tool (FR-001)", () => {
       expect(result.code).toBe("CHECKPOINT_ERROR")
     }
   })
+
+  it("records a phase-scoped checkpoint with verdict and inventory", async () => {
+    const result = await invokeTool<ProgressState>(
+      createCheckpointTool(branchExec, tmpDir),
+      {
+        command: "uf.unleash",
+        step: "implement-phase-4",
+        phase: {
+          number: 4,
+          verdict: "green",
+          inventory: [{ name: "TestX", classification: "pre-existing" }],
+        },
+      },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      const s = result.data as ProgressState
+      expect(s.completed_steps).toEqual(["implement-phase-4"])
+      expect(s.phases?.["4"]?.verdict).toBe("green")
+      expect(s.phases?.["4"]?.inventory).toEqual([
+        { name: "TestX", classification: "pre-existing" },
+      ])
+      expect(s.phases?.["4"]?.recorded_at).toBeTruthy()
+    }
+  })
+
+  it("round-trips a phase-scoped record through get_progress", async () => {
+    const cp = createCheckpointTool(branchExec, tmpDir)
+    await invokeTool(cp, {
+      command: "uf.unleash",
+      step: "implement-phase-2",
+      phase: {
+        number: 2,
+        verdict: "green",
+        inventory: [
+          { name: "TestTLS", classification: "environmental" },
+          { name: "TestPath", classification: "pre-existing" },
+        ],
+      },
+    })
+    const result = await invokeTool<ProgressState>(
+      createGetProgressTool(branchExec, tmpDir),
+      { command: "uf.unleash" },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      const s = result.data as ProgressState
+      expect(s.current_step).toBe("implement-phase-2")
+      expect(s.completed_steps).toEqual(["implement-phase-2"])
+      expect(s.phases?.["2"]?.verdict).toBe("green")
+      expect(s.phases?.["2"]?.inventory).toEqual([
+        { name: "TestTLS", classification: "environmental" },
+        { name: "TestPath", classification: "pre-existing" },
+      ])
+    }
+  })
+
+  it("re-recording a phase replaces its record and stays step-idempotent", async () => {
+    const cp = createCheckpointTool(branchExec, tmpDir)
+    await invokeTool(cp, {
+      command: "uf.unleash",
+      step: "implement-phase-4",
+      phase: {
+        number: 4,
+        verdict: "failed",
+        inventory: [{ name: "TestA", classification: "change-caused" }],
+      },
+    })
+    const result = await invokeTool<ProgressState>(cp, {
+      command: "uf.unleash",
+      step: "implement-phase-4",
+      phase: { number: 4, verdict: "green", inventory: [] },
+    })
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      const s = result.data as ProgressState
+      expect(s.completed_steps).toEqual(["implement-phase-4"])
+      expect(s.phases?.["4"]?.verdict).toBe("green")
+      expect(s.phases?.["4"]?.inventory).toEqual([])
+    }
+  })
+
+  it("defaults an omitted inventory to an empty list", async () => {
+    const result = await invokeTool<ProgressState>(
+      createCheckpointTool(branchExec, tmpDir),
+      {
+        command: "uf.unleash",
+        step: "implement-phase-1",
+        phase: { number: 1, verdict: "green" },
+      },
+    )
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect((result.data as ProgressState).phases?.["1"]?.inventory).toEqual([])
+    }
+  })
+
+  it("rejects a phase record whose step is not implement-phase-<n>", async () => {
+    const result = await invokeTool(
+      createCheckpointTool(branchExec, tmpDir),
+      {
+        command: "uf.unleash",
+        step: "step-0",
+        phase: { number: 4, verdict: "green", inventory: [] },
+      },
+    )
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("CHECKPOINT_ERROR")
+      expect(result.message).toContain("implement-phase-4")
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -719,22 +864,23 @@ describe("symlink defense (FR-005)", () => {
 })
 
 // ---------------------------------------------------------------------------
-// persist_unleash_summary tool tests (FR-001 through FR-005 of the
+// write_unleash_summary tool tests (FR-001 through FR-005 of the
 // persist-unleash-summary change, adjusted to the merged contract).
 //
 // The merge of persist-unleash-summary (origin/main) and
 // unleash-deterministic-tools (this branch) deduplicated the two Step 10
 // summary writers into write_unleash_summary as the mechanism of record;
-// createPersistUnleashSummaryTool is the compatibility factory and the
-// server tool map registers the same implementation under
-// persist_unleash_summary. These tests exercise that registration surface
-// with the merged input contract (the full eight-parameter payload) and
-// the merged failure taxonomy (DETACHED_HEAD, SUMMARY_DIR_IS_SYMLINK,
-// SUMMARY_PATH_IS_SYMLINK, SUMMARY_WRITE_ERROR instead of the original
-// single PERSIST_UNLEASH_SUMMARY_ERROR catch-all).
+// the unleash-pipeline-hardening change then removed the redundant
+// persist_unleash_summary registration so the tool map lists exactly one
+// summary tool. createPersistUnleashSummaryTool remains the exported
+// compatibility factory delegating to that single implementation, and
+// these tests exercise the merged contract through it (the full
+// eight-parameter payload) and the merged failure taxonomy (DETACHED_HEAD,
+// SUMMARY_DIR_IS_SYMLINK, SUMMARY_PATH_IS_SYMLINK, SUMMARY_WRITE_ERROR
+// instead of the original single PERSIST_UNLEASH_SUMMARY_ERROR catch-all).
 // ---------------------------------------------------------------------------
 
-describe("persist_unleash_summary", () => {
+describe("write_unleash_summary (persist_unleash_summary compatibility factory)", () => {
   let tmpDir: string
 
   beforeEach(() => {
@@ -1714,6 +1860,7 @@ describe("tool args schema exposure", () => {
       "command",
       "data",
       "key",
+      "phase",
       "step",
     ])
   })
@@ -1762,7 +1909,7 @@ describe("tool args schema exposure", () => {
 
   // Declared via zod before this change — kept as a guard so this tool
   // cannot regress to the legacy `parameters` key either.
-  it("exposes persist_unleash_summary as a zod-args tool definition (future-regression guard)", () => {
+  it("exposes the summary tool (persist compatibility factory) as a zod-args tool definition (future-regression guard)", () => {
     const definition = createPersistUnleashSummaryTool(branchExec, "/fake")
 
     expect(Object.keys(definition.args).sort()).toEqual([

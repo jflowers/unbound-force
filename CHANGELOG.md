@@ -261,6 +261,42 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- unleash-pipeline-hardening: Hardened the `/uf.unleash`
+  pipeline against the failure modes surfaced by the
+  fullsend field audit. Delegation: `resolveHostModel` is
+  variant-optional and throws the new
+  `StructuralHostModelError`; `uf_delegate_command`
+  classifies host-resolution failures as structural
+  (non-retryable, with remediation) or transient
+  (retryable) instead of failing opaquely. Review diffs:
+  new shared core `.opencode/lib/review-diff.ts` plus a
+  `capture_review_diff` tool (review-dispatch plugin)
+  replaces prose diff-capture in the template's spec and
+  code review steps — bounded, fail-closed, with
+  uncommitted-local and divergence fallbacks — verified
+  per DE-007 (registration surface, golden output shape,
+  real-repo round-trip). Tier routing: route decisions
+  validate tier entry-command existence
+  (`ROUTE_TIER_TOOLING`, `TIER_ENTRY_COMMANDS`) and stop
+  through the new `tier-routing-dirty-tree` and
+  `tier-routing-missing-tooling` exit variants; review
+  planning stops through the new `planner-failure` exit
+  variant fed by enriched plan errors (missing
+  reviewer-manifest entries now carry remediation, and
+  stale manifest entries emit LOW drift advisories).
+  Template: session-resume re-anchoring through
+  `get_progress`/`parse_tasks`, phase-scoped
+  `implement-phase-<N>` checkpoint records with failure
+  inventory classification, mechanical-task tool-reference
+  guidance, registered `replicator_forge_*` tool names,
+  and a single `write_unleash_summary` registration (the
+  redundant `persist_unleash_summary` alias registration
+  removed; factory retained). Scaffold mirrors synced for
+  every changed source including the new
+  `opencode/lib/review-diff.ts` asset, with the asset
+  inventories and the `TestRunInit_FreshDir` derived
+  range ([70-74]) updated to match.
+  (Spec: openspec/changes/unleash-pipeline-hardening/)
 - clarification-marker-superset: Single-sourced the
   superset clarification-marker grammar: one shared
   `CLARIFICATION_MARKER_PATTERN` is consumed by

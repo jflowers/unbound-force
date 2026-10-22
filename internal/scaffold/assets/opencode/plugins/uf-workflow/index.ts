@@ -11,6 +11,7 @@ import {
   TimeoutSchema,
   executeAgentSession,
   resolveHostModel,
+  StructuralHostModelError,
   type InvocationProvenance,
   type InvocationUsage,
 } from "../../lib/agent-executor.js"
@@ -20,6 +21,11 @@ import {
   parseReviewDispatchArtifact,
   type ReviewDispatchArtifactSummary,
 } from "../../lib/review-dispatch-artifact.js"
+import {
+  BASE_REF_CANDIDATES,
+  resolveBaseRefWithDivergence,
+  type BaseRefResolution,
+} from "../../lib/review-diff.js"
 import {
   defaultGitExec,
   failure,
@@ -38,62 +44,46 @@ import {
 // Re-export envelope helpers and shared utilities for consumer convenience.
 export { defaultGitExec, failure, normalizeModelName, sanitizeSlug, success } from "../../lib/uf-workflow-types.js"
 export type { GitExec, ToolFailure, ToolResult, ToolSuccess } from "../../lib/uf-workflow-types.js"
+export type { BaseRefSource } from "../../lib/review-diff.js"
 
 // ---------------------------------------------------------------------------
 // resolve_base_ref tool
 // ---------------------------------------------------------------------------
 
-/** Valid base-ref source labels. */
-export type BaseRefSource = "upstream/main" | "origin/main" | "main"
-
-/** Structured output from resolve_base_ref. */
-export interface ResolveBaseRefData {
-  ref: BaseRefSource
-  sha: string
-  source: BaseRefSource
-}
-
-/** Ordered candidate refs to try (no network access needed). */
-const BASE_REF_CANDIDATES: readonly BaseRefSource[] = [
-  "upstream/main",
-  "origin/main",
-  "main",
-] as const
+/**
+ * Structured output from resolve_base_ref. Extends the legacy
+ * ref/sha/source fields with head_sha and diverged (backward
+ * compatible: consumers that ignore the new fields are unaffected).
+ */
+export type ResolveBaseRefData = BaseRefResolution
 
 /**
  * Factory that creates the resolve_base_ref tool with injectable
- * git executor and working directory for testability.
+ * git executor and working directory for testability. Delegates base
+ * resolution and divergence detection to the shared review-diff core.
  */
 export function createResolveBaseRefTool(exec: GitExec, cwd: string) {
   return tool({
     description:
       "Resolve the best available base ref for local review diffs. " +
       "Tries upstream/main, origin/main, then main (no network access). " +
-      "Returns the ref name, its resolved SHA, and a source label.",
+      "Returns the ref name, its resolved SHA, a source label, the current " +
+      "HEAD SHA, and a diverged flag that is true when the base is NOT an " +
+      "ancestor of HEAD (stale fork) -- do not diff against a diverged base; " +
+      "fall back to uncommitted-local mode instead.",
     execute: async () => {
-      for (const candidate of BASE_REF_CANDIDATES) {
-        try {
-          const sha = exec(["rev-parse", "--verify", candidate], cwd)
-          if (sha) {
-            const data: ResolveBaseRefData = {
-              ref: candidate,
-              sha,
-              source: candidate,
-            }
-            return { output: JSON.stringify(success(data)) }
-          }
-        } catch {
-          // Candidate not available, try next.
+      const resolved = resolveBaseRefWithDivergence(exec, cwd)
+      if (!resolved) {
+        return {
+          output: JSON.stringify(
+            failure(
+              `No resolvable base ref found. Tried: ${BASE_REF_CANDIDATES.join(", ")}`,
+              { retryable: false, code: "NO_BASE_REF" },
+            ),
+          ),
         }
       }
-      return {
-        output: JSON.stringify(
-          failure(
-            `No resolvable base ref found. Tried: ${BASE_REF_CANDIDATES.join(", ")}`,
-            { retryable: false, code: "NO_BASE_REF" },
-          ),
-        ),
-      }
+      return { output: JSON.stringify(success(resolved)) }
     },
   })
 }
@@ -101,6 +91,32 @@ export function createResolveBaseRefTool(exec: GitExec, cwd: string) {
 // ---------------------------------------------------------------------------
 // Checkpoint types
 // ---------------------------------------------------------------------------
+
+/** Failure classification for a phase pre-flight checkpoint. */
+export type PhaseFailureClassification =
+  | "pre-existing"
+  | "environmental"
+  | "change-caused"
+
+/** One classified failure in a phase checkpoint inventory. */
+export interface PhaseFailureEntry {
+  name: string
+  classification: PhaseFailureClassification
+}
+
+/** Phase-scoped checkpoint input accepted by the checkpoint tool. */
+export interface PhaseCheckpointInput {
+  number: number
+  verdict: "green" | "failed"
+  inventory: PhaseFailureEntry[]
+}
+
+/** Durable record of one phase's pre-flight checkpoint, keyed by phase number. */
+export interface PhaseCheckpointRecord {
+  verdict: "green" | "failed"
+  inventory: PhaseFailureEntry[]
+  recorded_at: string
+}
 
 /** Persistent workflow progress state (FR-001, FR-007). */
 export interface ProgressState {
@@ -110,6 +126,8 @@ export interface ProgressState {
   current_step: string
   completed_steps: string[]
   data: Record<string, unknown>
+  /** Phase-scoped checkpoint records keyed by phase number string. */
+  phases?: Record<string, PhaseCheckpointRecord>
   created_at: string
   updated_at: string
 }
@@ -249,8 +267,12 @@ function deleteState(
  * Create-or-update checkpoint state — the single mutation primitive both
  * the checkpoint tool and recordAutoCheckpoint consume. Semantics are
  * identical for both (FR-001/D3/D5): idempotent step append, shallow
- * data merge via Object.assign, timestamp refresh. Returns the updated
- * state. Throws on state I/O failure so callers fail closed.
+ * data merge via Object.assign, timestamp refresh. When `phase` is
+ * provided the step MUST be `implement-phase-<number>` and a
+ * phase-scoped record (verdict + classified failure inventory) is
+ * upserted into `state.phases`, replacing any prior record for that
+ * phase. Returns the updated state. Throws on state I/O failure so
+ * callers fail closed.
  */
 function upsertCheckpointStep(
   cwd: string,
@@ -258,7 +280,13 @@ function upsertCheckpointStep(
   command: string,
   step: string,
   data?: Record<string, unknown>,
+  phase?: PhaseCheckpointInput,
 ): ProgressState {
+  if (phase !== undefined && step !== `implement-phase-${phase.number}`) {
+    throw new Error(
+      `phase-scoped checkpoint requires step "implement-phase-${phase.number}", got "${step}"`,
+    )
+  }
   const cmd = sanitizeSlug(command)
   const now = new Date().toISOString()
 
@@ -287,6 +315,15 @@ function upsertCheckpointStep(
       Object.assign(state.data, data)
     }
     state.updated_at = now
+  }
+
+  if (phase !== undefined) {
+    state.phases ??= {}
+    state.phases[String(phase.number)] = {
+      verdict: phase.verdict,
+      inventory: phase.inventory,
+      recorded_at: now,
+    }
   }
 
   writeState(cwd, key, cmd, state)
@@ -321,7 +358,10 @@ export function createCheckpointTool(exec: GitExec, cwd: string) {
     description:
       "Record a completed workflow step to persistent storage. " +
       "Creates or updates the progress state file with the step name, " +
-      "merges optional data via shallow merge, and returns the updated state.",
+      "merges optional data via shallow merge, and returns the updated state. " +
+      "Pass `phase` with step `implement-phase-<number>` to record a phase " +
+      "pre-flight checkpoint (verdict + classified failure inventory) that " +
+      "get_progress returns under `phases`.",
     args: {
       command: z.string().describe("Command identifier (e.g. uf.unleash)"),
       step: z.string().describe("Step name to record as completed"),
@@ -331,12 +371,37 @@ export function createCheckpointTool(exec: GitExec, cwd: string) {
       key: z.string().optional().describe(
         "Optional state key override; defaults to sanitized current git branch",
       ),
+      phase: z
+        .object({
+          number: z.number().int().min(1).max(1000),
+          verdict: z.enum(["green", "failed"]),
+          inventory: z
+            .array(
+              z.object({
+                name: z.string().min(1).max(512),
+                classification: z.enum([
+                  "pre-existing",
+                  "environmental",
+                  "change-caused",
+                ]),
+              }),
+            )
+            .max(200)
+            .default([]),
+        })
+        .optional()
+        .describe(
+          "Optional phase-scoped record; requires step implement-phase-<number>. " +
+            "verdict is the phase pre-flight outcome; inventory lists classified " +
+            "failures (pre-existing, environmental, or change-caused)",
+        ),
     },
     execute: async (args: {
       command: string
       step: string
       data?: string
       key?: string
+      phase?: { number: number; verdict: "green" | "failed"; inventory?: PhaseFailureEntry[] }
     }) => {
       try {
         const key = resolveKey(exec, cwd, args.key)
@@ -346,12 +411,22 @@ export function createCheckpointTool(exec: GitExec, cwd: string) {
           dataToMerge = JSON.parse(args.data) as Record<string, unknown>
         }
 
+        const phaseRecord =
+          args.phase === undefined
+            ? undefined
+            : {
+                number: args.phase.number,
+                verdict: args.phase.verdict,
+                inventory: args.phase.inventory ?? [],
+              }
+
         const state = upsertCheckpointStep(
           cwd,
           key,
           args.command,
           args.step,
           dataToMerge,
+          phaseRecord,
         )
         return { output: JSON.stringify(success(state)) }
       } catch (err: unknown) {
@@ -820,6 +895,20 @@ export type FileExists = (path: string) => boolean
 /** Default file-existence checker backed by existsSync. */
 const defaultFileExists: FileExists = (path: string): boolean => existsSync(path)
 
+/**
+ * Entry commands each workflow tier's first delegated step depends on,
+ * relative to the repository root. The quick tier has none — its work
+ * runs inline in the /uf.unleash pipeline itself. Validation happens at
+ * route-decision recording time so a tier without its tooling fails
+ * before rubric work is spent on delegation (audit F4: the speckit route
+ * was recorded, then delegation failed ENOENT and forced a re-route).
+ */
+const TIER_ENTRY_COMMANDS: Record<WorkflowTier, readonly string[]> = {
+  speckit: [".opencode/commands/speckit.specify.md"],
+  openspec: [".opencode/commands/opsx-propose.md"],
+  quick: [],
+}
+
 /** Structured output from uf_unleash_branch_gate. */
 export interface UnleashBranchGateData {
   /** Current git branch name. */
@@ -1044,7 +1133,11 @@ const RouteDecisionInputSchema = z
  * @param cwd Repository root the decision executes against.
  * @returns The uf_unleash_route_decision tool.
  */
-export function createUnleashRouteDecisionTool(exec: GitExec, cwd: string): ReturnType<typeof tool> {
+export function createUnleashRouteDecisionTool(
+  exec: GitExec,
+  cwd: string,
+  fileExists: FileExists = defaultFileExists,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Tier routing decision for /uf.unleash: records the selected workflow tier " +
@@ -1052,7 +1145,8 @@ export function createUnleashRouteDecisionTool(exec: GitExec, cwd: string): Retu
       "description, guards against routing on a tier-named branch " +
       "(ROUTE_ON_TIER_BRANCH) and a dirty working tree (DIRTY_TREE), enforces " +
       "the risk floors (ROUTE_RISK_FLOOR rejects a quick decision carrying any " +
-      "risk signal — escalate to openspec or above), creates the " +
+      "risk signal — escalate to openspec or above), validates the chosen " +
+      "tier's entry commands exist on disk (ROUTE_TIER_TOOLING), creates the " +
       "quick/<change_name> branch for the quick tier, and returns " +
       "{tier, change_name, branch, rationale, description, issue_number}. " +
       "Auto-checkpoints tier-routing on success.",
@@ -1130,6 +1224,35 @@ export function createUnleashRouteDecisionTool(exec: GitExec, cwd: string): Retu
               failure(
                 "Working tree is not clean. Commit or stash your changes before starting a new change — tier routing must not sweep uncommitted work into it.",
                 { retryable: false, code: "DIRTY_TREE" },
+              ),
+            ),
+          }
+        }
+
+        // Audit F4 / unleash-pipeline-hardening: validate the chosen tier's
+        // entry commands BEFORE recording the decision. A tier whose first
+        // delegated step cannot run fails here with its remediation, instead
+        // of burning the rubric work and failing later at delegation time
+        // with a bare ENOENT. The error names the missing commands and the
+        // tiers whose entry commands DO exist so the caller can re-route.
+        const missingEntryCommands = TIER_ENTRY_COMMANDS[input.tier].filter(
+          (command) => !fileExists(resolve(cwd, command)),
+        )
+        if (missingEntryCommands.length > 0) {
+          const availableTiers = (Object.keys(TIER_ENTRY_COMMANDS) as WorkflowTier[])
+            .filter((tier) => tier !== input.tier)
+            .filter((tier) => TIER_ENTRY_COMMANDS[tier].length > 0)
+            .filter((tier) => TIER_ENTRY_COMMANDS[tier].every((command) => fileExists(resolve(cwd, command))))
+            .map((tier) => `${tier} (${TIER_ENTRY_COMMANDS[tier].join(", ")})`)
+          const availability =
+            availableTiers.length > 0
+              ? `Tiers whose entry commands exist here: ${availableTiers.join("; ")}.`
+              : "No other tier's entry commands exist in this repository either."
+          return {
+            output: JSON.stringify(
+              failure(
+                `The ${input.tier} tier requires the entry command(s) ${missingEntryCommands.join(", ")}, which do not exist in this repository. ${availability} Re-route at a tier whose tooling is scaffolded, or scaffold the missing command before routing.`,
+                { retryable: false, code: "ROUTE_TIER_TOOLING" },
               ),
             ),
           }
@@ -1799,6 +1922,16 @@ export function createDelegateCommandTool(
               ),
             }
           }
+          if (err instanceof StructuralHostModelError) {
+            return {
+              output: JSON.stringify(
+                failure(
+                  `${err.message}. Remediation: ${err.remediation}; retrying will not fix this.`,
+                  { retryable: false, code: "HOST_MODEL_UNAVAILABLE" },
+                ),
+              ),
+            }
+          }
           return { output: failureFromError(err, "HOST_MODEL_UNAVAILABLE", true) }
         }
 
@@ -1809,7 +1942,7 @@ export function createDelegateCommandTool(
           requested_model: null,
           requested_variant: null,
           resolved_parent_model: host.identity.combined,
-          resolved_parent_variant: host.variant,
+          resolved_parent_variant: host.variant ?? null,
           reported_child_model: null,
           model_mismatch: false,
           read_only: false,
@@ -3717,6 +3850,24 @@ const ExitPhaseSchema = z.number().int().min(1).max(1000)
 const UnleashExitInputSchema = z.discriminatedUnion("variant", [
   z
     .object({
+      variant: z.literal("tier-routing-dirty-tree"),
+      message: z.string().min(1).max(16384),
+    })
+    .strict(),
+  z
+    .object({
+      variant: z.literal("tier-routing-missing-tooling"),
+      message: z.string().min(1).max(16384),
+    })
+    .strict(),
+  z
+    .object({
+      variant: z.literal("planner-failure"),
+      reasons: ExitStringListSchema,
+    })
+    .strict(),
+  z
+    .object({
       variant: z.literal("clarify"),
       questions: ExitQuestionsSchema,
     })
@@ -3810,20 +3961,34 @@ const UnleashDemoInputSchema = z
 export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool> {
   return tool({
     description:
-      "Render a /uf.unleash paused-at exit message for one of the eight exit variants " +
-      "(clarify, spec-review, implement-worker-failed, implement-merge-conflict, " +
+      "Render a /uf.unleash paused-at exit message for one of the eleven exit " +
+      "variants (tier-routing-dirty-tree, tier-routing-missing-tooling, " +
+      "planner-failure, clarify, spec-review, implement-worker-failed, " +
+      "implement-merge-conflict, " +
       "implement-phase-checkpoint, code-review-preflight, code-review-no-success, " +
       "code-review-iterations-exhausted). Returns {text} — the exact template markdown " +
       "(heading, reason, body, What to do next, Then resume) to emit verbatim.",
     args: {
       variant: z.enum(UNLEASH_EXIT_VARIANTS).describe(
-        "Exit scenario to render. Each variant requires its own fields: clarify → questions; " +
+        "Exit scenario to render. Each variant requires its own fields: " +
+          "tier-routing-dirty-tree and tier-routing-missing-tooling → message " +
+          "(the uf_unleash_route_decision failure text); " +
+          "planner-failure → reasons (the plan errors); " +
+          "clarify → questions; " +
           "spec-review → tier, findings; implement-worker-failed → phase, failed_task, error; " +
           "implement-merge-conflict → phase, conflicting_files; implement-phase-checkpoint → " +
           "phase, failed_command, output; code-review-preflight → findings; " +
           "code-review-no-success → reasons; code-review-iterations-exhausted → " +
           "persistent_findings (circular_dependencies optional).",
       ),
+      message: z
+        .string()
+        .min(1)
+        .max(16384)
+        .describe(
+          "tier-routing-dirty-tree and tier-routing-missing-tooling: the uf_unleash_route_decision failure message to surface in the exit body.",
+        )
+        .optional(),
       questions: ExitQuestionsSchema.describe(
         "clarify: the unanswerable questions, each {question, context} as scan_clarifications extracted.",
       ).optional(),
@@ -4368,15 +4533,15 @@ export function createWriteUnleashSummaryTool(exec: GitExec, cwd: string): Retur
  * into write_unleash_summary above as the mechanism of record, absorbing
  * the persist-unleash-summary contract (artifact path, flat camelCase
  * content fields, provenance block, INVALID_UNLEASH_SUMMARY validation,
- * hardened write). This factory preserves that change's FR-005
- * registration surface — the tool map exposes the same implementation
- * under `persist_unleash_summary`, and the exported factory keeps its
- * (exec, cwd) signature — while delegating to the single implementation
- * so the two names can never drift.
+ * hardened write). The unleash-pipeline-hardening change removed the
+ * redundant `persist_unleash_summary` registration so the tool map
+ * lists exactly one summary tool; this factory remains an exported
+ * alias with its (exec, cwd) signature, delegating to the single
+ * implementation so the two names can never drift.
  *
  * @param exec Git executor used to read the current branch.
  * @param cwd Repository root the artifact directory resolves against.
- * @returns The write_unleash_summary tool, registered as persist_unleash_summary.
+ * @returns The write_unleash_summary tool.
  */
 export function createPersistUnleashSummaryTool(exec: GitExec, cwd: string): ReturnType<typeof tool> {
   return createWriteUnleashSummaryTool(exec, cwd)
@@ -4398,10 +4563,6 @@ const UfWorkflowPlugin = {
         get_progress: createGetProgressTool(defaultGitExec, cwd),
         clear_progress: createClearProgressTool(defaultGitExec, cwd),
         normalize_model_name: createNormalizeModelNameTool(),
-        // Compatibility registration (persist-unleash-summary FR-005): the
-        // same write_unleash_summary implementation, exposed under the name
-        // that change specced. See createPersistUnleashSummaryTool.
-        persist_unleash_summary: createPersistUnleashSummaryTool(defaultGitExec, cwd),
         git_fetch: createGitFetchTool(defaultGitExec, cwd),
         git_push: createGitPushTool(defaultGitExec, cwd),
         git_push_force_with_lease: createGitPushForceWithLeaseTool(defaultGitExec, cwd),

@@ -460,10 +460,10 @@ describe("issue-content profiling", () => {
       dependencies(customMatrix),
     )
 
-    expect(plan.advisories).toHaveLength(1)
-    expect(plan.advisories[0]!.severity).toBe("HIGH")
-    expect(plan.advisories[0]!.description).toContain("tier_caps.heavy")
-    expect(plan.advisories[0]!.description).toContain("security-sensitive")
+    const tierCapAdvisories = plan.advisories.filter((a) => a.severity === "HIGH")
+    expect(tierCapAdvisories).toHaveLength(1)
+    expect(tierCapAdvisories[0]!.description).toContain("tier_caps.heavy")
+    expect(tierCapAdvisories[0]!.description).toContain("security-sensitive")
   })
 
   it("does not emit advisory when heavy tier cap is null (default)", async () => {
@@ -476,8 +476,8 @@ describe("issue-content profiling", () => {
       dependencies(),
     )
 
-    // Default config has tier_caps.heavy = null — no advisory
-    expect(plan.advisories).toHaveLength(0)
+    // Default config has tier_caps.heavy = null — no tier-cap advisory
+    expect(plan.advisories.filter((a) => a.description.includes("tier_caps.heavy"))).toHaveLength(0)
   })
 })
 
@@ -1039,5 +1039,76 @@ describe("override file read failure", () => {
     expect(plan.status).toBe("inconclusive")
     expect(plan.workflow_result).toBe("INCONCLUSIVE")
     expect(plan.errors.some((e) => e.includes("INCONCLUSIVE") || e.includes("override"))).toBe(true)
+  })
+})
+
+describe("planner error remediation (unleash-pipeline-hardening)", () => {
+  it("enriches the unregistered discovered-agent error with remediation and both lists", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "specs",
+        discovered_agents: ["divisor-guard", "divisor-ghost"],
+        changed_files: [changedFile("specs/042-feature/spec.md", 20)],
+      },
+      dependencies(),
+    )
+
+    expect(plan.status).toBe("inconclusive")
+    expect(plan.workflow_result).toBe("INCONCLUSIVE")
+    const ghostError = plan.errors.find((e) => e.includes("divisor-ghost"))
+    expect(ghostError).toBeDefined()
+    expect(ghostError).toContain("discovered agent divisor-ghost has no reviewer-manifest entry")
+    expect(ghostError).toContain("Remediation: add an entry for divisor-ghost to .uf/reviewer-capabilities.yaml")
+    expect(ghostError).toContain("Discovered agents: divisor-ghost, divisor-guard")
+    expect(ghostError).toContain(
+      "Manifest-eligible agents: divisor-adversary, divisor-architect, divisor-curator, " +
+        "divisor-envoy, divisor-guard, divisor-herald, divisor-scribe, divisor-sre, divisor-testing",
+    )
+  })
+})
+
+describe("planner drift check (unleash-pipeline-hardening)", () => {
+  it("warns as a LOW advisory when a manifest reviewer was not discovered", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-guard"],
+        changed_files: [changedFile("feature.ts", 5)],
+      },
+      dependencies(),
+    )
+
+    expect(plan.status).toBe("ready")
+    const staleAdvisories = plan.advisories.filter((a) => a.description.includes("stale"))
+    expect(staleAdvisories.length).toBeGreaterThan(0)
+    const adversaryAdvisory = staleAdvisories.find((a) => a.description.includes("divisor-adversary"))
+    expect(adversaryAdvisory).toBeDefined()
+    expect(adversaryAdvisory!.severity).toBe("LOW")
+    expect(adversaryAdvisory!.description).toContain("stale .uf/reviewer-capabilities.yaml entry")
+    expect(adversaryAdvisory!.description).toContain("it will not be scheduled")
+  })
+
+  it("emits no stale advisory when every manifest reviewer was discovered", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: [
+          "divisor-adversary",
+          "divisor-architect",
+          "divisor-curator",
+          "divisor-envoy",
+          "divisor-guard",
+          "divisor-herald",
+          "divisor-scribe",
+          "divisor-sre",
+          "divisor-testing",
+        ],
+        changed_files: [changedFile("feature.ts", 5)],
+      },
+      dependencies(),
+    )
+
+    expect(plan.status).toBe("ready")
+    expect(plan.advisories.filter((a) => a.description.includes("stale"))).toHaveLength(0)
   })
 })

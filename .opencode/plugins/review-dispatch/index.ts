@@ -50,6 +50,10 @@ import {
   createSiblingAcquisitionDependencies,
   type SiblingAcquisitionDependencies,
 } from "../../lib/review-dispatch-sibling-evidence.js"
+import {
+  createCaptureReviewDiffTool,
+  createReviewDiffDependencies,
+} from "../../lib/review-diff.js"
 export {
   acquireSiblingEvidence,
   createAcquireSiblingEvidenceTool,
@@ -1796,7 +1800,13 @@ function buildPlan(
   for (const agent of [...input.discovered_agents].sort()) {
     const reviewer = byAgent.get(agent)
     if (reviewer === undefined) {
-      errors.push(`discovered agent ${agent} has no reviewer-manifest entry`)
+      errors.push(
+        `discovered agent ${agent} has no reviewer-manifest entry. ` +
+          `Remediation: add an entry for ${agent} to ${MANIFEST_PATH} ` +
+          `(reviewers are keyed by agent name), or stop discovering it. ` +
+          `Discovered agents: ${[...input.discovered_agents].sort().join(", ")}. ` +
+          `Manifest-eligible agents: ${manifest.reviewers.map((entry) => entry.agent).sort().join(", ")}.`,
+      )
       continue
     }
     const selection = relevance(reviewer, profile, input.mode, input.full)
@@ -1886,6 +1896,18 @@ function buildPlan(
 
   // Emit advisory when heavy tier cap is configured and the diff is security-sensitive.
   const advisories: PlanAdvisory[] = []
+  const discoveredAgents = new Set(input.discovered_agents)
+  for (const manifestReviewer of manifest.reviewers) {
+    if (!discoveredAgents.has(manifestReviewer.agent)) {
+      advisories.push({
+        severity: "LOW",
+        description:
+          `manifest reviewer ${manifestReviewer.agent} was not among the discovered agents ` +
+          `(stale ${MANIFEST_PATH} entry); it will not be scheduled. ` +
+          `Remove the entry or restore its agent file.`,
+      })
+    }
+  }
   if (
     profile.kind === "diff" &&
     profile.security_sensitive &&
@@ -3025,7 +3047,7 @@ export async function executeDispatchRun(
   let selectedModel: ModelIdentity
   let selectedVariant: string | undefined
   let requestedModelLabel: string | null
-  let hostResolvedParent: { model: string; variant: string } | null = null
+  let hostResolvedParent: { model: string; variant: string | null } | null = null
 
   if (options.model !== undefined) {
     // Direct model bypass — skip matrix lookup.
@@ -3049,7 +3071,7 @@ export async function executeDispatchRun(
           requestedModelLabel = null
           hostResolvedParent = {
             model: `${hostResult.identity.providerID}/${hostResult.identity.modelID}`,
-            variant: hostResult.variant,
+            variant: hostResult.variant ?? null,
           }
         } catch (error: unknown) {
           if (context.abort.aborted) {
@@ -6413,6 +6435,7 @@ export const ReviewDispatchPlugin = {
           directory: projectRoot,
         }),
         fetch_pr_review_context: createFetchPrReviewContextTool(),
+        capture_review_diff: createCaptureReviewDiffTool(createReviewDiffDependencies(projectRoot)),
       },
     }
   },

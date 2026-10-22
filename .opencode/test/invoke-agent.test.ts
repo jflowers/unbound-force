@@ -252,11 +252,28 @@ describe("invoke_agent explicit and host execution", () => {
     })
   })
 
+  it("resolves the current assistant model without a variant when the provider reports none", async () => {
+    const fake = fakeClient({ parentProvider: "actual-provider", parentModel: "actual/model", parentVariant: undefined })
+    const result = await invokeAgent(
+      { agent: "divisor-testing", prompt: "Review tests.", read_only: false },
+      toolContext(),
+      dependencies(fake.client),
+    )
+
+    expect(result.status).toBe("success")
+    expect(fake.calls.prompts[0]?.body).not.toHaveProperty("variant")
+    expect(result.provenance).toMatchObject({
+      requested_model: null,
+      requested_variant: null,
+      resolved_parent_model: "actual-provider/actual/model",
+      resolved_parent_variant: null,
+    })
+  })
+
   it.each([
     ["missing message", { messageError: "service unavailable token=secret" }],
     ["non-assistant message", { parentRole: "user" as const }],
     ["missing model", { parentProvider: "" }],
-    ["missing variant", { parentVariant: undefined }],
     ["invalid variant", { parentVariant: "not valid" }],
   ])("fails host resolution without substituting defaults for %s", async (_name, options) => {
     const fake = fakeClient(options)

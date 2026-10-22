@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { ToolFailure, ToolResult } from "../lib/uf-workflow-types.js"
 import {
   createUnleashRouteDecisionTool,
+  type FileExists,
   type GitExec,
   type ProgressState,
   type UnleashRouteDecisionData,
@@ -54,8 +55,9 @@ function enoent(what: string): NodeJS.ErrnoException {
 async function invokeRouteDecision(
   exec: GitExec,
   args: Record<string, unknown>,
+  existsFile: FileExists = () => true,
 ): Promise<ToolResult<UnleashRouteDecisionData>> {
-  const route = createUnleashRouteDecisionTool(exec, FAKE_CWD)
+  const route = createUnleashRouteDecisionTool(exec, FAKE_CWD, existsFile)
   const result = await (
     route as {
       execute: (
@@ -296,6 +298,82 @@ describe("uf_unleash_route_decision success (speckit and openspec tiers)", () =>
       })
     },
   )
+})
+
+// ---------------------------------------------------------------------------
+// uf_unleash_route_decision — tier entry-command validation
+// ---------------------------------------------------------------------------
+
+describe("uf_unleash_route_decision tier entry-command validation (unleash-pipeline-hardening)", () => {
+  it("rejects a tier whose entry command is not scaffolded, naming the available tiers", async () => {
+    const { exec, calls } = fakeRouteGit({ branch: "main" })
+    // speckit.specify.md missing, opsx-propose.md present.
+    const existsFile: FileExists = (path) => !path.endsWith("speckit.specify.md")
+
+    const result = await invokeRouteDecision(
+      exec,
+      {
+        tier: "speckit",
+        change_name: "add-search",
+        rationale: "Focused feature touching two stories — tactical spec territory.",
+        description: "Add search to the docs site.",
+      },
+      existsFile,
+    )
+
+    const envelope = errorEnvelope(result)
+    expect(envelope.code).toBe("ROUTE_TIER_TOOLING")
+    expect(envelope.retryable).toBe(false)
+    expect(envelope.message).toContain(".opencode/commands/speckit.specify.md")
+    expect(envelope.message).toContain("openspec (.opencode/commands/opsx-propose.md)")
+
+    // Rejected after the branch read and the dirty-tree guard — before any
+    // branch creation or state write.
+    expect(gitCommands(calls)).toEqual(["rev-parse --abbrev-ref HEAD", "status --porcelain"])
+    expect(writeFileSync).not.toHaveBeenCalled()
+  })
+
+  it("reports that no other tier is available when no entry commands exist", async () => {
+    const { exec } = fakeRouteGit({ branch: "main" })
+
+    const result = await invokeRouteDecision(
+      exec,
+      {
+        tier: "openspec",
+        change_name: "add-search",
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+      },
+      () => false,
+    )
+
+    const envelope = errorEnvelope(result)
+    expect(envelope.code).toBe("ROUTE_TIER_TOOLING")
+    expect(envelope.message).toContain("No other tier's entry commands exist")
+  })
+
+  it("skips the check for the quick tier (no entry commands)", async () => {
+    const { exec, calls } = fakeRouteGit({ branch: "main" })
+
+    const result = await invokeRouteDecision(
+      exec,
+      {
+        tier: "quick",
+        change_name: "fix-typo",
+        rationale: RATIONALE,
+        description: DESCRIPTION,
+      },
+      () => false,
+    )
+
+    expect(okData(result).branch).toBe("quick/fix-typo")
+    expect(gitCommands(calls)).toEqual([
+      "rev-parse --abbrev-ref HEAD",
+      "status --porcelain",
+      "checkout -b quick/fix-typo",
+      "rev-parse --abbrev-ref HEAD",
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -68,8 +68,10 @@ interface FakeCalls {
 }
 
 interface FakeClientOptions {
-  /** Variant reported by the parent assistant message (default "default"). */
+  /** Variant reported by the parent assistant message (default "default"; explicit undefined = absent). */
   readonly hostVariant?: string
+  /** Error payload returned by session.message (transient host-resolution failure). */
+  readonly messageError?: unknown
   /** Error payload returned by session.create (child_create_failed path). */
   readonly createError?: unknown
   /** Parts reported by the child prompt response (default one text part). */
@@ -142,6 +144,9 @@ function fakeClient(options: FakeClientOptions = {}): { readonly client: Client;
     },
     message: async (request: MessageOptions): Promise<MessageResponse> => {
       calls.messages.push(request)
+      if (options.messageError !== undefined) {
+        return fieldsResponse({ data: undefined, error: options.messageError } as unknown as MessageResponse)
+      }
       if (options.hangMessage === true) {
         return await new Promise<MessageResponse>((_resolve, reject) => {
           request.signal?.addEventListener("abort", () => reject(request.signal?.reason), { once: true })
@@ -149,7 +154,10 @@ function fakeClient(options: FakeClientOptions = {}): { readonly client: Client;
       }
       return fieldsResponse({
         data: {
-          info: { ...assistantInfo("host-provider", "host-model"), variant: options.hostVariant ?? "default" },
+          info: {
+            ...assistantInfo("host-provider", "host-model"),
+            variant: "hostVariant" in options ? options.hostVariant : "default",
+          },
           parts: [],
         },
         error: undefined,
@@ -767,7 +775,7 @@ describe("uf_delegate_command child-session propagation", () => {
     expect(writeFileSync).not.toHaveBeenCalled()
   })
 
-  it("fails with HOST_MODEL_UNAVAILABLE, retryable, when host introspection cannot resolve a model", async () => {
+  it("fails with HOST_MODEL_UNAVAILABLE, non-retryable, when the host variant is structurally invalid", async () => {
     const fake = fakeClient({ hostVariant: "not valid" })
     const reads = fakeReadText({})
     const artifact = fakeFileExists([])
@@ -782,12 +790,55 @@ describe("uf_delegate_command child-session propagation", () => {
     expect(result.status).toBe("error")
     if (result.status === "error") {
       expect(result.code).toBe("HOST_MODEL_UNAVAILABLE")
-      expect(result.retryable).toBe(true)
-      expect(result.message).toBe("current assistant active variant is unavailable or invalid")
+      expect(result.retryable).toBe(false)
+      expect(result.message).toBe(
+        "current assistant active variant is invalid. Remediation: run the command from a provider whose active " +
+          "variant is a valid slug; retrying will not fix this.",
+      )
     }
     // No child session was spawned for an unresolvable host model.
     expect(fake.calls.creates).toHaveLength(0)
     expect(fake.calls.prompts).toHaveLength(0)
+  })
+
+  it("fails with HOST_MODEL_UNAVAILABLE, retryable, when host introspection hits a transient error", async () => {
+    const fake = fakeClient({ messageError: "service unavailable" })
+    const reads = fakeReadText({})
+    const artifact = fakeFileExists([])
+    const deps: DelegateCommandDependencies = {
+      client: fake.client,
+      readText: reads.readText,
+      fileExists: artifact.fileExists,
+    }
+
+    const result = await invokeDelegate(recordingExec().exec, deps, { prompt: "Run the delegation." })
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("HOST_MODEL_UNAVAILABLE")
+      expect(result.retryable).toBe(true)
+    }
+    expect(fake.calls.creates).toHaveLength(0)
+    expect(fake.calls.prompts).toHaveLength(0)
+  })
+
+  it("delegates without a variant override when the host assistant message reports no variant", async () => {
+    const fake = fakeClient({ hostVariant: undefined })
+    const reads = fakeReadText({})
+    const artifact = fakeFileExists([])
+    const deps: DelegateCommandDependencies = {
+      client: fake.client,
+      readText: reads.readText,
+      fileExists: artifact.fileExists,
+    }
+
+    const result = await invokeDelegate(recordingExec().exec, deps, { prompt: "Run the delegation." })
+
+    expect(result.status).toBe("ok")
+    expect(fake.calls.creates[0]?.body).toMatchObject({
+      title: `cobalt-crush-dev @ ${HOST_MODEL}`,
+    })
+    expect(fake.calls.prompts[0]?.body).not.toHaveProperty("variant")
   })
 })
 
