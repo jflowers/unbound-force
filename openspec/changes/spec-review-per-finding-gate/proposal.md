@@ -94,15 +94,27 @@ gate are unchanged.
 
 ## Impact
 
-**Files affected** (8 total — 5 canonical + 3 mirrors/tests):
+**Files affected** (14 total — 5 canonical commands/pack, 2
+canonical template/plugin strings, 5 mirrors, 2 test files,
+CHANGELOG):
 - `.opencode/commands/uf.review-council.md`
 - `.opencode/commands/uf.unleash.md`
 - `.opencode/uf/packs/severity.md`
+- `.opencode/lib/unleash-templates.ts` (spec-review exit
+  reason string and doc comments — see design D11)
+- `.opencode/plugins/uf-workflow/index.ts`
+  (`format_unleash_exit` findings-param description string)
 - `internal/scaffold/assets/opencode/commands/uf.review-council.md`
 - `internal/scaffold/assets/opencode/commands/uf.unleash.md`
 - `internal/scaffold/assets/opencode/uf/packs/severity.md`
+- `internal/scaffold/assets/opencode/lib/unleash-templates.ts`
+- `internal/scaffold/assets/opencode/plugins/uf-workflow/index.ts`
 - `internal/scaffold/scaffold_test.go` (structural assertions
-  extended for the per-finding protocol)
+  extended; spec-review exit anchor updated)
+- `internal/scaffold/command_contract_test.go` (review-council
+  gate clause rewritten for the new protocol)
+- `.opencode/test/unleash-formatters.test.ts` (spec-review
+  reason-string assertions)
 - `CHANGELOG.md`
 
 **Behavioral impact**: Spec review becomes more interactive:
@@ -121,9 +133,10 @@ cannot proceed past a HIGH/CRITICAL finding without explicit
 human consent — the terminal stop becomes an interactive
 consent flow (strictly more human oversight per finding).
 
-**No Go code changes**: This is a command/pack documentation
-change plus scaffold mirror sync and test assertion
-extensions.
+**Go changes are test-only**: production Go code is
+untouched. This is a command/pack documentation change plus
+scaffold mirror sync, two string-level template/plugin
+updates (design D11), and test assertion extensions.
 
 ## Constitution Alignment
 

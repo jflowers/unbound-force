@@ -38,21 +38,36 @@
       per-finding fixes (any severity, explicit consent)
       vs. autonomous auto-fixes (LOW/MEDIUM only);
       definitions and policy rows unchanged
+- [ ] 1.4 Update the spec-review exit reason string in
+      `.opencode/lib/unleash-templates.ts` to "Unresolved
+      spec review findings (pause or iteration cap)" plus
+      its doc comments; update the `format_unleash_exit`
+      findings-param description in
+      `.opencode/plugins/uf-workflow/index.ts`; update the
+      two reason assertions in
+      `.opencode/test/unleash-formatters.test.ts`
 
 ## 2. Scaffold mirrors and structural tests
 
-- [ ] 2.1 Sync the three scaffold mirrors from the
+- [ ] 2.1 Sync the five scaffold mirrors from the
       canonical files:
       `internal/scaffold/assets/opencode/commands/uf.review-council.md`,
       `internal/scaffold/assets/opencode/commands/uf.unleash.md`,
-      `internal/scaffold/assets/opencode/uf/packs/severity.md`
+      `internal/scaffold/assets/opencode/uf/packs/severity.md`,
+      `internal/scaffold/assets/opencode/lib/unleash-templates.ts`,
+      `internal/scaffold/assets/opencode/plugins/uf-workflow/index.ts`
 - [ ] 2.2 Extend `internal/scaffold/scaffold_test.go`
       structural assertions for the per-finding protocol:
       option labels present in both command assets,
       mandatory gate markers retained, severity-order
       presentation, no-autonomous-progression rule,
       severity pack note present, no stale bulk-gate
-      option labels
+      option labels; update the
+      TestUnleashCommand_ToolRoutingContracts spec-review
+      exit anchor; rewrite the "advisory and human fix
+      gate" clause in
+      `internal/scaffold/command_contract_test.go` to pin
+      the new protocol fragments
 
 ## 3. Documentation
 
@@ -73,7 +88,9 @@
       files for `>>> MANDATORY GATE` marker pairs, all
       five option labels, and the session-resume guard;
       confirm no HIGH/CRITICAL dead-stop branch remains
-      in Step 4 processing
+      in Step 4 processing; confirm the updated exit
+      reason string in the template, the plugin
+      description, and the formatter test assertions
 - [ ] 4.2 Scaffold drift tests:
       `go test -race -count=1 ./internal/scaffold/...`
 - [ ] 4.3 Full check suite: `make check` (lint, test,

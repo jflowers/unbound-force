@@ -42,9 +42,13 @@ are unchanged); each finding offers a 4-option set.
 - No changes to the Step 6 code review fix loop (code fixes
   remain delegated without a human decision).
 - No changes to the GitHub review posting gate (Step 7f).
-- No plugin, template, or Go code changes: exits stay
+- No plugin or template behavior changes: exits stay
   tool-rendered by the existing `format_unleash_exit`
-  `spec-review` variant.
+  `spec-review` variant. The only plugin/template edits are
+  the string-level updates in D11 (exit reason text,
+  findings-param description) plus their drift-tested
+  mirrors. No Go production code changes (Go edits are
+  limited to test assertions, per D10/D11).
 - No changes to severity definitions or the autonomous
   auto-fix policy in the severity pack.
 
@@ -160,6 +164,20 @@ are extended to cover the per-finding protocol (option
 labels, marker presence, severity-order presentation,
 no-autonomous-progression rule) so drift is caught by
 `make check`.
+
+### D11: Spec-review exit reason string updated
+
+The `renderSpecReviewExit` renderer in
+`.opencode/lib/unleash-templates.ts` hardcodes the exit
+reason "HIGH/CRITICAL findings in spec artifacts". With
+"Pause & exit" reachable while only LOW/MEDIUM findings
+remain unresolved, that text becomes inaccurate. The reason
+string becomes "Unresolved spec review findings (pause or
+iteration cap)"; the `SpecReviewExitData` doc comments, the
+`format_unleash_exit` findings-param description in the
+uf-workflow plugin, and the `unleash-formatters.test.ts`
+reason assertions follow. The rendered exit block, its
+schema, and the tool contract are otherwise unchanged.
 
 ## Risks / Trade-offs
 
