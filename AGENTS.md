@@ -148,6 +148,7 @@ imported externally.
 - **Naming**: `TestXxx_Description`
 - **Isolation**: `t.TempDir()` for filesystem tests
 - **Drift detection**: Tests MUST verify embedded tool-owned assets match canonical sources; custom packs (`*-custom.md`) are exempt as user-owned initial deployment templates
+- **Plugin coverage floor**: The `.opencode/` TypeScript plugin suite carries a 94 percent statements coverage floor (`.opencode/vitest.config.ts`); this floor is governance-controlled and may only be changed through a spec-workflow governance change per the Gatekeeping rule.
 
 ## Technology Stack
 
