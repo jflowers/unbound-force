@@ -519,6 +519,27 @@ Each entry follows the format: `- <change-name>: <summary>`.
   byte-identical. (Spec:
   openspec/changes/fix-review-dispatch-correlation-release/,
   Fixes: #794, Docs: #808, unbound-force/website#319)
+- address-feedback-diff-path-input: `/uf.address-feedback` §2.3.4
+  (`dispatch_review_runs` inputs) now documents the required
+  `diff_path` input — path to the saved immutable diff file —
+  and describes `changed_files` as a pre-formatted list of
+  changed file paths, matching `/uf.review-council` §2 and the
+  review-dispatch plugin schema (both are required strings for
+  every non-triage mode, feedback included). The template
+  previously omitted `diff_path` entirely and described
+  `changed_files` as the signal's sorted affected-file objects,
+  so an agent following it failed its first feedback-mode
+  `dispatch_review_runs` call with an input-validation error
+  and had to self-diagnose from plugin source; the golden
+  feedback-variant comment in
+  `.opencode/test/dispatch-review-runs.test.ts` now enumerates
+  the corrected documented-input list. Command markdown only;
+  no tool behavior change. The adjacent counts-only
+  output-shape claim is corrected separately as PR #761
+  feedback item 1 (issue #735) and is untouched here. Scaffold
+  mirror
+  `internal/scaffold/assets/opencode/commands/uf.address-feedback.md`
+  synced byte-identical. (Fixes: #763)
 - fix-dispatch-verdict-derivation: `consolidate_dispatch` now
   derives `workflow_result.value` and `verdict` from
   `calculatedWorkflowValue` — the same vote-based derivation

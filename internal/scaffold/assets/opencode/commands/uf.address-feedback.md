@@ -341,8 +341,8 @@ dispatches all included plan runs in parallel batches:
 
 - `mode`: `feedback`;
 - `command`: `address-feedback`;
-- `changed_files`: the signal's sorted affected-file objects from the
-  immutable PR file inventory;
+- `diff_path`: path to the saved immutable diff file;
+- `changed_files`: pre-formatted list of changed file paths;
 - `input_context`: the frozen PR input context from Section 1.2;
 - `plan_entries`: the plan entries array from `plan_review_dispatch`;
 - `session_metadata`: command, mode, full, input context, change profile,

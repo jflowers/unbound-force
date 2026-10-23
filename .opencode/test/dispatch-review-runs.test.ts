@@ -1197,10 +1197,9 @@ describe("dispatch_review_runs", () => {
         })
 
         // Documented inputs per uf.address-feedback.md:338: mode feedback,
-        // command address-feedback, changed_files, input_context,
+        // command address-feedback, diff_path, changed_files, input_context,
         // plan_entries, session_metadata, max_parallel_runs, budget_usd,
-        // per_run_timeout_ms, and review_context; diff_path rides along
-        // as a required input for non-triage modes.
+        // per_run_timeout_ms, and review_context.
         const input = makeFeedbackInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })])
         input.budget_usd = 5
         input.per_run_timeout_ms = 30_000
