@@ -155,9 +155,21 @@ step and flows to push.
 
 Rationale: nine sequential steps read cleanly; a permanent "3b"
 would be the only sequential sub-step in the file (7b is a
-conditional branch of 7, not a sequence step). Cross-reference
-audit found no step-number references outside the command file
-and its scaffold mirror, so renumbering churn is contained.
+conditional branch of 7, not a sequence step). The design-time
+audit covered only the command file and its scaffold mirror and
+found no references there; the review-phase repo-wide grep
+corrected that record: step-number references exist in six
+sibling unarchived changes (finale-secrets-askuser-gate,
+finale-reliability, mandatory-gate-hardening,
+finale-dewey-commit, issue-pr-traceability, and
+triage-mandatory-gate), the checkpoint-sequence table in
+uf-workflow-checkpoint/design.md, and the golden-suite line
+anchors. Dispositions: the sibling references are historical —
+each change is fully implemented but unarchived, so its spec
+text records pre-renumbering numbers (the D9 disposition); the
+golden-suite anchors are the one live surface and were
+refreshed in this change. Renumbering churn is contained to
+the command file, its mirror, and the golden anchors.
 Rejected alternative — inserting "3b" — would avoid touching
 other steps' text but leaves awkward numbering forever.
 
@@ -180,8 +192,9 @@ the pre-renumbering command.
 
 - **Renumbering churn**: any concurrent edit to `uf.finale.md`
   (canonical or mirror) textually conflicts with the renumber
-  hunks. Mitigated by the audit (no external references) and by
-  OpenSpec's implement-in-change-order practice — the later
+  hunks. Mitigated by the corrected cross-reference audit (D8:
+  sibling references historical, golden anchors refreshed) and
+  by OpenSpec's implement-in-change-order practice — the later
   change rebases (fittingly, using this very feature).
 - **Stale `origin` base on forks without an `upstream` remote**:
   the tool reports which remote it used; the command warns that

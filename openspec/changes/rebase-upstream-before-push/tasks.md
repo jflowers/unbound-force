@@ -68,6 +68,8 @@
   documentation gate: add a CHANGELOG.md entry for the new
   finale capability; update AGENTS.md/README.md only if
   structure or user-facing behavior descriptions change.
+  Filed: unbound-force/unbound-force#810 (dispositions),
+  unbound-force/website#320 (website sync).
 - [x] 4.4 Verify constitution alignment: the tool emits
   machine-parseable envelopes with provenance (III), injects
   `GitExec` + cwd for isolated testing (IV), reuses

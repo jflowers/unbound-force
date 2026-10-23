@@ -51,21 +51,20 @@ by a new `uf_finale_base_state` plugin tool:
 ## Capabilities
 
 ### New Capabilities
-- `base-sync-check`: A deterministic pre-push check that fetches
-  the PR base branch and reports ahead/behind counts of HEAD
-  versus `<remote>/<base>`, distinguishing the base branch from
-  the branch's own tracking upstream.
-- `base-sync-gate`: A confirmation gate with a rebase action that
-  brings the branch up to date with the base before push, with
-  clean conflict abort and force-with-lease push semantics.
+- `finale-base-sync`: A deterministic pre-push check that
+  fetches the PR base branch and reports ahead/behind counts
+  of HEAD versus `<remote>/<base>`, distinguishing the base
+  branch from the branch's own tracking upstream, plus a
+  confirmation gate with a rebase action that brings the
+  branch up to date with the base before push, with clean
+  conflict abort and force-with-lease push semantics. The
+  push-mode-after-rebase and nine-step-sequence requirements
+  are expressed within this capability's delta.
 
 ### Modified Capabilities
-- `finale-push`: The push step gains force-with-lease handling
-  following a step-4 rebase, and its gate surfaces the rebase
-  context.
-- `finale-command-sequence`: The `/uf.finale` instruction
-  sequence renumbers to nine steps with the sync step inserted at
-  step 4 and all cross-references updated.
+- None. No prior `finale-push` or `finale-command-sequence`
+  capability exists to modify; push and sequence changes are
+  added under `finale-base-sync` above.
 
 ### Removed Capabilities
 - None.
