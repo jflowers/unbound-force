@@ -141,3 +141,25 @@ injectable git executor and working directory, so every path —
 remote preference, base resolution, fetch failure, and divergence
 counting — is unit testable in isolation without network access
 or a real remote.
+
+### V. Security by Default
+
+**Assessment**: PASS
+
+The tool uses git-only plumbing (`remote`, `symbolic-ref`,
+`fetch`, `rev-list`) through the injected executor, adds no new
+dependencies, and handles no secrets or credentials. Fetch and
+count failures surface through the standard failure envelope
+(`BASE_SYNC_FETCH`, `BASE_SYNC_COUNT`) rather than being
+swallowed, so no degraded state is reported as healthy.
+
+### VI. Deterministic Execution
+
+**Assessment**: PASS
+
+Design decision D2 extracts remote resolution, base resolution,
+fetch, and ahead/behind counting from command prose into one
+atomic, testable tool — the determinism gate's rationale for
+in-tool fetch. Every code path is deterministic under the
+injectable `GitExec`, and the golden-output-shape suite pins
+the documented envelope for the new call site.
