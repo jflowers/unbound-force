@@ -23,14 +23,14 @@
 
 ## 1. Pre-Implementation Verification (read-only)
 
-- [ ] 1.1 Verify in `.opencode/plugins/review-dispatch/index.ts`
+- [x] 1.1 Verify in `.opencode/plugins/review-dispatch/index.ts`
       that `dispatchReviewRuns` return paths after input
       validation (all-skip, prompt-building failure, budget
       exhaustion, success) are the complete set needing the
       `correlation_id` output field, and that no consumer of
       `sessionCorrelationMap` besides those listed in design.md
       Context exists (grep `sessionCorrelationMap`).
-- [ ] 1.2 Confirm the five consumer commands
+- [x] 1.2 Confirm the five consumer commands
       (`uf.triage-issue`, `uf.review-council`, `uf.review-pr`,
       `uf.address-feedback`, `uf.unleash`) each retrieve or
       consolidate immediately after their `dispatch_review_runs`
@@ -42,7 +42,7 @@
 All tasks in this group modify
 `.opencode/plugins/review-dispatch/index.ts` — sequential.
 
-- [ ] 2.1 In `dispatchReviewRuns`: mint a fresh correlation ID
+- [x] 2.1 In `dispatchReviewRuns`: mint a fresh correlation ID
       immediately after input validation succeeds (before
       sibling evidence acquisition) and re-point
       `sessionCorrelationMap` to it, so the invocation's prompts,
@@ -50,20 +50,20 @@ All tasks in this group modify
       findings collection all resolve to the new session (D1).
       Rewrite the `sessionCorrelationMap` doc comment to
       latest-dispatch semantics (D5).
-- [ ] 2.2 Add `correlation_id` to `DispatchReviewRunsOutputSchema`
+- [x] 2.2 Add `correlation_id` to `DispatchReviewRunsOutputSchema`
       and include it on every result returned after input
       validation — success, all-skip, prompt-building failure,
       and budget-exhausted paths — plus the tool's `output`
       summary string (D3). Leave the pre-parse validation-failure
       return unchanged (no correlation exists yet).
-- [ ] 2.3 Verify no dispatch-side behavior changed for direct
+- [x] 2.3 Verify no dispatch-side behavior changed for direct
       `dispatch_agent_run` calls: mint when the map has no entry,
       reuse otherwise, joining the latest aggregate session after
       one (D2). No code change expected; record the confirmation.
 
 ## 3. Scaffold Twin Sync
 
-- [ ] 3.1 Sync `internal/scaffold/assets/opencode/plugins/
+- [x] 3.1 Sync `internal/scaffold/assets/opencode/plugins/
       review-dispatch/index.ts` byte-identical with the canonical
       plugin file per the scaffold-parity obligation, and run the
       embedded-asset drift-detection tests.
