@@ -12,7 +12,7 @@
 
 ## 1. Canonical implementation
 
-- [ ] 1.1 [P] Implement `createUfFinaleBaseStateTool` in
+- [x] 1.1 [P] Implement `createUfFinaleBaseStateTool` in
   `.opencode/plugins/uf-finale/index.ts`: remote resolution
   (`upstream` else `origin` via `git remote`), base branch
   resolution (`git symbolic-ref refs/remotes/<remote>/HEAD`
@@ -22,7 +22,7 @@
   `retryable: true`, code `BASE_SYNC_FETCH`). Register
   `uf_finale_base_state` in the plugin entry point alongside
   the existing tools.
-- [ ] 1.2 [P] Update `.opencode/commands/uf.finale.md`: insert
+- [x] 1.2 [P] Update `.opencode/commands/uf.finale.md`: insert
   step 4 "Sync with Base Branch" (tool call, `behindBy`
   branching, MANDATORY GATE with session-resume guard, rebase
   via `git_rebase` with `git_rebase_abort` on conflict, options
@@ -35,15 +35,15 @@
 
 ## 2. Scaffold mirrors
 
-- [ ] 2.1 [P] Copy the updated plugin file byte-identically to
+- [x] 2.1 [P] Copy the updated plugin file byte-identically to
   `internal/scaffold/assets/opencode/plugins/uf-finale/index.ts`
   (drift-detection tests enforce parity).
-- [ ] 2.2 [P] Copy the updated command file byte-identically to
+- [x] 2.2 [P] Copy the updated command file byte-identically to
   `internal/scaffold/assets/opencode/commands/uf.finale.md`.
 
 ## 3. Tests
 
-- [ ] 3.1 [P] Add unit tests for `createUfFinaleBaseStateTool`
+- [x] 3.1 [P] Add unit tests for `createUfFinaleBaseStateTool`
   in `.opencode/test/uf-finale.test.ts` using the fake
   `GitExec` pattern from the `uf_finale_push_state` tests,
   covering all spec scenarios: `upstream` remote preferred,
@@ -51,24 +51,24 @@
   `main`, fetch failure returning the retryable
   `BASE_SYNC_FETCH` envelope, and correct ahead/behind counts
   with an unmodified working tree.
-- [ ] 3.2 [P] Update any tool-enumeration or registration
+- [x] 3.2 [P] Update any tool-enumeration or registration
   surface tests (e.g. registration-surface, plugin-integration,
   golden-output-shape) that assert the uf-finale tool list to
   include `uf_finale_base_state`.
 
 ## 4. Verification and gates
 
-- [ ] 4.1 Run `make plugin-test` — the full TypeScript suite
+- [x] 4.1 Run `make plugin-test` — the full TypeScript suite
   must pass with the 94 percent statements coverage floor
   intact (gate must not be modified).
-- [ ] 4.2 Run `make check` — lint, Go tests (including scaffold
+- [x] 4.2 Run `make check` — lint, Go tests (including scaffold
   drift detection), build, and the scope-based coverage gate
   must pass, replicating CI locally.
-- [ ] 4.3 Assess documentation impact per the AGENTS.md
+- [x] 4.3 Assess documentation impact per the AGENTS.md
   documentation gate: add a CHANGELOG.md entry for the new
   finale capability; update AGENTS.md/README.md only if
   structure or user-facing behavior descriptions change.
-- [ ] 4.4 Verify constitution alignment: the tool emits
+- [x] 4.4 Verify constitution alignment: the tool emits
   machine-parseable envelopes with provenance (III), injects
   `GitExec` + cwd for isolated testing (IV), reuses
   `git_rebase` compositionally (II), and the command consumes
