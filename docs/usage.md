@@ -98,8 +98,12 @@ step. Then implement and finalize:
 /uf.finale
 ```
 
-`/uf.finale` commits, pushes, creates a PR, watches CI, and
-merges.
+`/uf.finale` commits, syncs with the base branch, pushes,
+creates a PR, watches CI, and returns to `main`. When the
+branch is behind the base branch, a confirmation gate offers
+to rebase onto it (recommended), continue without rebase, or
+abort. A fetch failure (e.g. offline) degrades to a warning
+and the finale proceeds.
 
 ### Build a Feature (Large)
 
@@ -119,7 +123,7 @@ pipeline:
 /speckit.implement     execute the tasks
         |
         v
-/uf.finale                commit, push, PR, merge
+/uf.finale                commit, sync with base, push, PR
 ```
 
 Optional intermediate steps: `/speckit.clarify` (refine
@@ -269,7 +273,7 @@ command documentation with flags and examples.
 | `/uf.cobalt-crush` | Invoke developer persona directly |
 | `/gaze` | Run quality analysis (Go projects) |
 | `/gaze-fix` | Generate tests for weak spots |
-| `/uf.finale` | Commit, push, create PR, merge |
+| `/uf.finale` | Commit, sync with base, push, create PR |
 | `/uf.agent-brief` | Create or audit AGENTS.md |
 | `/org` | Manage work items (cells) |
 | `/handoff` | End session with clean handoff |

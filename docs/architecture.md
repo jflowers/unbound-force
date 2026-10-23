@@ -402,7 +402,7 @@ Creates artifacts in `specs/NNN-feature-name/`.
 /uf.review-council     Run the Divisor review council
        |
        v
-/uf.finale             Commit, push, create PR, merge
+/uf.finale             Commit, sync with base, push, create PR
 ```
 
 ### Tactical Pipeline (OpenSpec)
@@ -421,7 +421,7 @@ user stories. Creates artifacts in
 /uf.review-council  Run the Divisor review council
        |
        v
-/uf.finale          Commit, push, create PR, merge
+/uf.finale          Commit, sync with base, push, create PR
 ```
 
 ### Autonomous Mode
