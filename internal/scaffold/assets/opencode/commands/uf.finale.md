@@ -205,6 +205,13 @@ Call `uf_finale_pr_context` → `{existingPr, isFork,
 forkParent, templateSections, commitLog, diffStat,
 originatingIssue, unleashSummary}`.
 
+**Behind-base warning** — read the step-4 `sync-base`
+checkpoint `{behindBy, rebased}`; when `rebased` is false
+and `behindBy` > 0, include a warning in the PR body (or
+the finale report for an existing PR) that the branch is
+behind the base by `<behindBy>` commits (scenario "User
+continues without rebase").
+
 **If `existingPr`**: use its number/URL, skip creation.
 
 **If no PR**:
