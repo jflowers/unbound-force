@@ -89,7 +89,7 @@ describe("UfFinalePlugin", () => {
     expect(typeof UfFinalePlugin.server).toBe("function")
   })
 
-  it("server registers all 8 finale tools", async () => {
+  it("server registers all 9 finale tools", async () => {
     const fakeInput = {
       directory: "/tmp/fake",
       worktree: "/tmp/fake",
@@ -100,6 +100,7 @@ describe("UfFinalePlugin", () => {
     expect(result).toBeDefined()
     expect(result.tool).toBeDefined()
     expect(Object.keys(result.tool).sort()).toEqual([
+      "uf_finale_base_state",
       "uf_finale_ci_poll",
       "uf_finale_commit_context",
       "uf_finale_create_pr",

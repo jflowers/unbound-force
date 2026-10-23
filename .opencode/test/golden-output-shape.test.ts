@@ -53,10 +53,10 @@ import { withBun } from "./helpers/bun-runtime.js"
 //   (uf.review-council.md:126), normalize_model_name
 //   (uf.address-feedback.md:733)
 // - uf-finale: 8 sites -- uf_finale_startup (uf.finale.md:51),
-//   uf_finale_stage (71), uf_finale_commit_context (82),
-//   uf_finale_push_state (131), uf_finale_pr_context (154),
-//   uf_finale_create_pr (204), uf_finale_ci_poll (212),
-//   uf_finale_return_to_main (291)
+//   uf_finale_stage (72), uf_finale_commit_context (83),
+//   uf_finale_push_state (172), uf_finale_pr_context (204),
+//   uf_finale_create_pr (255), uf_finale_ci_poll (263),
+//   uf_finale_return_to_main (342)
 // - review-dispatch: 14 sites -- plan_review_dispatch x7 (uf.unleash.md:353
 //   and 799, uf.review-council.md:231, uf.review-pr.md:353,
 //   uf.triage-issue.md:190, uf.address-feedback.md:314,
@@ -820,7 +820,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     expect(data.unpushedCommits).toEqual([{ sha: "abc1234", subject: "Add the golden tests" }])
   })
 
-  it("uf_finale_stage [uf.finale.md:71] returns fileCount and files", async () => {
+  it("uf_finale_stage [uf.finale.md:72] returns fileCount and files", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGit({
@@ -838,7 +838,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     expect(data).toEqual({ fileCount: 2, files: ["a.ts", "b.ts"] })
   })
 
-  it("uf_finale_commit_context [uf.finale.md:82] returns diffStat, recentLog, and normalizedModel", async () => {
+  it("uf_finale_commit_context [uf.finale.md:83] returns diffStat, recentLog, and normalizedModel", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGit({
@@ -859,7 +859,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     expect(data.normalizedModel).toBe("golden-model-4")
   })
 
-  it("uf_finale_push_state [uf.finale.md:131] returns upstreamExists, diverged, aheadBy, and behindBy", async () => {
+  it("uf_finale_push_state [uf.finale.md:172] returns upstreamExists, diverged, aheadBy, and behindBy", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGit({
@@ -879,7 +879,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     expect(data).toEqual({ upstreamExists: true, diverged: true, aheadBy: 2, behindBy: 1 })
   })
 
-  it("uf_finale_pr_context [uf.finale.md:154] returns existingPr, isFork, forkParent, templateSections, commitLog, diffStat, originatingIssue, and unleashSummary", async () => {
+  it("uf_finale_pr_context [uf.finale.md:204] returns existingPr, isFork, forkParent, templateSections, commitLog, diffStat, originatingIssue, and unleashSummary", async () => {
     const directory = await makeScratch()
     await writeProjectFile(directory, ".github/PULL_REQUEST_TEMPLATE.md", "## Summary\n\n## Changes\n")
     await writeProjectFile(directory, ".openspec.yaml", "change: golden\noriginating_issue: 732\n")
@@ -933,7 +933,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     expect(data.unleashSummary).toEqual({ change_name: "golden", tier: "openspec" })
   })
 
-  it("uf_finale_create_pr [uf.finale.md:204] returns number and url", async () => {
+  it("uf_finale_create_pr [uf.finale.md:255] returns number and url", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGh([
@@ -955,7 +955,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     })
   })
 
-  it("uf_finale_ci_poll [uf.finale.md:212] returns status, failedChecks, mergeable, and workflowsConfigured", async () => {
+  it("uf_finale_ci_poll [uf.finale.md:263] returns status, failedChecks, mergeable, and workflowsConfigured", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGh([
@@ -987,7 +987,7 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     })
   })
 
-  it("uf_finale_return_to_main [uf.finale.md:291] returns success", async () => {
+  it("uf_finale_return_to_main [uf.finale.md:342] returns success", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGit({

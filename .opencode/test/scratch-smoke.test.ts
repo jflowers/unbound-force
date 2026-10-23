@@ -197,7 +197,7 @@ describe("provider-free scratch-repository smoke test", () => {
     })
   })
 
-  it("activates uf-finale plugin and registers all 8 finale tools", async () => {
+  it("activates uf-finale plugin and registers all 9 finale tools", async () => {
     const project = await scratchProject()
     const hooks = await UfFinalePlugin.server({
       client: { session: {} },
@@ -206,6 +206,7 @@ describe("provider-free scratch-repository smoke test", () => {
     } as unknown as PluginInput)
 
     expect(Object.keys(hooks.tool).sort()).toEqual([
+      "uf_finale_base_state",
       "uf_finale_ci_poll",
       "uf_finale_commit_context",
       "uf_finale_create_pr",
