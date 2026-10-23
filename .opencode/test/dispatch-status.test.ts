@@ -190,6 +190,129 @@ function consolidationSessionMetadata(agents: string[]) {
   }
 }
 
+/**
+ * Scratch project carrying the .uf review config fixtures and a diff file so
+ * real dispatch_review_runs invocations complete without network or live
+ * providers (mirrors the dispatch-review-runs suite's scratch project).
+ */
+async function dispatchScratchProject(): Promise<{ directory: string; diffPath: string }> {
+  const directory = await mkdtemp(join(tmpdir(), "uf-status-dispatch-"))
+  scratchDirectories.push(directory)
+  await mkdir(join(directory, ".uf"), { recursive: true })
+  await writeFile(join(directory, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
+  await writeFile(join(directory, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
+  await writeFile(join(directory, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
+  const diffPath = join(directory, "test.diff")
+  await writeFile(diffPath, "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n")
+  return { directory, diffPath }
+}
+
+/**
+ * Minimal fake client for driving real dispatch_review_runs invocations.
+ * Prompt responses echo the requested model so model-mismatch checks pass.
+ */
+function fakeDispatchClient(): PluginInput["client"] {
+  let promptCallIndex = 0
+  const session = {
+    create: async (): Promise<unknown> => ({
+      data: { id: `child-session-${promptCallIndex}` },
+      error: undefined,
+    }),
+    message: async (): Promise<unknown> => ({
+      data: {
+        info: { id: "m", sessionID: "s", role: "assistant", providerID: "p", modelID: "m", variant: "active" },
+        parts: [],
+      },
+      error: undefined,
+    }),
+    prompt: async (request: unknown): Promise<unknown> => {
+      const idx = promptCallIndex++
+      const req = request as { body?: { model?: { providerID: string; modelID: string } } }
+      const providerID = req.body?.model?.providerID ?? "provider"
+      const modelID = req.body?.model?.modelID ?? "standard"
+      return {
+        data: {
+          info: { role: "assistant", providerID, modelID },
+          parts: [
+            { id: "t", sessionID: `child-session-${idx}`, messageID: "m", type: "text", text: "review output", ignored: false },
+          ],
+        },
+        error: undefined,
+      }
+    },
+    abort: async (): Promise<unknown> => ({ data: true, error: undefined }),
+  }
+  return { session } as unknown as PluginInput["client"]
+}
+
+/** Tool context for the shared parent session driving the aggregate dispatches. */
+function aggregateParentContext(): ToolContext {
+  return {
+    ...noopContext(),
+    sessionID: "status-aggregate-parent",
+  }
+}
+
+/** Plan entry for aggregate dispatch inputs (source "advisor", standard tier). */
+function aggregatePlanEntry(agent: string, sequence: number, decision = "include"): Record<string, unknown> {
+  return {
+    agent,
+    decision,
+    reason_code: "advisor-run",
+    reason: "test",
+    source: "advisor",
+    sequence,
+    read_only: true,
+    tier: "standard",
+    model: null,
+    variant: null,
+    validation_errors: [],
+  }
+}
+
+/** Session metadata persisted by the aggregate dispatch's first internal run call. */
+function aggregateSessionMetadata(): Record<string, unknown> {
+  return {
+    command: "review-council",
+    mode: "code",
+    full: false,
+    input_context: {
+      kind: "local",
+      pr_number: null,
+      base_ref: "main",
+      base_sha: "a".repeat(40),
+      head_ref: "feature",
+      head_sha: "b".repeat(40),
+    },
+    change_profile: {
+      kind: "diff",
+      lines: 100,
+      files: 3,
+      components: 1,
+      security_sensitive: false,
+      user_facing: false,
+      categories: ["standard"],
+      tier: "standard",
+    },
+    plan: [],
+    coverage: { preflight_verdict: "NOT_RUN", checks_total: 0, checks_passed: 0 },
+  }
+}
+
+/** Valid dispatch_review_runs input for code mode with the given plan entries. */
+function aggregateDispatchInput(diffPath: string, entries: Record<string, unknown>[]): Record<string, unknown> {
+  return {
+    mode: "code",
+    command: "review-council",
+    diff_path: diffPath,
+    changed_files: "src/foo.ts",
+    input_context: "base: main, head: feature",
+    plan_entries: entries,
+    max_parallel_runs: 4,
+    session_metadata: aggregateSessionMetadata(),
+  }
+}
+
 describe("dispatch_status", () => {
   it("returns not_found when no dispatch session exists", async () => {
     await withBun(async () => {
@@ -471,6 +594,137 @@ describe("dispatch_status", () => {
 
       const data = JSON.parse(result.output)
       expect(data.pending_submissions).toBe(1)
+    })
+  })
+})
+
+describe("dispatch_status latest-dispatch resolution (RD-CR-001, issue #794)", () => {
+  /** Run one aggregate dispatch from the shared parent session; returns its minted correlation. */
+  async function aggregateDispatch(
+    hooks: Awaited<ReturnType<typeof ReviewDispatchPlugin.server>>,
+    input: Record<string, unknown>,
+  ): Promise<string> {
+    const response = await hooks.tool.dispatch_review_runs.execute(input, aggregateParentContext())
+    const meta = response.metadata as Record<string, unknown>
+    expect(meta.status).toBe("ok")
+    const correlationId = meta.correlation_id as string
+    expect(typeof correlationId).toBe("string")
+    // Track the dispatch session directory for afterEach cleanup.
+    cleanupDirs.push(join(tmpdir(), "opencode", `dispatch-${correlationId}`))
+    return correlationId
+  }
+
+  it("resolves the latest aggregate dispatch when no correlation_id is supplied", async () => {
+    await withBun(async () => {
+      const { directory, diffPath } = await dispatchScratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: fakeDispatchClient(),
+        directory,
+        worktree: directory,
+      } as unknown as PluginInput)
+
+      // Workflow A dispatches two reviewers under its minted correlation...
+      const firstCorrelation = await aggregateDispatch(
+        hooks,
+        aggregateDispatchInput(diffPath, [aggregatePlanEntry("divisor-guard", 1), aggregatePlanEntry("divisor-adversary", 2)]),
+      )
+      // ...then workflow B dispatches a different panel from the SAME parent
+      // session, minting a second, distinct dispatch session (issue #794).
+      const secondCorrelation = await aggregateDispatch(
+        hooks,
+        aggregateDispatchInput(diffPath, [aggregatePlanEntry("divisor-architect", 1), aggregatePlanEntry("divisor-testing", 2)]),
+      )
+      expect(secondCorrelation).not.toBe(firstCorrelation)
+
+      // No-parameter status resolves the LATEST dispatch session: the session
+      // map was re-pointed by workflow B's invocation.
+      const result = await hooks.tool.dispatch_status.execute({}, aggregateParentContext())
+
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.correlation_id).toBe(secondCorrelation)
+      expect(data.total_runs).toBe(2)
+      const agents = data.runs.map((r: { agent: string }) => r.agent).sort()
+      expect(agents).toEqual(["divisor-architect", "divisor-testing"])
+    })
+  })
+
+  it("resolves the earlier dispatch via explicit correlation_id", async () => {
+    await withBun(async () => {
+      const { directory, diffPath } = await dispatchScratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: fakeDispatchClient(),
+        directory,
+        worktree: directory,
+      } as unknown as PluginInput)
+
+      const firstCorrelation = await aggregateDispatch(
+        hooks,
+        aggregateDispatchInput(diffPath, [aggregatePlanEntry("divisor-guard", 1), aggregatePlanEntry("divisor-adversary", 2)]),
+      )
+      const secondCorrelation = await aggregateDispatch(
+        hooks,
+        aggregateDispatchInput(diffPath, [aggregatePlanEntry("divisor-architect", 1), aggregatePlanEntry("divisor-testing", 2)]),
+      )
+      expect(secondCorrelation).not.toBe(firstCorrelation)
+
+      // Explicit C1 inspects workflow A's dispatch session: its run files
+      // survived workflow B's invocation untouched.
+      const result = await hooks.tool.dispatch_status.execute(
+        { correlation_id: firstCorrelation },
+        aggregateParentContext(),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.correlation_id).toBe(firstCorrelation)
+      expect(data.total_runs).toBe(2)
+      const agents = data.runs.map((r: { agent: string }) => r.agent).sort()
+      expect(agents).toEqual(["divisor-adversary", "divisor-guard"])
+    })
+  })
+
+  it("fails closed as not_found after a session-less all-skip invocation re-points the map", async () => {
+    await withBun(async () => {
+      const { directory, diffPath } = await dispatchScratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: fakeDispatchClient(),
+        directory,
+        worktree: directory,
+      } as unknown as PluginInput)
+
+      // A completed dispatch under C1...
+      const firstCorrelation = await aggregateDispatch(
+        hooks,
+        aggregateDispatchInput(diffPath, [aggregatePlanEntry("divisor-guard", 1)]),
+      )
+      // ...then an all-skip invocation: it mints a fresh correlation and
+      // re-points the map but returns before creating any dispatch session.
+      const skipped = await hooks.tool.dispatch_review_runs.execute(
+        aggregateDispatchInput(diffPath, [aggregatePlanEntry("divisor-adversary", 1, "skip")]),
+        aggregateParentContext(),
+      )
+      const skippedMeta = skipped.metadata as Record<string, unknown>
+      expect(skippedMeta.status).toBe("ok")
+      expect(skippedMeta.runs_skipped).toBe(1)
+      const skippedCorrelation = skippedMeta.correlation_id as string
+      expect(skippedCorrelation).not.toBe(firstCorrelation)
+
+      // No-parameter status fails closed as not_found under the session-less
+      // correlation — it must NOT report workflow A's runs.
+      const notFound = JSON.parse((await hooks.tool.dispatch_status.execute({}, aggregateParentContext())).output)
+      expect(notFound.status).toBe("not_found")
+      expect(notFound.correlation_id).toBe(skippedCorrelation)
+      expect(notFound.runs).toEqual([])
+      expect(notFound.message).toBeUndefined()
+
+      // The explicit correlation_id still resolves the earlier dispatch.
+      const recovered = JSON.parse(
+        (await hooks.tool.dispatch_status.execute({ correlation_id: firstCorrelation }, aggregateParentContext())).output,
+      )
+      expect(recovered.status).toBe("ok")
+      expect(recovered.correlation_id).toBe(firstCorrelation)
+      expect(recovered.runs.map((r: { agent: string }) => r.agent)).toEqual(["divisor-guard"])
     })
   })
 })
