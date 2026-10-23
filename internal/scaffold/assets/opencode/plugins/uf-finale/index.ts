@@ -53,8 +53,17 @@ function isSecretCandidate(filename: string): boolean {
 // 1. uf_finale_startup — Branch safety and working tree context
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_startup tool. */
-export function createUfFinaleStartupTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_startup tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_startup tool.
+ */
+export function createUfFinaleStartupTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Gather branch safety and working tree context for the finale " +
@@ -138,8 +147,17 @@ export function createUfFinaleStartupTool(exec: GitExec, cwd: string) {
 // 2. uf_finale_stage — Stage all changes
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_stage tool. */
-export function createUfFinaleStageTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_stage tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_stage tool.
+ */
+export function createUfFinaleStageTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Stage all changes in the working tree via `git add .` and return " +
@@ -172,8 +190,17 @@ export function createUfFinaleStageTool(exec: GitExec, cwd: string) {
 // 3. uf_finale_commit_context — Diff stat, recent log, normalized model
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_commit_context tool. */
-export function createUfFinaleCommitContextTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_commit_context tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_commit_context tool.
+ */
+export function createUfFinaleCommitContextTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Gather commit context: cached diff stat, recent log, and " +
@@ -216,8 +243,17 @@ export function createUfFinaleCommitContextTool(exec: GitExec, cwd: string) {
 // 4. uf_finale_base_state — PR base remote, branch, and ahead/behind counts
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_base_state tool. */
-export function createUfFinaleBaseStateTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_base_state tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_base_state tool.
+ */
+export function createUfFinaleBaseStateTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Resolve the PR base remote (upstream when configured, else origin) " +
@@ -265,20 +301,28 @@ export function createUfFinaleBaseStateTool(exec: GitExec, cwd: string) {
           }
         }
 
-        // Ahead/behind counts versus the fetched base ref.
+        // Ahead/behind counts versus the fetched base ref. Count
+        // failures route through a retryable failure envelope —
+        // behindBy decides the step-4 sync gate and MUST NOT
+        // silently read as 0.
         let aheadBy = 0
         let behindBy = 0
         try {
           const ahead = exec(["rev-list", `${baseRef}..HEAD`, "--count"], cwd)
           aheadBy = parseInt(ahead, 10) || 0
-        } catch {
-          // Count failure.
-        }
-        try {
           const behind = exec(["rev-list", `HEAD..${baseRef}`, "--count"], cwd)
           behindBy = parseInt(behind, 10) || 0
-        } catch {
-          // Count failure.
+        } catch (countErr: unknown) {
+          const msg =
+            countErr instanceof Error ? countErr.message : String(countErr)
+          return {
+            output: JSON.stringify(
+              failure(`Could not count commits versus ${baseRef}: ${msg}`, {
+                retryable: true,
+                code: "BASE_SYNC_COUNT",
+              }),
+            ),
+          }
         }
 
         const data = { remote, baseBranch, baseRef, aheadBy, behindBy }
@@ -300,8 +344,17 @@ export function createUfFinaleBaseStateTool(exec: GitExec, cwd: string) {
 // 5. uf_finale_push_state — Upstream and divergence info
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_push_state tool. */
-export function createUfFinalePushStateTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_push_state tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_push_state tool.
+ */
+export function createUfFinalePushStateTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Check push state: whether an upstream exists, and if so, how " +
@@ -355,8 +408,17 @@ export function createUfFinalePushStateTool(exec: GitExec, cwd: string) {
 // 6. uf_finale_pr_context — PR metadata, fork info, templates, issue link
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_pr_context tool. */
-export function createUfFinalePrContextTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_pr_context tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_pr_context tool.
+ */
+export function createUfFinalePrContextTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Gather PR context: existing PR, fork status, PR template sections, " +
@@ -563,8 +625,17 @@ export function createUfFinalePrContextTool(exec: GitExec, cwd: string) {
 // 7. uf_finale_create_pr — Create a PR with secure temp file lifecycle
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_create_pr tool. */
-export function createUfFinaleCreatePrTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_create_pr tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_create_pr tool.
+ */
+export function createUfFinaleCreatePrTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Create a GitHub pull request. Uses a secure temp file for the PR " +
@@ -686,8 +757,17 @@ export function createUfFinaleCreatePrTool(exec: GitExec, cwd: string) {
 // 8. uf_finale_ci_poll — Poll CI checks until completion or timeout
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_ci_poll tool. */
-export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_ci_poll tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_ci_poll tool.
+ */
+export function createUfFinaleCiPollTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Poll CI checks for a PR until all complete or timeout. Reports " +
@@ -883,8 +963,17 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
 // 9. uf_finale_return_to_main — Checkout main and pull
 // ---------------------------------------------------------------------------
 
-/** Factory for the uf_finale_return_to_main tool. */
-export function createUfFinaleReturnToMainTool(exec: GitExec, cwd: string) {
+/**
+ * Factory for the uf_finale_return_to_main tool.
+ *
+ * @param exec - Injectable git executor for command execution.
+ * @param cwd - Working directory for git operations.
+ * @returns The uf_finale_return_to_main tool.
+ */
+export function createUfFinaleReturnToMainTool(
+  exec: GitExec,
+  cwd: string,
+): ReturnType<typeof tool> {
   return tool({
     description:
       "Return to the main branch by checking out main and pulling " +

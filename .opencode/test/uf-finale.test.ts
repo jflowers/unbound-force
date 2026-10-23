@@ -685,6 +685,30 @@ describe("uf_finale_base_state", () => {
     }
   })
 
+  it("returns a retryable BASE_SYNC_COUNT failure when rev-list counting fails", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "remote") return "origin\n"
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD"))
+        return "refs/remotes/origin/main\n"
+      if (cmd.includes("fetch origin main")) return ""
+      if (cmd.includes("rev-list")) throw new Error("bad revision")
+      return ""
+    }
+    const result = await invokeTool(
+      createUfFinaleBaseStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("BASE_SYNC_COUNT")
+      expect(result.retryable).toBe(true)
+      expect(result.message).toContain("origin/main")
+      expect(result.message).toContain("bad revision")
+    }
+  })
+
   it("reports behind-base counts without mutating the working tree", async () => {
     const commands: string[] = []
     const mockExec: GitExec = (args: string[]) => {
