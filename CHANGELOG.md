@@ -513,10 +513,12 @@ Each entry follows the format: `- <change-name>: <summary>`.
   session). Fixes the root cause of #760 and #746. Regression
   tests cover the lifecycle in `dispatch-review-runs.test.ts`,
   `consolidate-dispatch.test.ts`, `dispatch-status.test.ts`,
-  and `dispatch-agent-run.test.ts`; scaffold mirror synced
+  and `dispatch-agent-run.test.ts`, with shared fixtures in
+  `.opencode/test/helpers/aggregate-dispatch-fixtures.ts`;
+  scaffold mirror synced
   byte-identical. (Spec:
   openspec/changes/fix-review-dispatch-correlation-release/,
-  Fixes: #794)
+  Fixes: #794, Docs: #808, unbound-force/website#319)
 - fix-dispatch-verdict-derivation: `consolidate_dispatch` now
   derives `workflow_result.value` and `verdict` from
   `calculatedWorkflowValue` — the same vote-based derivation

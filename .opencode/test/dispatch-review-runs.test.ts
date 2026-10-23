@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import type { PluginInput, ToolContext } from "@opencode-ai/plugin"
@@ -7,27 +6,20 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import ReviewDispatchPlugin from "../plugins/review-dispatch/index.js"
 import { _getSessionCorrelationMap, _getSubmissionStore } from "../plugins/review-dispatch/index.js"
-import manifestFixture from "./fixtures/review-dispatch/manifest.json"
-import matrixFixture from "./fixtures/review-dispatch/matrix.json"
+import { withBun } from "./helpers/bun-runtime.js"
+import {
+  UUID_RE,
+  dispatchDir,
+  fakeClient,
+  makeBaseInput,
+  makeDispatchDirTracker,
+  makePlanEntry,
+  makeScratchProjectFactory,
+  makeSessionMetadata,
+  pathExists,
+} from "./helpers/aggregate-dispatch-fixtures.js"
 
 // ── Test infrastructure ─────────────────────────────────────
-
-type BunRuntime = { readonly YAML: { readonly parse: (text: string) => unknown } }
-
-function withBun<T>(run: () => T | Promise<T>): Promise<T> {
-  const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-  const original = runtime.Bun
-  runtime.Bun = { YAML: { parse: (text: string): unknown => JSON.parse(text) as unknown } }
-  const finish = (): void => {
-    runtime.Bun = original
-  }
-  try {
-    return Promise.resolve(run()).finally(finish)
-  } catch (error) {
-    finish()
-    throw error
-  }
-}
 
 const scratchDirectories: string[] = []
 // Dispatch session dirs (tmpdir()/opencode/dispatch-<correlation>) minted by
@@ -42,93 +34,16 @@ afterEach(async () => {
   await Promise.all(dispatchSessionDirs.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 
-/** Create a scratch project with review-matrix, manifest, sibling-repos, and a diff file. */
-async function scratchProject(): Promise<{ directory: string; diffPath: string }> {
-  const directory = await mkdtemp(join(tmpdir(), "uf-dispatch-runs-"))
-  scratchDirectories.push(directory)
-  await mkdir(join(directory, ".uf"), { recursive: true })
-  await writeFile(join(directory, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
-  await writeFile(join(directory, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
-  await writeFile(join(directory, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
-  const diffPath = join(directory, "test.diff")
-  await writeFile(diffPath, "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n")
-  return { directory, diffPath }
-}
-
-/** UUID shape matching randomUUID output and the plugin's UUIDSchema. */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-
-/** Dispatch session directory on disk for a correlation id (mirrors dispatchSessionDir). */
-function dispatchDir(correlationId: string): string {
-  return join(tmpdir(), "opencode", `dispatch-${correlationId}`)
-}
-
-/** Track a minted dispatch session dir for afterEach cleanup. */
-function trackDispatchDir(correlationId: string): void {
-  dispatchSessionDirs.push(dispatchDir(correlationId))
-}
-
-/** Check whether a path exists on disk (file or directory). */
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
-type Client = PluginInput["client"]
-
-interface FakeClientOptions {
-  /** Override the prompt handler. Receives the request and returns a response. */
-  promptHandler?: (request: unknown, callIndex: number) => Promise<unknown>
-  /** Track all prompt calls for assertions. */
-  promptCalls?: unknown[]
-}
-
 /**
- * Minimal fake client for dispatch_review_runs tests.
- * Prompt response echoes the requested model so model-mismatch checks pass.
- * Optionally injects per-run cost via step-finish parts for budget testing.
+ * Aggregate-dispatch fixtures shared with the sibling review-dispatch suites
+ * (helpers/aggregate-dispatch-fixtures.ts, extracted per default.md CS-004):
+ * a scratch project with review matrix, manifest, sibling-repos config, and
+ * a diff file, bound to the scratch-directory registry; and a dispatch
+ * session dir tracker bound to the dispatch-session registry. Both
+ * registries drain in afterEach.
  */
-function fakeClient(options?: FakeClientOptions): Client {
-  let promptCallIndex = 0
-  const session = {
-    create: async (): Promise<unknown> => ({
-      data: { id: `child-session-${promptCallIndex}` },
-      error: undefined,
-    }),
-    message: async (): Promise<unknown> => ({
-      data: {
-        info: { id: "m", sessionID: "s", role: "assistant", providerID: "p", modelID: "m", variant: "active" },
-        parts: [],
-      },
-      error: undefined,
-    }),
-    prompt: async (request: unknown): Promise<unknown> => {
-      const idx = promptCallIndex++
-      options?.promptCalls?.push(request)
-      if (options?.promptHandler) {
-        return options.promptHandler(request, idx)
-      }
-      const req = request as { body?: { model?: { providerID: string; modelID: string } } }
-      const providerID = req.body?.model?.providerID ?? "provider"
-      const modelID = req.body?.model?.modelID ?? "standard"
-      return {
-        data: {
-          info: { role: "assistant", providerID, modelID },
-          parts: [
-            { id: "t", sessionID: `child-session-${idx}`, messageID: "m", type: "text", text: "review output", ignored: false },
-          ],
-        },
-        error: undefined,
-      }
-    },
-    abort: async (): Promise<unknown> => ({ data: true, error: undefined }),
-  }
-  return { session } as unknown as Client
-}
+const scratchProject = makeScratchProjectFactory("uf-dispatch-runs-", scratchDirectories)
+const trackDispatchDir = makeDispatchDirTracker(dispatchSessionDirs)
 
 /** Create a prompt response with cost data in step-finish parts. */
 function promptResponseWithCost(costUsd: number, request: unknown): unknown {
@@ -165,64 +80,6 @@ function toolContext(): ToolContext {
 /** Valid SHA1 (40 hex chars) for test input_context. */
 const VALID_SHA = "a".repeat(40)
 const VALID_SHA2 = "b".repeat(40)
-
-function makeSessionMetadata(): Record<string, unknown> {
-  return {
-    command: "review-council",
-    mode: "code",
-    full: false,
-    input_context: {
-      kind: "local",
-      pr_number: null,
-      base_ref: "main",
-      base_sha: VALID_SHA,
-      head_ref: "feature",
-      head_sha: VALID_SHA2,
-    },
-    change_profile: {
-      kind: "diff",
-      lines: 100,
-      files: 3,
-      components: 1,
-      security_sensitive: false,
-      user_facing: false,
-      categories: ["standard"],
-      tier: "standard",
-    },
-    plan: [],
-    coverage: { preflight_verdict: "NOT_RUN", checks_total: 0, checks_passed: 0 },
-  }
-}
-
-function makePlanEntry(overrides?: Partial<Record<string, unknown>>): Record<string, unknown> {
-  return {
-    agent: "divisor-guard",
-    decision: "include",
-    reason_code: "advisor-run",
-    reason: "test",
-    source: "advisor",
-    sequence: 1,
-    read_only: true,
-    tier: "standard",
-    model: null,
-    variant: null,
-    validation_errors: [],
-    ...overrides,
-  }
-}
-
-function makeBaseInput(diffPath: string, planEntries: Record<string, unknown>[]): Record<string, unknown> {
-  return {
-    mode: "code",
-    command: "review-council",
-    diff_path: diffPath,
-    changed_files: "src/foo.ts",
-    input_context: "base: main, head: feature",
-    plan_entries: planEntries,
-    max_parallel_runs: 4,
-    session_metadata: makeSessionMetadata(),
-  }
-}
 
 function makeTriageSessionMetadata(): Record<string, unknown> {
   return {

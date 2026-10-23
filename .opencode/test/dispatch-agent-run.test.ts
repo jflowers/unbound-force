@@ -1,7 +1,6 @@
 import type { PluginInput, ToolContext } from "@opencode-ai/plugin"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { readFile, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
-import { tmpdir } from "node:os"
 import { describe, expect, it, vi, afterEach } from "vitest"
 
 import type { InvokeAgentResult } from "../lib/agent-executor.js"
@@ -18,8 +17,14 @@ import {
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
 import { withBun } from "./helpers/bun-runtime.js"
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+import {
+  UUID_RE,
+  dispatchDir,
+  makeDispatchDirTracker,
+  makePlanEntry,
+  makeScratchProjectFactory,
+  makeSessionMetadata,
+} from "./helpers/aggregate-dispatch-fixtures.js"
 
 // Track dispatch session dirs and scratch projects for cleanup.
 const cleanupDirs: string[] = []
@@ -105,53 +110,21 @@ function toolContext(): ToolContext {
   }
 }
 
-/** Dispatch session directory on disk for a correlation id. */
-function dispatchDir(correlationId: string): string {
-  return join(tmpdir(), "opencode", `dispatch-${correlationId}`)
-}
+/**
+ * Aggregate-dispatch fixtures shared with the sibling review-dispatch suites
+ * (helpers/aggregate-dispatch-fixtures.ts, extracted per default.md CS-004);
+ * the tracker and scratch project bind this suite's cleanup registry.
+ */
 
 /** Track a dispatch result for temp dir cleanup. */
-function trackForCleanup(correlationId: string): void {
-  cleanupDirs.push(dispatchDir(correlationId))
-}
+const trackForCleanup = makeDispatchDirTracker(cleanupDirs)
 
 /**
  * Scratch project for driving the aggregate dispatch_review_runs tool
  * through ReviewDispatchPlugin.server(): review matrix, reviewer
  * manifest, sibling-repos config, and a diff file on disk.
  */
-async function scratchProject(): Promise<{ directory: string; diffPath: string }> {
-  const directory = await mkdtemp(join(tmpdir(), "uf-agent-run-"))
-  cleanupDirs.push(directory)
-  await mkdir(join(directory, ".uf"), { recursive: true })
-  await writeFile(join(directory, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
-  await writeFile(join(directory, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
-  await writeFile(join(directory, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
-  const diffPath = join(directory, "test.diff")
-  await writeFile(
-    diffPath,
-    "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n",
-  )
-  return { directory, diffPath }
-}
-
-/** A plan entry matching DispatchPlanEntrySchema for aggregate dispatch input. */
-function makePlanEntry(overrides?: Partial<Record<string, unknown>>): Record<string, unknown> {
-  return {
-    agent: "divisor-guard",
-    decision: "include",
-    reason_code: "advisor-run",
-    reason: "test",
-    source: "advisor",
-    sequence: 1,
-    read_only: true,
-    tier: "standard",
-    model: null,
-    variant: null,
-    validation_errors: [],
-    ...overrides,
-  }
-}
+const scratchProject = makeScratchProjectFactory("uf-agent-run-", cleanupDirs)
 
 function makeDeps(overrides?: {
   readText?: (path: string) => Promise<string>
@@ -182,10 +155,6 @@ function makeDeps(overrides?: {
 }
 
 // ── RD-FR-026 reclassification / D5 persistence fixtures ────
-
-/** Valid SHAs for session metadata input_context. */
-const VALID_SHA = "a".repeat(40)
-const VALID_SHA2 = "b".repeat(40)
 
 /** A finding that satisfies RunFindingSchema, as submitted before an abort. */
 const SUBMITTED_FINDING = {
@@ -339,35 +308,6 @@ async function listRunFiles(correlationId: string): Promise<string[]> {
   } catch {
     // The directory is never created when nothing was persisted for the session.
     return []
-  }
-}
-
-/** Session metadata payload matching SessionMetadataSchema for D5 tests. */
-function makeSessionMetadata(overrides?: { mode?: "code" | "specs"; headRef?: string }): Record<string, unknown> {
-  return {
-    command: "review-council",
-    mode: overrides?.mode ?? "code",
-    full: false,
-    input_context: {
-      kind: "local",
-      pr_number: null,
-      base_ref: "main",
-      base_sha: VALID_SHA,
-      head_ref: overrides?.headRef ?? "feature",
-      head_sha: VALID_SHA2,
-    },
-    change_profile: {
-      kind: "diff",
-      lines: 100,
-      files: 3,
-      components: 1,
-      security_sensitive: false,
-      user_facing: false,
-      categories: ["standard"],
-      tier: "standard",
-    },
-    plan: [],
-    coverage: { preflight_verdict: "NOT_RUN", checks_total: 0, checks_passed: 0 },
   }
 }
 

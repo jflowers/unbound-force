@@ -4614,7 +4614,7 @@ async function dispatchReviewRuns(
   // the map up front: prompts land under this invocation's dispatch session,
   // internal dispatchAgentRun calls reuse the correlation (their mint branch
   // stays dormant), session metadata persists under it on the first run call,
-  // and the post-dispatch findings collection re-read resolves it. Minting
+  // and the post-dispatch findings collection reads it directly. Minting
   // early rather than at the first dispatched run also leaves invocations
   // that dispatch no runs (all-skip or prompt failure) pointing at a
   // session-less correlation, so later no-provenance retrieval fails closed
@@ -4786,29 +4786,31 @@ async function dispatchReviewRuns(
     }
   }
 
-  // Collect findings and proposals from persisted run files (FR-003).
+  // Collect findings and proposals from persisted run files (FR-003). The
+  // invocation's own minted correlation — not a session-map re-read —
+  // resolves the session, so collection stays self-consistent even if a
+  // concurrent invocation from the same parent session re-pointed the map
+  // between this invocation's mint and its collection step.
   const allFindings: z.infer<typeof RunFindingSchema>[] = []
   const allProposals: Array<{ information: string; tag: string; category?: string }> = []
-  const resolvedCorrelationId = sessionCorrelationMap.get(context.sessionID)
-  if (resolvedCorrelationId) {
-    const readResults = await readRunFiles(dispatchSessionDir(resolvedCorrelationId))
-    if (readResults === null) {
-      warnings.push("could not read dispatch session directory for findings collection")
+  const readResults = await readRunFiles(dispatchSessionDir(correlationId))
+  if (readResults === null) {
+    warnings.push("could not read dispatch session directory for findings collection")
+  }
+  for (const result of readResults ?? []) {
+    if (result.run === null) {
+      // Best-effort collection.
+      continue
     }
-    for (const result of readResults ?? []) {
-      if (result.run === null) {
-        // Best-effort collection.
-        continue
-      }
-      allFindings.push(...result.run.findings)
-      allProposals.push(...result.run.proposals)
-    }
+    allFindings.push(...result.run.findings)
+    allProposals.push(...result.run.proposals)
   }
 
   return {
     status: runsFailed > 0 && runsCompleted === 0 ? "error" : "ok",
-    // D3: report the invocation's minted correlation (the map re-read above
-    // resolves the same value; the local is the invocation's own identity).
+    // D3: report the invocation's minted correlation — the same local the
+    // findings collection above read, so the reported identity always
+    // matches the session that was actually collected.
     correlation_id: correlationId,
     runs_completed: runsCompleted,
     runs_failed: runsFailed,
