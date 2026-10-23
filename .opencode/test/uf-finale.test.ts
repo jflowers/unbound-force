@@ -17,6 +17,7 @@ import {
   createUfFinaleStartupTool,
   createUfFinaleStageTool,
   createUfFinaleCommitContextTool,
+  createUfFinaleBaseStateTool,
   createUfFinalePushStateTool,
   createUfFinalePrContextTool,
   createUfFinaleCreatePrTool,
@@ -558,6 +559,185 @@ describe("uf_finale_commit_context", () => {
     expect(result.status).toBe("ok")
     if (result.status === "ok") {
       expect(result.data?.normalizedModel).toBe("claude-sonnet-4")
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// uf_finale_base_state tests
+// ---------------------------------------------------------------------------
+
+describe("uf_finale_base_state", () => {
+  it("prefers the upstream remote and resolves the base branch for forks", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      commands.push(cmd)
+      if (cmd === "remote") return "origin\nupstream\n"
+      if (cmd.includes("symbolic-ref refs/remotes/upstream/HEAD"))
+        return "refs/remotes/upstream/main\n"
+      if (cmd.includes("fetch upstream main")) return ""
+      if (cmd.includes("upstream/main..HEAD --count")) return "4"
+      if (cmd.includes("HEAD..upstream/main --count")) return "1"
+      return ""
+    }
+    const result = await invokeTool<{
+      remote: string
+      baseBranch: string
+      baseRef: string
+      aheadBy: number
+      behindBy: number
+    }>(createUfFinaleBaseStateTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.remote).toBe("upstream")
+      expect(result.data?.baseBranch).toBe("main")
+      expect(result.data?.baseRef).toBe("upstream/main")
+      expect(result.data?.aheadBy).toBe(4)
+      expect(result.data?.behindBy).toBe(1)
+    }
+    expect(commands).toContain("fetch upstream main")
+  })
+
+  it("resolves origin and reports ahead/behind counts in non-fork repositories", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      commands.push(cmd)
+      if (cmd === "remote") return "origin\n"
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD"))
+        return "refs/remotes/origin/main\n"
+      if (cmd.includes("fetch origin main")) return ""
+      if (cmd.includes("origin/main..HEAD --count")) return "3"
+      if (cmd.includes("HEAD..origin/main --count")) return "0"
+      return ""
+    }
+    const result = await invokeTool<{
+      remote: string
+      baseBranch: string
+      baseRef: string
+      aheadBy: number
+      behindBy: number
+    }>(createUfFinaleBaseStateTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.remote).toBe("origin")
+      expect(result.data?.baseBranch).toBe("main")
+      expect(result.data?.baseRef).toBe("origin/main")
+      expect(result.data?.aheadBy).toBe(3)
+      expect(result.data?.behindBy).toBe(0)
+    }
+    expect(commands).toContain("fetch origin main")
+  })
+
+  it("falls back to base branch main when the remote HEAD symbolic ref is unset", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "remote") return "origin\n"
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD"))
+        throw new Error("ref is not a symbolic ref")
+      if (cmd.includes("fetch origin main")) return ""
+      if (cmd.includes("origin/main..HEAD --count")) return "1"
+      if (cmd.includes("HEAD..origin/main --count")) return "2"
+      return ""
+    }
+    const result = await invokeTool<{
+      remote: string
+      baseBranch: string
+      baseRef: string
+      aheadBy: number
+      behindBy: number
+    }>(createUfFinaleBaseStateTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.remote).toBe("origin")
+      expect(result.data?.baseBranch).toBe("main")
+      expect(result.data?.baseRef).toBe("origin/main")
+      expect(result.data?.aheadBy).toBe(1)
+      expect(result.data?.behindBy).toBe(2)
+    }
+  })
+
+  it("returns a retryable BASE_SYNC_FETCH failure when the fetch fails offline", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "remote") return "origin\nupstream\n"
+      if (cmd.includes("symbolic-ref refs/remotes/upstream/HEAD"))
+        return "refs/remotes/upstream/main\n"
+      if (cmd.includes("fetch upstream main"))
+        throw new Error("could not read from remote repository")
+      return ""
+    }
+    const result = await invokeTool(
+      createUfFinaleBaseStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("BASE_SYNC_FETCH")
+      expect(result.retryable).toBe(true)
+      expect(result.message).toContain("upstream main")
+      expect(result.message).toContain("could not read from remote repository")
+    }
+  })
+
+  it("reports behind-base counts without mutating the working tree", async () => {
+    const commands: string[] = []
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      commands.push(cmd)
+      if (cmd === "remote") return "origin\n"
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD"))
+        return "refs/remotes/origin/main\n"
+      if (cmd.includes("fetch origin main")) return ""
+      if (cmd.includes("origin/main..HEAD --count")) return "2"
+      if (cmd.includes("HEAD..origin/main --count")) return "7"
+      return ""
+    }
+    const result = await invokeTool<{
+      remote: string
+      baseBranch: string
+      baseRef: string
+      aheadBy: number
+      behindBy: number
+    }>(createUfFinaleBaseStateTool(mockExec, "/fake"), {})
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      expect(result.data?.remote).toBe("origin")
+      expect(result.data?.baseBranch).toBe("main")
+      expect(result.data?.baseRef).toBe("origin/main")
+      expect(result.data?.aheadBy).toBe(2)
+      expect(result.data?.behindBy).toBe(7)
+    }
+    // Read-only commands plus exactly one fetch — no checkout, rebase,
+    // reset, or merge that would modify the working tree.
+    expect(commands).toEqual([
+      "remote",
+      "symbolic-ref refs/remotes/origin/HEAD",
+      "fetch origin main",
+      "rev-list origin/main..HEAD --count",
+      "rev-list HEAD..origin/main --count",
+    ])
+  })
+
+  it("returns BASE_STATE_ERROR when git remote listing fails", async () => {
+    const mockExec: GitExec = () => {
+      throw new Error("git not found")
+    }
+    const result = await invokeTool(
+      createUfFinaleBaseStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("BASE_STATE_ERROR")
+      expect(result.message).toContain("git not found")
     }
   })
 })
