@@ -1,10 +1,11 @@
 import type { PluginInput, ToolContext } from "@opencode-ai/plugin"
-import { readFile, readdir, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { describe, expect, it, vi, afterEach } from "vitest"
 
 import type { InvokeAgentResult } from "../lib/agent-executor.js"
+import ReviewDispatchPlugin from "../plugins/review-dispatch/index.js"
 import {
   createDispatchAgentRunTool,
   dispatchAgentRun,
@@ -16,10 +17,11 @@ import {
 } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
+import { withBun } from "./helpers/bun-runtime.js"
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
-// Track dispatch session dirs created by dispatchAgentRun for cleanup.
+// Track dispatch session dirs and scratch projects for cleanup.
 const cleanupDirs: string[] = []
 
 afterEach(async () => {
@@ -111,6 +113,44 @@ function dispatchDir(correlationId: string): string {
 /** Track a dispatch result for temp dir cleanup. */
 function trackForCleanup(correlationId: string): void {
   cleanupDirs.push(dispatchDir(correlationId))
+}
+
+/**
+ * Scratch project for driving the aggregate dispatch_review_runs tool
+ * through ReviewDispatchPlugin.server(): review matrix, reviewer
+ * manifest, sibling-repos config, and a diff file on disk.
+ */
+async function scratchProject(): Promise<{ directory: string; diffPath: string }> {
+  const directory = await mkdtemp(join(tmpdir(), "uf-agent-run-"))
+  cleanupDirs.push(directory)
+  await mkdir(join(directory, ".uf"), { recursive: true })
+  await writeFile(join(directory, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
+  await writeFile(join(directory, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
+  await writeFile(join(directory, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
+  const diffPath = join(directory, "test.diff")
+  await writeFile(
+    diffPath,
+    "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n",
+  )
+  return { directory, diffPath }
+}
+
+/** A plan entry matching DispatchPlanEntrySchema for aggregate dispatch input. */
+function makePlanEntry(overrides?: Partial<Record<string, unknown>>): Record<string, unknown> {
+  return {
+    agent: "divisor-guard",
+    decision: "include",
+    reason_code: "advisor-run",
+    reason: "test",
+    source: "advisor",
+    sequence: 1,
+    read_only: true,
+    tier: "standard",
+    model: null,
+    variant: null,
+    validation_errors: [],
+    ...overrides,
+  }
 }
 
 function makeDeps(overrides?: {
@@ -708,6 +748,111 @@ describe("dispatch_agent_run", () => {
       expect(result1.correlation_id).toMatch(UUID_RE)
       expect(result2.correlation_id).toBe(result1.correlation_id)
       expect(result1.run_id).not.toBe(result2.run_id)
+    })
+
+    it("mints the correlation on the first direct call and reuses one session for a multi-call fan-out", async () => {
+      const deps = makeDeps()
+      const ctx = toolContext()
+      // GIVEN a parent session with no prior aggregate dispatch
+      // (RD-CR-003): the session map has no entry, so the first direct
+      // call mints the correlation.
+      expect(_getSessionCorrelationMap().get(ctx.sessionID)).toBeUndefined()
+
+      const first = await dispatchAgentRun(
+        { agent: "divisor-guard", prompt: "Fan-out review one." },
+        ctx,
+        deps,
+      )
+      trackForCleanup(first.correlation_id)
+      // The first call minted: the map now resolves the parent session.
+      expect(_getSessionCorrelationMap().get(ctx.sessionID)).toBe(first.correlation_id)
+
+      const second = await dispatchAgentRun(
+        { agent: "divisor-adversary", prompt: "Fan-out review two." },
+        ctx,
+        deps,
+      )
+      const third = await dispatchAgentRun(
+        { agent: "divisor-architect", prompt: "Fan-out review three." },
+        ctx,
+        deps,
+      )
+
+      // Reuse after mint: every call reports the first call's correlation
+      // with its own run record. Per-invocation minting here would shatter
+      // the fan-out into N sessions that consolidation cannot validate as
+      // one plan (design D2 of fix-review-dispatch-correlation-release).
+      for (const result of [first, second, third]) {
+        expect(result.status).toBe("success")
+        expect(result.correlation_id).toBe(first.correlation_id)
+      }
+      expect(new Set([first.run_id, second.run_id, third.run_id]).size).toBe(3)
+
+      // All run files land under the single dispatch session directory.
+      expect((await listRunFiles(first.correlation_id)).sort()).toEqual([
+        "run-divisor-adversary.json",
+        "run-divisor-architect.json",
+        "run-divisor-guard.json",
+      ])
+
+      // The map still resolves the parent session to that one correlation.
+      expect(_getSessionCorrelationMap().get(ctx.sessionID)).toBe(first.correlation_id)
+    })
+  })
+
+  describe("direct runs after an aggregate dispatch (RD-CR-003)", () => {
+    it("joins the latest aggregate dispatch session", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // One included plan entry: the aggregate completes a single run.
+        const input = {
+          mode: "code",
+          command: "review-council",
+          diff_path: diffPath,
+          changed_files: "src/foo.ts",
+          input_context: "base: main, head: feature",
+          plan_entries: [makePlanEntry({ agent: "divisor-guard", sequence: 1 })],
+          max_parallel_runs: 4,
+          session_metadata: makeSessionMetadata(),
+        }
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+        const aggregate = response.metadata as Record<string, unknown>
+        const aggregateCorrelation = aggregate.correlation_id as string
+        trackForCleanup(aggregateCorrelation)
+
+        // The aggregate minted a fresh correlation (RD-CR-001), completed
+        // its run, reported the correlation (RD-CR-002), and re-pointed
+        // the session map at it.
+        expect(aggregate.status).toBe("ok")
+        expect(aggregate.runs_completed).toBe(1)
+        expect(aggregateCorrelation).toMatch(UUID_RE)
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(aggregateCorrelation)
+
+        // WHEN a direct single-run dispatch follows from the same parent
+        // session, its mint branch stays dormant (design D2): the call
+        // joins the latest aggregate session instead of creating one.
+        const direct = await dispatchAgentRun(
+          { agent: "divisor-adversary", prompt: "Direct follow-up review." },
+          toolContext(),
+          makeDeps(),
+        )
+        expect(direct.status).toBe("success")
+        expect(direct.correlation_id).toBe(aggregateCorrelation)
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(aggregateCorrelation)
+
+        // THEN the direct run is persisted under the aggregate session's
+        // dispatch directory, alongside the aggregate's own run.
+        expect((await listRunFiles(aggregateCorrelation)).sort()).toEqual([
+          "run-divisor-adversary.json",
+          "run-divisor-guard.json",
+        ])
+      })
     })
   })
 
