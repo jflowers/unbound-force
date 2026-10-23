@@ -243,6 +243,82 @@ func TestSpecReviewPerFindingGateContracts(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("override recording contract pinned", func(t *testing.T) {
+		if !strings.Contains(unleash, `"overrides": [...]`) {
+			t.Error("unleash command missing overrides checkpoint payload")
+		}
+		if !strings.Contains(council, `step: "spec-review-fix-loop"`) {
+			t.Error("review-council command missing spec-review-fix-loop checkpoint marker")
+		}
+		if !strings.Contains(council, "An override without a recorded justification is") {
+			t.Error("review-council command missing override-justification requirement")
+		}
+	})
+
+	t.Run("session-resume guard pinned", func(t *testing.T) {
+		if !strings.Contains(unleash, "checkpoint data stand") {
+			t.Error("unleash command missing durable-resolution-stands rule")
+		}
+		if !strings.Contains(council, "context compression or session resume are NOT valid") {
+			t.Error("review-council command missing session-resume guard rule")
+		}
+	})
+
+	t.Run("recommended-option labeling pinned", func(t *testing.T) {
+		if !strings.Contains(unleash, `labeled "(Recommended)"`) {
+			t.Error("unleash command missing recommended-option labeling")
+		}
+		if !strings.Contains(council, `labeled "(Recommended)"`) {
+			t.Error("review-council command missing recommended-option labeling")
+		}
+	})
+
+	t.Run("autonomous auto-fix boundary pinned", func(t *testing.T) {
+		if !strings.Contains(council, "remains LOW/MEDIUM only") {
+			t.Error("review-council command missing autonomous auto-fix boundary statement")
+		}
+		packContent, err := assetContent("opencode/uf/packs/severity.md")
+		if err != nil {
+			t.Fatalf("read embedded severity pack: %v", err)
+		}
+		pack := string(packContent)
+		for _, row := range []string{"| HIGH | Report only |", "| CRITICAL | Report only |"} {
+			if !strings.Contains(pack, row) {
+				t.Errorf("severity pack missing auto-fix policy row %s", row)
+			}
+		}
+	})
+
+	t.Run("bulk-shortcut severity restriction pinned", func(t *testing.T) {
+		if !strings.Contains(unleash, "MUST NOT appear for HIGH/CRITICAL findings") {
+			t.Error("unleash command missing bulk-shortcut HIGH/CRITICAL restriction")
+		}
+		if !strings.Contains(unleash, "MUST NOT modify any HIGH/CRITICAL finding") {
+			t.Error("unleash command missing bulk-shortcut HIGH/CRITICAL modification ban")
+		}
+		if !strings.Contains(council, "MUST NOT modify any HIGH/CRITICAL finding") {
+			t.Error("review-council command missing bulk-shortcut HIGH/CRITICAL modification ban")
+		}
+	})
+
+	t.Run("override carry-forward matching key pinned", func(t *testing.T) {
+		if !strings.Contains(unleash, "same file and root cause") {
+			t.Error("unleash command missing override carry-forward matching key")
+		}
+		if !strings.Contains(council, "same file and root cause") {
+			t.Error("review-council command missing override carry-forward matching key")
+		}
+	})
+
+	t.Run("override-only outcome labeling pinned", func(t *testing.T) {
+		if !strings.Contains(unleash, "REQUEST CHANGES resolved by recorded overrides") {
+			t.Error("unleash command missing override-only outcome labeling")
+		}
+		if !strings.Contains(council, "REQUEST CHANGES resolved by recorded overrides") {
+			t.Error("review-council command missing override-only outcome labeling")
+		}
+	})
 }
 
 func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {

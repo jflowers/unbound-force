@@ -650,8 +650,8 @@ sections instead of embedding their text.
     shortcut, offered only when the current finding is
     LOW/MEDIUM): apply the remaining LOW/MEDIUM
     findings' fixes in one consented action. This option
-    MUST NOT appear for HIGH/CRITICAL findings and MUST
-    NOT modify any HIGH/CRITICAL finding.
+    MUST NOT appear for HIGH/CRITICAL findings and
+    MUST NOT modify any HIGH/CRITICAL finding.
 
   While any HIGH/CRITICAL finding is unresolved, the
   pipeline MUST NOT proceed past it: no autonomous fix,
@@ -665,9 +665,19 @@ sections instead of embedding their text.
   checkpoint data stand.
 
   The loop completes when every finding is fixed or
-  overridden. Overrides alone require no re-run. After
-  applied fixes (per-finding choices or the bulk
-  shortcut), re-run the review: re-resolve the immutable
+  overridden. Overrides alone require no re-run; when the
+  loop completes via overrides alone (no fixes applied),
+  the final report and pipeline summary record the
+  outcome as REQUEST CHANGES resolved by recorded overrides,
+  listing each override (severity, description,
+  justification). Findings matching a
+  recorded override (same file and root cause)
+  carry forward as resolved on re-runs and are not
+  re-presented unless materially new information emerges;
+  the overrides array below carries all overrides recorded
+  across iterations. After applied fixes (per-finding
+  choices or the bulk shortcut), re-run the review:
+  re-resolve the immutable
   input, re-validate the full plan, and rerun every
   included reviewer (not just failing or
   content-affected ones), reusing a single

@@ -162,7 +162,11 @@ The live command/pack files and their
 `internal/scaffold/scaffold_test.go` structural assertions
 are extended to cover the per-finding protocol (option
 labels, marker presence, severity-order presentation,
-no-autonomous-progression rule) so drift is caught by
+no-autonomous-progression rule, override-recording
+contract, session-resume guard, recommended-option
+labeling, auto-fix boundary, bulk-shortcut severity
+restriction, override carry-forward matching,
+override-only outcome labeling) so drift is caught by
 `make check`.
 
 ### D11: Spec-review exit reason string updated

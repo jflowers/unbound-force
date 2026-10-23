@@ -88,15 +88,38 @@ gate are unchanged.
   `spec-review` exit remains as the "Pause & exit" choice).
 - `severity` convention pack: clarifying note on
   human-directed per-finding fixes vs. autonomous auto-fix.
-
 ### Removed Capabilities
+
 - None
+
+**Supersedes**: FR-001..FR-007 replace the prior spec
+auto-fix consent gate requirements still carried by active
+(unarchived) changes: the "Spec auto-fix consent gate"
+requirement in
+`openspec/changes/unleash-direct-review-dispatch/specs/unleash/spec.md`,
+FR-003 "Spec File Edit Gate in uf.review-council" in
+`openspec/changes/mandatory-gate-hardening/specs/mandatory-gates.md`,
+and the consent-gate carriers in
+`openspec/changes/unleash-deterministic-tools`: the
+"Judgment boundary" requirement
+(specs/unleash/spec.md:292-302 -- uf.unleash.md MUST
+retain the spec auto-fix consent gate via the question
+tool), the "Consent gate unchanged" scenario (:304-307 --
+three council options), the guardrails clause (:338 --
+guardrails MUST name the spec auto-fix consent gate), the
+consent-gate-exception scenario (:354), and proposal.md:93.
+Those deltas describe the retired bulk gate; archive-time
+merges and readers of the active-change ledger resolve to
+this change's per-finding protocol. When those superseded
+changes archive, their consent-gate clauses drop or adjust
+so the per-finding protocol (FR-001..FR-007) remains
+canonical.
 
 ## Impact
 
-**Files affected** (14 total — 5 canonical commands/pack, 2
-canonical template/plugin strings, 5 mirrors, 2 test files,
-CHANGELOG):
+**Files affected** (15 total — 3 canonical commands/pack, 2
+canonical template/plugin strings, 5 mirrors, 3 test files, 1
+user-facing docs page, CHANGELOG):
 - `.opencode/commands/uf.review-council.md`
 - `.opencode/commands/uf.unleash.md`
 - `.opencode/uf/packs/severity.md`
@@ -115,6 +138,8 @@ CHANGELOG):
   gate clause rewritten for the new protocol)
 - `.opencode/test/unleash-formatters.test.ts` (spec-review
   reason-string assertions)
+- `docs/heroes.md` (The Divisor capability list — stale
+  hybrid-policy bullet replaced during spec review)
 - `CHANGELOG.md`
 
 **Behavioral impact**: Spec review becomes more interactive:
@@ -137,6 +162,35 @@ consent flow (strictly more human oversight per finding).
 untouched. This is a command/pack documentation change plus
 scaffold mirror sync, two string-level template/plugin
 updates (design D11), and test assertion extensions.
+
+**Documentation Impact** (AGENTS.md doc-gate targets,
+explicit outcome per target):
+- `CHANGELOG.md` — updated (Unreleased entry references
+  #777)
+- `AGENTS.md` — assessed, no update required (does not
+  document spec review gate mechanics)
+- `README.md` — assessed, no update required (no gate
+  description present)
+- `docs/` — `docs/heroes.md` capability bullet updated
+  during spec review (stale hybrid-policy phrasing); no
+  other docs page describes the gate (grep-verified)
+- Repo documentation issue (AGENTS.md docs gate) —
+  maintainer exemption recorded 2026-10-22 during
+  /uf.unleash spec review (override justification: "This
+  change is not substantial enough"); no repo docs issue
+  filed per maintainer decision
+- Content pipeline — the per-finding consent gate is a
+  distinctive human-in-the-loop pattern; blog opportunity
+  acknowledged; maintainer exemption recorded 2026-10-22
+  during /uf.unleash spec review — no blog issue or
+  constitution Cross-Repo website issue filed; revisit at
+  merge
+- Interaction semantics — the five option labels,
+  override-justification requirement, bulk-shortcut
+  severity restriction, 3-iteration cap, and
+  session-resume behavior are documented normatively in
+  the two command files and summarized in the CHANGELOG
+  entry
 
 ## Constitution Alignment
 

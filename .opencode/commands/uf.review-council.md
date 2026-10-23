@@ -1163,8 +1163,10 @@ step, determine which artifacts to review:
    Calculate `REQUEST CHANGES`, `APPROVE WITH ADVISORIES`, `APPROVE`,
    `INCONCLUSIVE`, or `UNAVAILABLE` through the shared protocol.
 
-   If there are no findings or advisories, skip the decision gate and
-   proceed to the final report. Otherwise apply the mandatory gate below.
+   If the verdict is APPROVE or APPROVE WITH ADVISORIES, or
+   there are no findings, skip the decision gate and proceed
+   to the final report. Otherwise apply the mandatory gate
+   below.
 
 >>> MANDATORY GATE: HUMAN CONFIRMATION REQUIRED <<<
 
@@ -1235,9 +1237,8 @@ or MEDIUM.
   shortcut, LOW/MEDIUM findings only): Apply the
   remaining LOW/MEDIUM findings' fixes per the hybrid
   fix policy in one consented action, mark them
-  resolved, and continue at the next unresolved
-  finding. This option MUST NOT modify any
-  HIGH/CRITICAL finding.
+  resolved, and continue at the next unresolved finding.
+  This option MUST NOT modify any HIGH/CRITICAL finding.
 
 Repeat for each finding until every finding is fixed,
 overridden, or the human pauses. While any HIGH or
@@ -1252,6 +1253,14 @@ MUST NOT proceed past a HIGH/CRITICAL finding without
 an explicit per-finding human choice.
 
 >>> END MANDATORY GATE <<<
+
+**Checkpoint**: Call `checkpoint` with `command:
+"uf.review-council"`, `step: "spec-review-fix-loop"`, and
+`data: {"iteration": N, "overrides": [...]}` after each
+human decision (per-finding choice, override, or bulk
+shortcut). The overrides array carries every override
+recorded across iterations (severity, description,
+justification).
 
 3. Suggested fixes follow the **hybrid fix policy**:
 
@@ -1282,7 +1291,11 @@ an explicit per-finding human choice.
    recompute and validate the full plan, and rerun every included plan
    run, not only prior blockers. Do not rerun absent, content-only, or
    skipped personas. Reuse the one sibling-evidence acquisition. Keep
-   the iteration counter. The per-finding gate re-presents on each
+   the iteration counter. Findings matching a recorded override
+   (same file and root cause) carry forward as resolved and are not
+   re-presented unless materially new information emerges; the
+   checkpoint overrides array carries all overrides recorded across
+   iterations. The per-finding gate re-presents on each
    REQUEST CHANGES re-run. Repeat until `APPROVE`, `APPROVE WITH
    ADVISORIES`, a no-success result, or more than three iterations.
 
@@ -1297,6 +1310,11 @@ an explicit per-finding human choice.
      (with severities)
    - Every override: severity, description, and the recorded
      justification
+   - When the loop completes via overrides alone (no fixes
+     applied), the final report and pipeline summary record
+     the outcome as REQUEST CHANGES resolved by recorded overrides,
+     listing each override (severity, description,
+     justification)
    - Outstanding unresolved findings (pause or iteration limit), with full context and recommendations
    - The Architect's Alignment Score for spec quality (if provided)
    - If there were persistent circular findings, report those with additional detail

@@ -114,7 +114,7 @@ The Divisor acts as the ultimate guarantor of technical quality, ensuring that t
 - Dynamic agent discovery
 - Convention pack enforcement
 - Auto-detection of code vs spec review mode
-- Hybrid fix policy (auto-fix LOW/MEDIUM, report HIGH/CRITICAL)
+- Per-finding decision gate (per-finding human consent at every severity; autonomous auto-fixes remain LOW/MEDIUM-only)
 - GitHub PR review posting via /uf.review-pr
 
 **Planned**:

@@ -17,6 +17,13 @@ ordered CRITICAL, HIGH, MEDIUM, LOW), the command MUST:
 - Repeat for each finding until every finding is resolved
   (fixed, overridden, or the human pauses)
 
+The FR-002 bulk shortcut (`"Apply all remaining LOW/MEDIUM
+fixes"`) is an explicit exception to individual
+presentation: one consented bulk action resolves all
+remaining LOW/MEDIUM findings without presenting each
+individually. HIGH/CRITICAL findings are never eligible
+for the bulk shortcut.
+
 The per-finding decision protocol MUST be wrapped in the
 mandatory gate pattern:
 
@@ -69,6 +76,10 @@ these options, with the recommended option first and labeled
   (`format_unleash_exit`); a standalone
   `/uf.review-council` run stops and reports the
   unresolved findings.
+
+`(Recommended)` is appended to the recommended option's
+label (e.g. `"Apply suggested fix (Recommended)"`); the
+underlying option set remains exactly the listed labels.
 
 When the current finding is LOW or MEDIUM, the invocation
 MUST additionally offer:
@@ -166,6 +177,13 @@ pipeline embedding MUST exit through the tool-rendered
 iteration-limit escalation (ask the user whether to
 continue or stop).
 
+Findings that match a recorded override (same file and
+root cause) carry forward as resolved on re-runs: the
+command MUST NOT re-present them through the per-finding
+gate unless materially new information emerges. The
+checkpoint overrides array carries all overrides recorded
+across iterations.
+
 #### Scenario: Fix Then Re-Review
 
 - **GIVEN** the human applied fixes for 2 findings and
@@ -173,7 +191,9 @@ continue or stop).
 - **WHEN** the per-finding loop completes
 - **THEN** the command MUST re-run the review with all
   included reviewers before proceeding, carrying the
-  iteration counter forward
+  iteration counter forward, and MUST carry the overridden
+  finding forward as resolved if the re-run re-reports it
+  (same file and root cause)
 
 #### Scenario: Iteration Cap
 
@@ -196,6 +216,14 @@ context — with fresh question-tool invocations. Applied
 fixes and overrides recorded in durable checkpoint data
 remain valid; the command MUST NOT re-ask about findings
 whose durable records show resolution.
+
+A fresh review finding matches a recorded override when it
+shares the same file and root cause; matched findings are
+resolved, not re-presented. When the loop completes via
+overrides alone (no fixes applied, no re-run required),
+the final report and pipeline summary record the outcome
+as REQUEST CHANGES resolved by recorded overrides, listing
+each override per FR-004.
 
 #### Scenario: Compression Mid-Loop
 

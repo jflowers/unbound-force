@@ -81,6 +81,11 @@
 - [x] 3.3 [P] File the documentation issue for this
       user-facing spec review behavior change before PR
       merge (documentation gate)
+      - Record: maintainer exemption recorded 2026-10-22
+        during /uf.unleash spec review (override
+        justification: "This change is not substantial
+        enough"); no repo docs issue or website issue
+        filed per maintainer decision.
 
 ## 4. Verification
 
