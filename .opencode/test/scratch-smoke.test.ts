@@ -166,6 +166,37 @@ describe("provider-free scratch-repository smoke test", () => {
     ])
   })
 
+  it("registers uf_delegate_command with the documented argument contract on a scratch project", async () => {
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await UfWorkflowPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      // DE-007 Layer 1 (delegation-skill-enforcement task 4.2): the same
+      // argument-set pin as uf-workflow.test.ts, verified on a real
+      // scratch-project activation — the registration surface the OpenCode
+      // host consumes. The three classification-contract parameters
+      // (task_classification, skill, skill_absent_reason) must reach the
+      // model-facing schema alongside the eight pre-change parameters.
+      expect(Object.keys(hooks.tool.uf_delegate_command.args).sort()).toEqual([
+        "agent",
+        "checkpoint_step",
+        "command_path",
+        "expected_artifact",
+        "feature_dir",
+        "phase",
+        "prompt",
+        "skill",
+        "skill_absent_reason",
+        "task_classification",
+        "timeout",
+      ])
+    })
+  })
+
   it("activates uf-finale plugin and registers all 8 finale tools", async () => {
     const project = await scratchProject()
     const hooks = await UfFinalePlugin.server({

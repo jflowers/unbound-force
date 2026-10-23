@@ -712,12 +712,23 @@ from the pre-flight gate below):
   implementation prompt from the routed change description
   (recovered on a resumed run from the `tier-routing`
   checkpoint data via `get_progress` with
-  `command: "uf.unleash"`) and delegate once:
+  `command: "uf.unleash"`), classify the work, and delegate
+  once -- an unclassified prompt-only call fails closed:
 
   ```
   uf_delegate_command
     prompt: [the change description plus an instruction to
       implement the change completely on the current branch]
+    task_classification: [derived from the nature of the
+      work -- "deterministic", with skill or
+      skill_absent_reason, only when a repo skill or script
+      performs the change end-to-end; "judgment" otherwise
+      (docs authorship is judgment work)]
+    skill: [repo skill or script reference that performs the
+      change end-to-end -- only when deterministic]
+    skill_absent_reason: [what was searched and what was
+      found -- only when deterministic and no repo skill or
+      script applies; never together with skill]
     checkpoint_step: "implement"
   ```
 
@@ -769,17 +780,57 @@ its Local Tool Detection phase to discover additional
    tools from config files. This is the shared pre-flight
    logic used by `/uf.review-council` and `/uf.review-pr`.
 
-**Mechanical tasks use repo tooling**: when a task
-   describes a mechanical procedure and the repository
-   ships a skill or script for it (e.g. a `renumber-adr`
-   skill for ADR renumbering), the delegation prompt MUST
-   name that skill or script and pass the reference
-   through to the child agent, so the child runs the full
-   procedure (for `renumber-adr`, including its
-   in-flight-claims step). When no skill or script exists,
-   implement the procedure directly; when one exists but
-   was not used, the task's completion summary MUST record
-   why.
+**Classify every delegated task**: before delegating, decide
+   whether the work is deterministic or judgment. Every
+   prompt-only `uf_delegate_command` call MUST declare the
+   answer -- the per-task implement calls below, the
+   quick-tier whole-change call above, and the code-fix calls
+   in Step 6; an unclassified prompt-only call fails input
+   validation. Command-path delegations may omit the
+   classification: the command file is the procedure of
+   record. Classification is judgment about the nature of the
+   work:
+   - **deterministic**: a repo skill or repo script performs
+     the work end-to-end -- following a fixed, complete
+     procedure yields the correct result with no decisions
+     among alternatives. Pass the verified reference through
+     `skill`, or record through `skill_absent_reason` what
+     was searched and what was found when no repo skill or
+     script applies.
+   - **judgment**: the work requires decisions among
+     alternatives -- design choices, tradeoff evaluation,
+     prose authorship, applying review findings. Pass no
+     skill fields; the tool rejects them on
+     judgment-classified calls.
+
+   Parameter contract, enforced fail-closed before any child
+   session spawns:
+   - `task_classification`: `"deterministic"` or
+     `"judgment"`.
+   - `skill`: a repo skill name or repo-relative script path
+     that performs the work end-to-end. Valid only with a
+     deterministic classification; mutually exclusive with
+     `skill_absent_reason`.
+   - `skill_absent_reason`: a substantive reason stating
+     what was searched and what was found. Valid only with a
+     deterministic classification; mutually exclusive with
+     `skill`.
+
+   A deterministic call supplying neither `skill` nor
+   `skill_absent_reason` fails non-retryably with
+   `SKILL_REFERENCE_REQUIRED`; an unresolvable `skill` value
+   fails non-retryably with `SKILL_NOT_FOUND` naming the
+   searched locations. When `skill` resolves, the tool
+   injects a directive into the child's prompt instructing it
+   to load the skill or run the script and execute its full
+   procedure -- the delegation names the reference and does
+   not restate the procedure. The classification, resolved
+   reference, and any recorded reason are written to the
+   checkpoint data and success envelope, so every delegation
+   is auditable without reconstructing prompts. Swarm-path
+   `[P]` delegations carry the same classification through
+   the spawned subtask description (see parallel execution
+   below).
 
 **For each phase in tasks.md**:
 
@@ -794,7 +845,8 @@ its Local Tool Detection phase to discover additional
    incomplete work.
 
 2. **Sequential execution**: for each remaining non-`[P]`
-   task, delegate to the `cobalt-crush-dev` agent via
+   task, classify it per the classification step above, then
+   delegate to the `cobalt-crush-dev` agent via
    `uf_delegate_command`, passing the task description
    as the prompt (prompt-only -- no `command_path` for
    per-task implement calls):
@@ -802,6 +854,13 @@ its Local Tool Detection phase to discover additional
    ```
    uf_delegate_command
      prompt: [the task description exactly as parsed]
+     task_classification: [the task's classification --
+       deterministic or judgment, per the step above]
+     skill: [repo skill or script reference that performs
+       the task end-to-end -- only when deterministic]
+     skill_absent_reason: [what was searched and what was
+       found -- only when deterministic and no repo skill or
+       script applies; never together with skill]
      feature_dir: FEATURE_DIR
      checkpoint_step: "implement"
      phase: [phase number]
@@ -845,7 +904,14 @@ its Local Tool Detection phase to discover additional
         a dedicated worktree.
       - Call `replicator_forge_spawn_subtask` with the task
         description, files from the task, and the
-        worktree path.
+        worktree path. The subtask description MUST carry
+        the task's classification (per the classification
+        step above) and, for a deterministic task, the
+        verified skill or script reference that performs it
+        end-to-end -- or the recorded absence reason when
+        no repo skill or script applies. The spawn tool has
+        no classification parameters, so the description is
+        the contract's carrier on this path.
 
    d. Wait for all workers in the batch to complete.
 
@@ -1194,6 +1260,16 @@ text.
      ```
      uf_delegate_command
        prompt: [the findings to fix, exactly as reported]
+       task_classification: [derived from the nature of the
+         fix -- "deterministic", with skill or
+         skill_absent_reason, when a repo skill or script
+         performs the fix end-to-end; "judgment" for
+         applying prose findings, which is authorship work]
+       skill: [repo skill or script reference that performs
+         the fix end-to-end -- only when deterministic]
+       skill_absent_reason: [what was searched and what was
+         found -- only when deterministic and no repo skill
+         or script applies; never together with skill]
        feature_dir: FEATURE_DIR
      ```
 

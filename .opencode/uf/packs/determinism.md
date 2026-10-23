@@ -1,7 +1,7 @@
 ---
 pack_id: determinism
 language: Any
-version: 1.2.0
+version: 1.3.0
 ---
 
 <!-- repo-local governance pack (not a scaffold asset);
@@ -17,11 +17,11 @@ execute in tools rather than be re-reasoned from prose.
 
 Rules carry RFC 2119 markers with severity mapping to the
 severity pack. Violations of the [MUST] rules (DE-001,
-DE-003, DE-005, DE-007) are CRITICAL findings; the [SHOULD] rules
-(DE-002, DE-004, DE-006) are guidance that is valuable but not
-universally applicable. The rules govern new and modified
-instruction; existing prose is migrated opportunistically at
-review time, not retroactively.
+DE-003, DE-005, DE-007, DE-008) are CRITICAL findings; the
+[SHOULD] rules (DE-002, DE-004, DE-006) are guidance that
+is valuable but not universally applicable. The rules govern
+new and modified instruction; existing prose is migrated
+opportunistically at review time, not retroactively.
 
 ---
 
@@ -104,3 +104,32 @@ the required sequence of calls. Shipped precedent:
   shape, round-trips). Shipped precedent: Layer 1
   registration-surface tests, Layer 2 golden output-shape
   tests, Layer 3 round-trip audits.
+
+---
+
+## Delegation Skill Enforcement
+
+- **DE-008** [MUST] Work delegated through the command
+  delegation tool and classified as deterministic MUST
+  carry a skill or script reference verified to exist, or
+  a substantive recorded absence reason — one that states
+  what was searched for or what was found (`n/a` and
+  `not needed` are vacuous; a reason naming the searched
+  locations and the absence found is substantive).
+  Command, agent, and skill instruction that delegates
+  work MUST bind mechanical work to repo tooling through
+  the tool's parameter contract (`task_classification`,
+  `skill`, `skill_absent_reason` on `uf_delegate_command`),
+  not through prose-only skill instructions. Swarm-path
+  parallel delegations (`[P]` tasks spawned through the
+  forge subtask tool) MUST carry the task classification
+  and, for deterministic tasks, the verified skill or
+  script reference or recorded absence reason in the
+  spawned subtask description. The tool enforces the
+  requirement fail-closed (`SKILL_REFERENCE_REQUIRED`,
+  `SKILL_NOT_FOUND`) and records the classification,
+  resolved reference, and reason in checkpoint data and
+  the success envelope; that record, not prompt
+  archaeology, is the audit source. Delegating prose that
+  names skills without the contract is an interim
+  mitigation, not the mechanism of record.
