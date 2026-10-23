@@ -213,7 +213,91 @@ export function createUfFinaleCommitContextTool(exec: GitExec, cwd: string) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. uf_finale_push_state — Upstream and divergence info
+// 4. uf_finale_base_state — PR base remote, branch, and ahead/behind counts
+// ---------------------------------------------------------------------------
+
+/** Factory for the uf_finale_base_state tool. */
+export function createUfFinaleBaseStateTool(exec: GitExec, cwd: string) {
+  return tool({
+    description:
+      "Resolve the PR base remote (upstream when configured, else origin) " +
+      "and base branch (remote HEAD symbolic ref, main fallback), fetch " +
+      "the base, and report how far HEAD is ahead of and behind the base.",
+    execute: async () => {
+      try {
+        // Remote resolution: upstream preferred when listed, else origin.
+        const remotes = exec(["remote"], cwd)
+          .split("\n")
+          .map((r) => r.trim())
+          .filter((r) => r.length > 0)
+        const remote = remotes.includes("upstream") ? "upstream" : "origin"
+
+        // Base branch resolution: remote HEAD symbolic ref, main fallback.
+        let baseBranch = "main"
+        try {
+          const symref = exec(
+            ["symbolic-ref", `refs/remotes/${remote}/HEAD`],
+            cwd,
+          ).trim()
+          const prefix = `refs/remotes/${remote}/`
+          if (symref.startsWith(prefix) && symref.length > prefix.length) {
+            baseBranch = symref.slice(prefix.length)
+          }
+        } catch {
+          // Symbolic ref unset — the main fallback stands.
+        }
+
+        const baseRef = `${remote}/${baseBranch}`
+
+        // Fetch the base branch — the tool's only side effect.
+        try {
+          exec(["fetch", remote, baseBranch], cwd)
+        } catch (fetchErr: unknown) {
+          const msg =
+            fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+          return {
+            output: JSON.stringify(
+              failure(`Could not fetch ${remote} ${baseBranch}: ${msg}`, {
+                retryable: true,
+                code: "BASE_SYNC_FETCH",
+              }),
+            ),
+          }
+        }
+
+        // Ahead/behind counts versus the fetched base ref.
+        let aheadBy = 0
+        let behindBy = 0
+        try {
+          const ahead = exec(["rev-list", `${baseRef}..HEAD`, "--count"], cwd)
+          aheadBy = parseInt(ahead, 10) || 0
+        } catch {
+          // Count failure.
+        }
+        try {
+          const behind = exec(["rev-list", `HEAD..${baseRef}`, "--count"], cwd)
+          behindBy = parseInt(behind, 10) || 0
+        } catch {
+          // Count failure.
+        }
+
+        const data = { remote, baseBranch, baseRef, aheadBy, behindBy }
+
+        return { output: JSON.stringify(success(data)) }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          output: JSON.stringify(
+            failure(msg, { retryable: false, code: "BASE_STATE_ERROR" }),
+          ),
+        }
+      }
+    },
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 5. uf_finale_push_state — Upstream and divergence info
 // ---------------------------------------------------------------------------
 
 /** Factory for the uf_finale_push_state tool. */
@@ -268,7 +352,7 @@ export function createUfFinalePushStateTool(exec: GitExec, cwd: string) {
 }
 
 // ---------------------------------------------------------------------------
-// 5. uf_finale_pr_context — PR metadata, fork info, templates, issue link
+// 6. uf_finale_pr_context — PR metadata, fork info, templates, issue link
 // ---------------------------------------------------------------------------
 
 /** Factory for the uf_finale_pr_context tool. */
@@ -476,7 +560,7 @@ export function createUfFinalePrContextTool(exec: GitExec, cwd: string) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. uf_finale_create_pr — Create a PR with secure temp file lifecycle
+// 7. uf_finale_create_pr — Create a PR with secure temp file lifecycle
 // ---------------------------------------------------------------------------
 
 /** Factory for the uf_finale_create_pr tool. */
@@ -599,7 +683,7 @@ export function createUfFinaleCreatePrTool(exec: GitExec, cwd: string) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. uf_finale_ci_poll — Poll CI checks until completion or timeout
+// 8. uf_finale_ci_poll — Poll CI checks until completion or timeout
 // ---------------------------------------------------------------------------
 
 /** Factory for the uf_finale_ci_poll tool. */
@@ -796,7 +880,7 @@ export function createUfFinaleCiPollTool(exec: GitExec, cwd: string) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. uf_finale_return_to_main — Checkout main and pull
+// 9. uf_finale_return_to_main — Checkout main and pull
 // ---------------------------------------------------------------------------
 
 /** Factory for the uf_finale_return_to_main tool. */
@@ -836,6 +920,7 @@ const UfFinalePlugin = {
         uf_finale_startup: createUfFinaleStartupTool(defaultGitExec, cwd),
         uf_finale_stage: createUfFinaleStageTool(defaultGitExec, cwd),
         uf_finale_commit_context: createUfFinaleCommitContextTool(defaultGitExec, cwd),
+        uf_finale_base_state: createUfFinaleBaseStateTool(defaultGitExec, cwd),
         uf_finale_push_state: createUfFinalePushStateTool(defaultGitExec, cwd),
         uf_finale_pr_context: createUfFinalePrContextTool(defaultGitExec, cwd),
         uf_finale_create_pr: createUfFinaleCreatePrTool(defaultGitExec, cwd),
