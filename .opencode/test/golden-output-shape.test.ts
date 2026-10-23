@@ -35,7 +35,7 @@ import { withBun } from "./helpers/bun-runtime.js"
 // scratch-project filesystems with DI'd git/gh fakes, then asserts the
 // documented fields on the returned envelope.
 //
-// Coverage: 43 of the 47 documented sites. The four dispatch_review_runs
+// Coverage: 44 of the 48 documented sites. The four dispatch_review_runs
 // sites (uf.triage-issue.md:263, uf.review-council.md:276,
 // uf.review-pr.md:394, uf.address-feedback.md:358) belong to task 2.3
 // and are pinned in dispatch-review-runs.test.ts instead — one golden
@@ -52,11 +52,11 @@ import { withBun } from "./helpers/bun-runtime.js"
 //   format_unleash_demo (uf.unleash.md:1010), resolve_base_ref
 //   (uf.review-council.md:126), normalize_model_name
 //   (uf.address-feedback.md:733)
-// - uf-finale: 8 sites -- uf_finale_startup (uf.finale.md:51),
+// - uf-finale: 9 sites -- uf_finale_startup (uf.finale.md:51),
 //   uf_finale_stage (72), uf_finale_commit_context (83),
-//   uf_finale_push_state (172), uf_finale_pr_context (204),
-//   uf_finale_create_pr (255), uf_finale_ci_poll (263),
-//   uf_finale_return_to_main (342)
+//   uf_finale_base_state (132), uf_finale_push_state (172),
+//   uf_finale_pr_context (204), uf_finale_create_pr (262),
+//   uf_finale_ci_poll (270), uf_finale_return_to_main (349)
 // - review-dispatch: 14 sites -- plan_review_dispatch x7 (uf.unleash.md:353
 //   and 799, uf.review-council.md:231, uf.review-pr.md:353,
 //   uf.triage-issue.md:190, uf.address-feedback.md:314,
@@ -785,7 +785,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
 // uf-finale registry -- 8 documented sites
 // ---------------------------------------------------------------------------
 
-describe("golden output shapes -- uf-finale registry (8 documented sites)", () => {
+describe("golden output shapes -- uf-finale registry (9 documented sites)", () => {
   it("uf_finale_startup [uf.finale.md:51] returns branch, branchType, isMain, hasChanges, secretCandidates, and unpushedCommits", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
@@ -857,6 +857,36 @@ describe("golden output shapes -- uf-finale registry (8 documented sites)", () =
     expect(data.diffStat).toBe("2 files changed, 10 insertions(+)")
     expect(data.recentLog).toBe("abc1234 Add the golden tests")
     expect(data.normalizedModel).toBe("golden-model-4")
+  })
+
+  it("uf_finale_base_state [uf.finale.md:132] returns remote, baseBranch, baseRef, aheadBy, and behindBy", async () => {
+    const directory = await makeScratch()
+    const registry = await loadRegistry(UfFinalePlugin, directory)
+    mockGit({
+      "git remote": "origin\n",
+      "git symbolic-ref refs/remotes/origin/HEAD":
+        "refs/remotes/origin/main\n",
+      "git fetch origin main": "",
+      "git rev-list origin/main..HEAD --count": "2",
+      "git rev-list HEAD..origin/main --count": "3",
+    })
+
+    const data = expectOk(
+      await callEnvelopeTool<{
+        remote: string
+        baseBranch: string
+        baseRef: string
+        aheadBy: number
+        behindBy: number
+      }>(registry, "uf_finale_base_state", {}),
+    )
+    expect(data).toEqual({
+      remote: "origin",
+      baseBranch: "main",
+      baseRef: "origin/main",
+      aheadBy: 2,
+      behindBy: 3,
+    })
   })
 
   it("uf_finale_push_state [uf.finale.md:172] returns upstreamExists, diverged, aheadBy, and behindBy", async () => {
