@@ -6,6 +6,67 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- delegation-skill-enforcement: Closed the enforcement gap
+  behind audit finding F6 / issue #787 -- the "mechanical
+  tasks use repo tooling" prose rule in `uf.unleash.md`
+  graduated to a fail-closed tool contract (Principle VI
+  applied to its own enforcement gap).
+  `uf_delegate_command`
+  (`.opencode/plugins/uf-workflow/index.ts`) gained three
+  parameters: `task_classification` (`deterministic` |
+  `judgment`; required for prompt-only delegation, optional
+  for command-path), `skill` (a repo skill name resolved
+  against `.opencode/skills/` then `.opencode/skill/` with
+  first-root precedence on collision, or a
+  traversal-guarded repo-relative script path --
+  existence-verified before the command-file read,
+  host-model resolution, and child spawn), and
+  `skill_absent_reason` (the recorded justification).
+  Deterministic-classified calls supplying neither field
+  fail non-retryably with `SKILL_REFERENCE_REQUIRED`;
+  unresolvable references fail with `SKILL_NOT_FOUND`
+  naming the searched locations; both envelopes carry
+  remediation text. A resolved reference is injected into
+  the composed prompt as a tool-rendered directive at a
+  fixed position (after command text and feature-dir
+  context, before the extra prompt), and the
+  classification, resolved reference, and any recorded
+  reason are written to the checkpoint data and success
+  envelope -- the audit record, not prompt archaeology.
+  The command template's "Mechanical tasks use repo
+  tooling" prose block (with its other-project
+  renumber-adr example) became a self-describing
+  classification step plus the parameter contract on
+  every prompt-only call shape -- quick-tier
+  whole-change, per-task implement, and code-fix -- and
+  Swarm parallel spawn prompts now carry the
+  classification and verified reference in the subtask
+  description. Governance layers: the determinism pack
+  (repo-local) bumped 1.2.0 → 1.3.0 adding DE-008
+  [MUST] (deterministic delegation carries a verified
+  skill/script reference or a substantive recorded
+  absence reason; delegation instruction uses the
+  parameter contract, not prose-only skill
+  instructions) and joined the MUST/CRITICAL severity
+  mapping; the determinism-first skill gained matching
+  delegation guidance and Related Enforcement entries;
+  and divisor-guard's Code Review Mode checklist gained
+  a Deterministic Delegation Discipline section
+  (self-describing; cites no repo-local artifacts). All
+  three scaffold-embedded sources (uf-workflow plugin,
+  uf.unleash.md template, divisor-guard.md) updated
+  with byte-identical mirrors, drift-detection tests
+  green. Tests: `.opencode/test/unleash-delegate.test.ts`
+  grew to 77 tests covering every spec scenario (skill
+  resolution across both roots, first-root collision,
+  script paths, traversal rejection, SKILL_* envelope
+  remediation, golden-shape directive assertions,
+  checkpoint round-trips, judgment pass-through,
+  command-path exemption), with argument-contract pins
+  added to `uf-workflow.test.ts` and
+  `scratch-smoke.test.ts` (DE-007 layer 1). (Spec:
+  openspec/changes/delegation-skill-enforcement/,
+  Refs: #787)
 - unleash-tier-routing: Added a tier-routing step to `/uf.unleash`
   for ON_MAIN/UNRECOGNIZED_BRANCH states: autonomous tier selection
   via the new tier-routing skill, a `uf_unleash_route_decision` tool

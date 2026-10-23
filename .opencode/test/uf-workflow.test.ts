@@ -160,6 +160,37 @@ describe("UfWorkflowPlugin", () => {
       "write_unleash_summary",
     ])
   })
+
+  it("registers uf_delegate_command with the documented argument contract", async () => {
+    const fakeInput = {
+      directory: "/tmp/fake",
+      client: {} as PluginInput["client"],
+    } as PluginInput
+
+    const result = await UfWorkflowPlugin.server(fakeInput)
+
+    // DE-007 Layer 1 (delegation-skill-enforcement task 4.2): the
+    // registered args must match the documented contract — the eight
+    // pre-change parameters plus task_classification, skill, and
+    // skill_absent_reason (task 1.1). The registration-surface suite
+    // proves args is the zod raw shape the host validates input through;
+    // this pin holds the key set itself to the documented contract, so a
+    // parameter added to the input schema but not the registration
+    // surface (or vice versa) fails here.
+    expect(Object.keys(result.tool.uf_delegate_command.args).sort()).toEqual([
+      "agent",
+      "checkpoint_step",
+      "command_path",
+      "expected_artifact",
+      "feature_dir",
+      "phase",
+      "prompt",
+      "skill",
+      "skill_absent_reason",
+      "task_classification",
+      "timeout",
+    ])
+  })
 })
 
 // ---------------------------------------------------------------------------

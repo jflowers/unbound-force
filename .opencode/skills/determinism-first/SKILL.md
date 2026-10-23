@@ -107,6 +107,31 @@ triaging severity, weighing trade-offs, and interacting
 with the user. Prose is the right medium only where the
 output legitimately varies with context.
 
+## Delegated Work Carries Its Classification
+
+The twice-test does not stop at authoring. When work is delegated,
+the classification travels with it: a delegation MUST declare
+`task_classification` (`deterministic` or `judgment`), derived
+from the nature of the work — never from routing metadata such as
+workflow tier or route type. A `deterministic` delegation MUST
+pass a `skill` reference verified to exist — a repo skill name or
+a repo-relative script path — or record a `skill_absent_reason`
+stating what was searched for and what was found; `n/a` and
+`not needed` are vacuous.
+
+The command delegation tool (`uf_delegate_command`) enforces the
+contract fail-closed (`SKILL_REFERENCE_REQUIRED`,
+`SKILL_NOT_FOUND`), injects the resolved skill reference into
+the child prompt as a tool-rendered directive, and records the
+classification, reference, and reason in checkpoint data and
+the success envelope — that record, not prompt archaeology, is
+the audit source. Judgment-classified delegations carry no skill
+fields, and Swarm-path spawn prompts for deterministic `[P]`
+tasks carry the classification and the verified reference (or
+recorded reason) in the subtask description. Rule DE-008
+(`.opencode/uf/packs/determinism.md`) is the matching review
+rule.
+
 ## Related Enforcement
 
 - Constitution Principle VI, "Deterministic Execution"
@@ -114,3 +139,8 @@ output legitimately varies with context.
 - "Determinism gate" Behavioral Rule in `AGENTS.md`
 - Review rules DE-001 through DE-007
   (`.opencode/uf/packs/determinism.md`)
+- Review rule DE-008, "Delegation Skill Enforcement"
+  (`.opencode/uf/packs/determinism.md`)
+- The `uf_delegate_command` parameter contract
+  (`task_classification`, `skill`, `skill_absent_reason`;
+  `.opencode/plugins/uf-workflow/index.ts`)
