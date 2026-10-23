@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -30,11 +30,16 @@ function withBun<T>(run: () => T | Promise<T>): Promise<T> {
 }
 
 const scratchDirectories: string[] = []
+// Dispatch session dirs (tmpdir()/opencode/dispatch-<correlation>) minted by
+// dispatch_review_runs invocations; cleaned so lifecycle tests never leak a
+// session into a later test's map or filesystem assertions.
+const dispatchSessionDirs: string[] = []
 
 afterEach(async () => {
   _getSessionCorrelationMap().clear()
   _getSubmissionStore().clear()
   await Promise.all(scratchDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+  await Promise.all(dispatchSessionDirs.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 
 /** Create a scratch project with review-matrix, manifest, sibling-repos, and a diff file. */
@@ -48,6 +53,29 @@ async function scratchProject(): Promise<{ directory: string; diffPath: string }
   const diffPath = join(directory, "test.diff")
   await writeFile(diffPath, "diff --git a/src/foo.ts b/src/foo.ts\n--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n")
   return { directory, diffPath }
+}
+
+/** UUID shape matching randomUUID output and the plugin's UUIDSchema. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+/** Dispatch session directory on disk for a correlation id (mirrors dispatchSessionDir). */
+function dispatchDir(correlationId: string): string {
+  return join(tmpdir(), "opencode", `dispatch-${correlationId}`)
+}
+
+/** Track a minted dispatch session dir for afterEach cleanup. */
+function trackDispatchDir(correlationId: string): void {
+  dispatchSessionDirs.push(dispatchDir(correlationId))
+}
+
+/** Check whether a path exists on disk (file or directory). */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 type Client = PluginInput["client"]
@@ -513,8 +541,8 @@ describe("dispatch_review_runs", () => {
     })
   })
 
-  describe("passes session_metadata only on first internal call (FR-007)", () => {
-    it("persists session metadata file from first run and correlation is shared", async () => {
+  describe("persists session metadata under the invocation's dispatch session (FR-007)", () => {
+    it("persists session metadata file from first run under the invocation's minted correlation", async () => {
       await withBun(async () => {
         const { directory, diffPath } = await scratchProject()
         const promptCalls: unknown[] = []
@@ -537,13 +565,379 @@ describe("dispatch_review_runs", () => {
         expect(meta.status).toBe("ok")
         expect(meta.runs_completed).toBe(2)
 
-        // The session correlation map should have an entry for this session.
-        const correlationMap = _getSessionCorrelationMap()
-        // dispatchReviewRuns uses toolContext().sessionID which is "parent-session".
-        const correlationId = correlationMap.get("parent-session")
-        // correlation_id is set by the first dispatchAgentRun call.
+        // RD-CR-001 replaces the old shared-correlation assertion: the
+        // invocation itself mints the correlation (before any internal
+        // dispatchAgentRun call) and re-points the session map at it.
+        const correlationId = meta.correlation_id as string
         expect(correlationId).toBeDefined()
-        expect(typeof correlationId).toBe("string")
+        expect(correlationId).toMatch(UUID_RE)
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(correlationId)
+        trackDispatchDir(correlationId)
+
+        // FR-007: the metadata from the first internal run call persisted
+        // under the invocation's dispatch session directory.
+        const metadataRaw = await readFile(join(dispatchDir(correlationId), "session-metadata.json"), "utf8")
+        const persisted = JSON.parse(metadataRaw) as Record<string, unknown>
+        expect(persisted.command).toBe("review-council")
+        expect(persisted.mode).toBe("code")
+      })
+    })
+  })
+
+  // ── RD-CR-001: per-invocation correlation lifecycle (issue #794) ──
+
+  // Issue #794 reproduction: a second aggregate dispatch from the same
+  // parent session used to reuse — and clobber — the first dispatch's
+  // session, because the correlation was minted once per conversation by
+  // the first internal dispatchAgentRun call. dispatchReviewRuns now mints
+  // a fresh correlation per invocation immediately after input validation
+  // and re-points the session map (latest-dispatch semantics), so each
+  // workflow from one conversation owns its own dispatch session.
+  describe("mints a fresh dispatch session per invocation (RD-CR-001, issue #794)", () => {
+    it("two invocations from one parent session mint distinct correlations with distinct session dirs", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const first = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const firstMeta = first.metadata as Record<string, unknown>
+        const c1 = firstMeta.correlation_id as string
+        trackDispatchDir(c1)
+
+        const second = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-adversary", sequence: 1 })]),
+          toolContext(),
+        )
+        const secondMeta = second.metadata as Record<string, unknown>
+        const c2 = secondMeta.correlation_id as string
+        trackDispatchDir(c2)
+
+        expect(firstMeta.status).toBe("ok")
+        expect(secondMeta.status).toBe("ok")
+        // Each invocation mints its own correlation. The shared-correlation
+        // behavior this replaces was the #794 session-clobbering bug.
+        expect(c1).toMatch(UUID_RE)
+        expect(c2).toMatch(UUID_RE)
+        expect(c1).not.toBe(c2)
+        // Latest-dispatch semantics: the map resolves the latest invocation.
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(c2)
+        // Distinct session dirs, both on disk.
+        const dir1 = dispatchDir(c1)
+        const dir2 = dispatchDir(c2)
+        expect(dir1).not.toBe(dir2)
+        expect(await pathExists(dir1)).toBe(true)
+        expect(await pathExists(dir2)).toBe(true)
+        // Each output summary reports its own invocation's correlation.
+        expect(first.output).toContain(`(correlation_id ${c1})`)
+        expect(second.output).toContain(`(correlation_id ${c2})`)
+      })
+    })
+
+    it("first session's run files and metadata survive the second invocation (no clobbering)", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // Seed the child session the fake client creates for the first
+        // invocation's single run (child-session-0) so its persisted run
+        // file carries harvested findings that must survive the second
+        // invocation.
+        _getSubmissionStore().set("child-session-0", {
+          findings: [
+            {
+              severity: "LOW",
+              category: "documentation",
+              description: "First dispatch session must survive a second invocation",
+              root_cause: "Aggregate dispatch used to reuse the conversation's correlation (issue #794)",
+              file: null,
+              line: null,
+            },
+          ],
+          proposals: [],
+        })
+
+        const firstInput = makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })])
+        firstInput.session_metadata = makeSessionMetadata()
+        const first = await hooks.tool.dispatch_review_runs.execute(firstInput, toolContext())
+        const firstMeta = first.metadata as Record<string, unknown>
+        const c1 = firstMeta.correlation_id as string
+        trackDispatchDir(c1)
+        expect(firstMeta.runs_completed).toBe(1)
+        // The first invocation collected its own session's findings.
+        expect((firstMeta.findings as unknown[]).length).toBe(1)
+
+        // Second, different workflow from the same parent session, with its
+        // own distinguishable session metadata (head SHA c*40 vs b*40).
+        const secondInput = makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-adversary", sequence: 1 })])
+        const secondMetadata = makeSessionMetadata()
+        const secondInputContext = secondMetadata.input_context as Record<string, unknown>
+        secondInputContext.head_sha = "c".repeat(40)
+        secondInput.session_metadata = secondMetadata
+        const second = await hooks.tool.dispatch_review_runs.execute(secondInput, toolContext())
+        const secondMeta = second.metadata as Record<string, unknown>
+        const c2 = secondMeta.correlation_id as string
+        trackDispatchDir(c2)
+        expect(secondMeta.runs_completed).toBe(1)
+        // No cross-session leakage: the second invocation collected only
+        // its own (empty) session, not the first dispatch's findings.
+        expect((secondMeta.findings as unknown[]).length).toBe(0)
+
+        // The first session's run file survives under C1 with its findings.
+        const runRaw = await readFile(join(dispatchDir(c1), "run-divisor-guard.json"), "utf8")
+        const run = JSON.parse(runRaw) as Record<string, unknown>
+        expect(run.correlation_id).toBe(c1)
+        const runFindings = run.findings as Array<Record<string, unknown>>
+        expect(runFindings).toHaveLength(1)
+        expect(runFindings[0]?.description).toBe("First dispatch session must survive a second invocation")
+
+        // The first session's metadata survives unchanged — still the first
+        // invocation's head SHA, not the second's.
+        const firstMetadataRaw = await readFile(join(dispatchDir(c1), "session-metadata.json"), "utf8")
+        const persistedFirst = JSON.parse(firstMetadataRaw) as { input_context: { head_sha: string } }
+        expect(persistedFirst.input_context.head_sha).toBe(VALID_SHA2)
+
+        // The second session carries its own run file and metadata.
+        const secondRunRaw = await readFile(join(dispatchDir(c2), "run-divisor-adversary.json"), "utf8")
+        expect((JSON.parse(secondRunRaw) as Record<string, unknown>).correlation_id).toBe(c2)
+        const secondMetadataRaw = await readFile(join(dispatchDir(c2), "session-metadata.json"), "utf8")
+        const persistedSecond = JSON.parse(secondMetadataRaw) as { input_context: { head_sha: string } }
+        expect(persistedSecond.input_context.head_sha).toBe("c".repeat(40))
+      })
+    })
+
+    it("prompts land under the invocation's dispatch session prompts/ dir, not shared across invocations", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const first = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const c1 = (first.metadata as Record<string, unknown>).correlation_id as string
+        trackDispatchDir(c1)
+
+        const second = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-adversary", sequence: 1 })]),
+          toolContext(),
+        )
+        const c2 = (second.metadata as Record<string, unknown>).correlation_id as string
+        trackDispatchDir(c2)
+
+        // Each invocation's prompts land under its own dispatch session.
+        const firstPrompts = await readdir(join(dispatchDir(c1), "prompts"))
+        expect(firstPrompts).toContain("divisor-guard.md")
+        const secondPrompts = await readdir(join(dispatchDir(c2), "prompts"))
+        expect(secondPrompts).toContain("divisor-adversary.md")
+        // No cross-contamination between the sessions' prompts dirs.
+        expect(firstPrompts).not.toContain("divisor-adversary.md")
+        expect(secondPrompts).not.toContain("divisor-guard.md")
+        // The prompt is a real assembled prompt for its agent.
+        const promptContent = await readFile(join(dispatchDir(c1), "prompts", "divisor-guard.md"), "utf8")
+        expect(promptContent).toContain("## Persona: divisor-guard")
+        expect(promptContent).toContain("**Command**: review-council")
+      })
+    })
+  })
+
+  // ── RD-CR-001: session-less invocations re-point resolution ──
+
+  // All-skip and prompt-building-failure returns happen AFTER the
+  // correlation mint, so the map is left pointing at a correlation under
+  // which no dispatch session directory exists. Later no-provenance
+  // retrieval then fails closed as not_found instead of returning the
+  // earlier dispatch's payload (RD-CR-001 "Session-less invocation
+  // re-points resolution").
+  describe("session-less invocations re-point the session map (RD-CR-001)", () => {
+    it("all-skip invocation re-points the map to a session-less correlation and reports it", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // A completed dispatch under C1 that the map previously resolved.
+        const first = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const c1 = (first.metadata as Record<string, unknown>).correlation_id as string
+        trackDispatchDir(c1)
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(c1)
+
+        // Every plan entry skipped: no prompts, no runs, no session dir —
+        // but the correlation was minted before the included-entries check.
+        const second = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [
+            makePlanEntry({ agent: "divisor-guard", decision: "skip", sequence: 1 }),
+            makePlanEntry({ agent: "divisor-adversary", decision: "skip", sequence: 2 }),
+          ]),
+          toolContext(),
+        )
+        const secondMeta = second.metadata as Record<string, unknown>
+        const c2 = secondMeta.correlation_id as string
+
+        expect(secondMeta.status).toBe("ok")
+        expect(secondMeta.runs_completed).toBe(0)
+        expect(secondMeta.runs_skipped).toBe(2)
+        // The session-less outcome still reports its correlation (RD-CR-002).
+        expect(c2).toMatch(UUID_RE)
+        expect(c2).not.toBe(c1)
+        expect(second.output).toContain(`(correlation_id ${c2})`)
+        // The map was re-pointed at the session-less correlation.
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(c2)
+        // No dispatch session directory exists under it.
+        expect(await pathExists(dispatchDir(c2))).toBe(false)
+      })
+    })
+
+    it("prompt-building failure re-points the map to a session-less correlation and reports it", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const first = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const c1 = (first.metadata as Record<string, unknown>).correlation_id as string
+        trackDispatchDir(c1)
+
+        // Unreadable diff path: prompt building fails after the mint and
+        // before any prompt file or session dir is created.
+        const second = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(join(directory, "missing.diff"), [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const secondMeta = second.metadata as Record<string, unknown>
+        const c2 = secondMeta.correlation_id as string
+
+        expect(secondMeta.status).toBe("error")
+        expect(secondMeta.message as string).toContain("prompt building failed")
+        expect(secondMeta.runs_completed).toBe(0)
+        // The prompt-failure outcome still reports its correlation (RD-CR-002).
+        expect(c2).toMatch(UUID_RE)
+        expect(c2).not.toBe(c1)
+        expect(second.output).toContain(`(correlation_id ${c2})`)
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(c2)
+        expect(await pathExists(dispatchDir(c2))).toBe(false)
+      })
+    })
+
+    it("no-provenance retrieval fails closed as not_found after a session-less re-point", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // A completed dispatch under C1 with a retrievable session on disk.
+        const first = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const c1 = (first.metadata as Record<string, unknown>).correlation_id as string
+        trackDispatchDir(c1)
+
+        // The all-skip invocation re-points the map at a session-less C2.
+        const second = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", decision: "skip", sequence: 1 })]),
+          toolContext(),
+        )
+        const c2 = (second.metadata as Record<string, unknown>).correlation_id as string
+
+        // No-provenance consolidation resolves C2 and fails closed as
+        // not_found rather than returning the earlier dispatch's payload.
+        const notFound = await hooks.tool.consolidate_dispatch.execute({}, toolContext())
+        const notFoundPayload = JSON.parse(notFound.output) as Record<string, unknown>
+        expect(notFoundPayload.status).toBe("not_found")
+        expect(notFoundPayload.correlation_id).toBe(c2)
+
+        // The earlier session stays addressable by its explicit correlation.
+        const explicit = await hooks.tool.consolidate_dispatch.execute({ correlation_id: c1 }, toolContext())
+        const explicitPayload = JSON.parse(explicit.output) as Record<string, unknown>
+        expect(explicitPayload.status).not.toBe("not_found")
+        expect(explicitPayload.correlation_id).toBe(c1)
+      })
+    })
+  })
+
+  // ── RD-CR-002: aggregate dispatch correlation observability ──
+
+  describe("reports the invocation's correlation_id (RD-CR-002)", () => {
+    it("success output summary and metadata carry the invocation's correlation id", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const response = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        const correlationId = meta.correlation_id as string
+        expect(correlationId).toMatch(UUID_RE)
+        // The machine-readable field and the prose summary agree, so the
+        // dispatch session is addressable from the output alone.
+        expect(response.output).toContain("dispatch_review_runs: ok (correlation_id ")
+        expect(response.output).toContain(`(correlation_id ${correlationId})`)
+        // The reported correlation is the session the map resolves.
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(correlationId)
+        trackDispatchDir(correlationId)
+      })
+    })
+
+    it("pre-parse validation failure renders correlation_id none and mints no map entry", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // plan_entries.min(1) fails zod validation before any correlation
+        // is minted — the one return path that carries no correlation.
+        const response = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, []),
+          toolContext(),
+        )
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("error")
+        expect(meta.correlation_id).toBeUndefined()
+        expect(response.output).toContain("(correlation_id none)")
+        // Nothing was minted: the session map has no entry for the parent.
+        expect(_getSessionCorrelationMap().has("parent-session")).toBe(false)
       })
     })
   })
