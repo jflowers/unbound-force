@@ -75,7 +75,7 @@ RD-CR-001..003 scenarios from the specs delta, including the issue
 #794 reproduction (two aggregate dispatches from one parent
 session).
 
-- [ ] 4.1 [P] Rewrite/extend `dispatch-review-runs.test.ts`:
+- [x] 4.1 [P] Rewrite/extend `dispatch-review-runs.test.ts`:
       replace the "correlation is shared" FR-007 assertion with
       the new lifecycle — two invocations from one parent session
       mint distinct correlations with distinct session dirs and
@@ -84,32 +84,32 @@ session).
       re-points the map so retrieval fails closed as not_found;
       the output reports the invocation's correlation_id; prompts
       land under the session's `prompts/` dir.
-- [ ] 4.2 [P] Extend `consolidate-dispatch.test.ts` and
+- [x] 4.2 [P] Extend `consolidate-dispatch.test.ts` and
       `dispatch-status.test.ts`: after two aggregate dispatches,
       no-provenance retrieval and status resolve the latest
       session; explicit `correlation_id` retrieves the earlier
       session's payload.
-- [ ] 4.3 [P] Extend `dispatch-agent-run.test.ts` regression:
+- [x] 4.3 [P] Extend `dispatch-agent-run.test.ts` regression:
       direct multi-call fan-out still shares one session (mint on
       first call, reuse after), and a direct call following an
       aggregate dispatch joins the latest aggregate session.
 
 ## 5. Verification and Documentation
 
-- [ ] 5.1 Run `make plugin-test` — all plugin tests pass with
+- [x] 5.1 Run `make plugin-test` — all plugin tests pass with
       coverage (94 percent statements floor for the `.opencode/`
       suite).
-- [ ] 5.2 Run `make check` — full CI parity (lint, test, build,
+- [x] 5.2 Run `make check` — full CI parity (lint, test, build,
       coverage gate, plugin tests).
-- [ ] 5.3 Verify constitution alignment: observable correlation
+- [x] 5.3 Verify constitution alignment: observable correlation
       provenance (III), standalone tool usability via explicit
       correlation_id (II), no new dependencies and permission
       patterns preserved (V), lifecycle as tested tool logic
       (VI), coverage strategy executed (IV), sessions as
       self-describing artifacts (I).
-- [ ] 5.4 Add the change entry to `CHANGELOG.md` (user-facing
+- [x] 5.4 Add the change entry to `CHANGELOG.md` (user-facing
       dispatch behavior change).
-- [ ] 5.5 File the in-repo documentation issue for the
+- [x] 5.5 File the in-repo documentation issue for the
       user-facing dispatch-session lifecycle change (label
       docs) per the documentation gate.
 <!-- scaffolded by uf vdev -->

@@ -429,6 +429,33 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/command-prose-pilot/)
 
 ### Fixed
+- fix-review-dispatch-correlation-release: `dispatch_review_runs`
+  now mints a fresh correlation ID per invocation instead of
+  binding one correlation ID per opencode conversation for the
+  process lifetime, so consecutive review-dispatch workflows
+  from the same conversation (spec review then code review in
+  `/uf.unleash`, per-item dispatches in `/uf.address-feedback`,
+  consecutive `/uf.triage-issue` or `/uf.review-pr` runs) no
+  longer clobber each other's dispatch-session state: each
+  invocation gets its own session directory, and prior
+  sessions survive as audit trail instead of being
+  overwritten. The tool's output now reports the invocation's
+  `correlation_id` on every post-validation return path
+  (success, all-skip, prompt-failure, budget-exhausted),
+  making each dispatch session addressable by explicit ID.
+  `consolidate_dispatch` and `dispatch_status` without an
+  explicit `correlation_id` resolve the latest dispatch
+  session; an explicit `correlation_id` retrieves an earlier
+  session's payload. Direct `dispatch_agent_run` fan-out
+  behavior is unchanged (one session per fan-out; a direct
+  call after an aggregate dispatch joins the latest aggregate
+  session). Fixes the root cause of #760 and #746. Regression
+  tests cover the lifecycle in `dispatch-review-runs.test.ts`,
+  `consolidate-dispatch.test.ts`, `dispatch-status.test.ts`,
+  and `dispatch-agent-run.test.ts`; scaffold mirror synced
+  byte-identical. (Spec:
+  openspec/changes/fix-review-dispatch-correlation-release/,
+  Fixes: #794)
 - fix-dispatch-verdict-derivation: `consolidate_dispatch` now
   derives `workflow_result.value` and `verdict` from
   `calculatedWorkflowValue` — the same vote-based derivation
