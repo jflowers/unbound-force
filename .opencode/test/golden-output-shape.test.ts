@@ -782,7 +782,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
 })
 
 // ---------------------------------------------------------------------------
-// uf-finale registry -- 8 documented sites
+// uf-finale registry -- 9 documented sites
 // ---------------------------------------------------------------------------
 
 describe("golden output shapes -- uf-finale registry (9 documented sites)", () => {
@@ -963,7 +963,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
     expect(data.unleashSummary).toEqual({ change_name: "golden", tier: "openspec" })
   })
 
-  it("uf_finale_create_pr [uf.finale.md:255] returns number and url", async () => {
+  it("uf_finale_create_pr [uf.finale.md:262] returns number and url", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGh([
@@ -985,7 +985,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
     })
   })
 
-  it("uf_finale_ci_poll [uf.finale.md:263] returns status, failedChecks, mergeable, and workflowsConfigured", async () => {
+  it("uf_finale_ci_poll [uf.finale.md:270] returns status, failedChecks, mergeable, and workflowsConfigured", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGh([
@@ -1017,7 +1017,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
     })
   })
 
-  it("uf_finale_return_to_main [uf.finale.md:342] returns success", async () => {
+  it("uf_finale_return_to_main [uf.finale.md:349] returns success", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGit({

@@ -57,6 +57,18 @@ and cwd for testability.
 - **AND** the command treats this as a soft gate: it warns
   that base freshness is unknown and proceeds to the push step
 
+#### Scenario: Count fails
+
+- **GIVEN** `git rev-list --count` fails after a successful
+  fetch
+- **WHEN** `uf_finale_base_state` is called
+- **THEN** the tool returns a failure envelope with
+  `retryable: true` and code `BASE_SYNC_COUNT`, including the
+  base ref in the message
+- **AND** the command treats this as a soft gate: it warns
+  that ahead/behind counts are unavailable and proceeds to the
+  push step
+
 #### Scenario: Branch behind the base
 
 - **GIVEN** HEAD is 2 commits ahead of and 7 commits behind

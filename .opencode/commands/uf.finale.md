@@ -132,10 +132,10 @@ explicit confirmation.
 Call `uf_finale_base_state` → `{remote, baseBranch, baseRef,
 aheadBy, behindBy}`.
 
-**Fetch failure** (failure envelope with `retryable: true`
-and code `BASE_SYNC_FETCH`): **soft gate** — warn that base
-freshness is unknown (include the resolved remote and base
-branch from the failure message) and proceed to step 5.
+**Base sync failure** (`retryable: true`, code `BASE_SYNC_FETCH`
+or `BASE_SYNC_COUNT`): **soft gate** — warn that base freshness
+or ahead/behind counts are unknown (include the failure message
+details), skip the sync-base checkpoint, and proceed to step 5.
 Never block the finale on a freshness check.
 
 **`behindBy` is 0**: The branch is current with `<baseRef>`.
@@ -177,8 +177,8 @@ aheadBy, behindBy}`.
 **Session-resume guard**: Re-present and re-confirm if
 resumed. Warn if `diverged` is true.
 
-**Push mode selection** — from the step-4 `sync-base`
-outcome and `upstreamExists`:
+**Push mode selection** — read the step-4 `sync-base`
+checkpoint `{behindBy, rebased}` and `upstreamExists`:
 - A step-4 rebase occurred AND `upstreamExists`: "Push to
   remote" MUST call `git_push_force_with_lease`. The gate
   copy MUST state why: the rebase rewrote history, so the
