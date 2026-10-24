@@ -157,19 +157,30 @@ Rationale: nine sequential steps read cleanly; a permanent "3b"
 would be the only sequential sub-step in the file (7b is a
 conditional branch of 7, not a sequence step). The design-time
 audit covered only the command file and its scaffold mirror and
-found no references there; the review-phase repo-wide grep
-corrected that record: step-number references exist in six
-sibling unarchived changes (finale-secrets-askuser-gate,
-finale-reliability, mandatory-gate-hardening,
-finale-dewey-commit, issue-pr-traceability, and
-triage-mandatory-gate), the checkpoint-sequence table in
-uf-workflow-checkpoint/design.md, and the golden-suite line
-anchors. Dispositions: the sibling references are historical —
-each change is fully implemented but unarchived, so its spec
-text records pre-renumbering numbers (the D9 disposition); the
-golden-suite anchors are the one live surface and were
-refreshed in this change. Renumbering churn is contained to
-the command file, its mirror, and the golden anchors.
+found no references there; review-phase repo-wide greps
+corrected that record twice. The first grep matched only the
+current command name (`uf.finale`) and found six changes; a
+second audit widened the pattern to the pre-rename spelling
+(`/finale`) and to step-count phrasings ("8-step", "all 8
+steps") and found six more. Step-number or step-count
+references exist in twelve sibling unarchived changes
+(finale-secrets-askuser-gate, finale-reliability,
+mandatory-gate-hardening, finale-dewey-commit,
+issue-pr-traceability, triage-mandatory-gate,
+finale-conflict-resolution, improve-finale-pr-description,
+finale-pr-approval, finale-push-gate,
+add-todowrite-to-pipelines, and finale-compression-guard), the
+checkpoint-sequence table in uf-workflow-checkpoint/design.md,
+and the golden-suite line anchors. Dispositions: the sibling
+references are historical — each change is fully implemented
+but unarchived (all tasks checked), so its spec text records
+pre-renumbering numbers (the D9 disposition); the golden-suite
+anchors are the one live surface and were refreshed in this
+change. Renumbering churn is contained to the command file,
+its mirror, and the golden anchors. Audit lesson: a
+cross-reference audit must grep every historical spelling of
+the renamed surface and its step counts, not just the current
+name.
 Rejected alternative — inserting "3b" — would avoid touching
 other steps' text but leaves awkward numbering forever.
 

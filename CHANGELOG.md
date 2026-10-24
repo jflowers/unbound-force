@@ -24,9 +24,10 @@ Each entry follows the format: `- <change-name>: <summary>`.
   preserved. The push step selects its mode from the sync
   outcome: `git_push_force_with_lease` after a rebase on a
   branch with an upstream, plain `git_push` (with
-  `setUpstream`) for a first push. Fetch failure (e.g.
-  offline) is a soft gate -- a retryable `BASE_SYNC_FETCH`
-  warning, then the finale proceeds exactly as before. Steps
+  `setUpstream`) for a first push. A base-state check failure
+  (fetch or count, e.g. offline) is a soft gate -- a retryable
+  `BASE_SYNC_FETCH` or `BASE_SYNC_COUNT` warning, then the
+  finale proceeds exactly as before. Steps
   after the insertion renumber (Push 4→5, PR 5→6, CI 6→7
   with 6b→7b, Return to Main 7→8, Summary 8→9); the step-2
   no-changes path now lands on the sync step; all in-file
@@ -36,7 +37,8 @@ Each entry follows the format: `- <change-name>: <summary>`.
   `.opencode/test/uf-finale.test.ts` cover upstream remote
   preference, origin-only fallback, symbolic-ref failure
   falling back to `main`, the offline `BASE_SYNC_FETCH`
-  envelope, and ahead/behind counts.
+  envelope, the `BASE_SYNC_COUNT` envelope when commit
+  counting fails, and ahead/behind counts.
   (Spec: openspec/changes/rebase-upstream-before-push/)
 - delegation-skill-enforcement: Closed the enforcement gap
   behind audit finding F6 / issue #787 -- the "mechanical

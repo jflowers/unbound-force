@@ -55,6 +55,9 @@
   surface tests (e.g. registration-surface, plugin-integration,
   golden-output-shape) that assert the uf-finale tool list to
   include `uf_finale_base_state`.
+  Layer 3, round-trip audits: N/A — `uf_finale_base_state` is
+  read-only apart from the fetch (no write→read round-trip
+  exists).
 
 ## 4. Verification and gates
 

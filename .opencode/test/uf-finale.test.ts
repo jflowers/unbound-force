@@ -2546,4 +2546,24 @@ describe("terminal-write regression (Requirement 1)", () => {
       )
     })
   })
+
+  it("uf_finale_base_state writes nothing to the terminal", async () => {
+    const successExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "remote") return "origin\nupstream\n"
+      if (cmd.includes("symbolic-ref refs/remotes/upstream/HEAD"))
+        return "refs/remotes/upstream/main\n"
+      if (cmd.includes("fetch upstream main")) return ""
+      if (cmd.includes("upstream/main..HEAD --count")) return "4"
+      if (cmd.includes("HEAD..upstream/main --count")) return "1"
+      return ""
+    }
+    await expectNoTerminalWrites(async () => {
+      await invokeTool(createUfFinaleBaseStateTool(successExec, "/fake"), {})
+      await invokeTool(
+        createUfFinaleBaseStateTool(throwingGitExec, "/fake"),
+        {},
+      )
+    })
+  })
 })

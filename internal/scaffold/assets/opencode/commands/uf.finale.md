@@ -134,9 +134,9 @@ aheadBy, behindBy}`.
 
 **Base sync failure** (`retryable: true`, code `BASE_SYNC_FETCH`
 or `BASE_SYNC_COUNT`): **soft gate** — warn that base freshness
-or ahead/behind counts are unknown (include the failure message
-details), skip the sync-base checkpoint, and proceed to step 5.
-Never block the finale on a freshness check.
+or counts are unknown, skip the sync-base checkpoint, and
+proceed to step 5; steps 5 and 6 treat an absent checkpoint
+as no rebase. Never block on a freshness check.
 
 **`behindBy` is 0**: The branch is current with `<baseRef>`.
 Proceed to step 5 without presenting a gate.

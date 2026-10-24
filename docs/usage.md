@@ -102,8 +102,8 @@ step. Then implement and finalize:
 creates a PR, watches CI, and returns to `main`. When the
 branch is behind the base branch, a confirmation gate offers
 to rebase onto it (recommended), continue without rebase, or
-abort. A fetch failure (e.g. offline) degrades to a warning
-and the finale proceeds.
+abort. A base-state check failure (fetch or count, e.g.
+offline) degrades to a warning and the finale proceeds.
 
 ### Build a Feature (Large)
 
