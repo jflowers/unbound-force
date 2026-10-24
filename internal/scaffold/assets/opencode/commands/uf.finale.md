@@ -1,9 +1,9 @@
 ---
 description: >
-  Finalize a branch: commit, push, create PR, watch CI
-  checks, and return to main. The PR stays open for
-  review. One command to wrap up any feature, OpenSpec,
-  or quick branch.
+  Finalize a branch: commit, sync with the base branch,
+  push, create PR, watch CI checks, and return to main.
+  The PR stays open for review. One command to wrap up
+  any feature, OpenSpec, or quick branch.
 ---
 <!-- scaffolded by uf vdev -->
 
@@ -17,7 +17,7 @@ $ARGUMENTS
 
 ## Description
 
-Automate the end-of-branch workflow. Stages, commits,
+Automate the end-of-branch workflow. Stages, commits, base-syncs,
 pushes, creates a PR, watches CI, and returns to `main`.
 
 ## Usage
