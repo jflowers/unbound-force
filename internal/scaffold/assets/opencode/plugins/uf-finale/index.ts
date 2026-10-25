@@ -50,6 +50,44 @@ function isSecretCandidate(filename: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Rev-list count parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse `git rev-list --count` output as a finite non-negative
+ * integer.
+ *
+ * The trimmed output must be entirely digits — git emits only
+ * digits and a newline on success — so partially numeric output
+ * ("2x") is rejected rather than prefix-parsed by parseInt.
+ * Unparseable-but-successful output (empty, garbage, or partially
+ * numeric) throws so callers route it through their
+ * count-failure envelope — the `parseInt(x, 10) || 0` coercion
+ * this replaces silently produced the 0 sentinel, making
+ * "genuinely zero" indistinguishable from "failed to count" and
+ * suppressing the gate the counts decide.
+ *
+ * @param output - Raw stdout of a `git rev-list --count` command.
+ * @returns The parsed commit count.
+ * @throws When the trimmed output is not entirely digits or does
+ *   not parse as a finite integer.
+ */
+function parseRevCount(output: string): number {
+  // parseInt is prefix-tolerant ("2x" parses as 2), so the full
+  // trimmed token must be digits before parseInt runs; the
+  // finiteness check stays as defense-in-depth for digit strings
+  // long enough to overflow to Infinity.
+  const trimmed = output.trim()
+  const count = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN
+  if (!Number.isFinite(count)) {
+    throw new Error(
+      `unparseable rev-list --count output: ${JSON.stringify(trimmed)}`,
+    )
+  }
+  return count
+}
+
+// ---------------------------------------------------------------------------
 // 1. uf_finale_startup — Branch safety and working tree context
 // ---------------------------------------------------------------------------
 
@@ -302,16 +340,17 @@ export function createUfFinaleBaseStateTool(
         }
 
         // Ahead/behind counts versus the fetched base ref. Count
-        // failures route through a retryable failure envelope —
-        // behindBy decides the step-4 sync gate and MUST NOT
-        // silently read as 0.
+        // failures — exec throws and unparseable output alike —
+        // route through a retryable failure envelope: behindBy
+        // decides the step-4 sync gate and MUST NOT silently
+        // read as 0.
         let aheadBy = 0
         let behindBy = 0
         try {
           const ahead = exec(["rev-list", `${baseRef}..HEAD`, "--count"], cwd)
-          aheadBy = parseInt(ahead, 10) || 0
+          aheadBy = parseRevCount(ahead)
           const behind = exec(["rev-list", `HEAD..${baseRef}`, "--count"], cwd)
-          behindBy = parseInt(behind, 10) || 0
+          behindBy = parseRevCount(behind)
         } catch (countErr: unknown) {
           const msg =
             countErr instanceof Error ? countErr.message : String(countErr)
@@ -369,6 +408,13 @@ export function createUfFinalePushStateTool(
           // No upstream tracking configured.
         }
 
+        // Ahead/behind counts versus the tracking upstream. Count
+        // failures — exec throws and unparseable output alike —
+        // route through a retryable failure envelope, mirroring
+        // the sibling uf_finale_base_state BASE_SYNC_COUNT fix:
+        // diverged decides the step-5 push gate's divergence
+        // warning and MUST NOT silently read as false through
+        // swallowed zero counts.
         let aheadBy = 0
         let behindBy = 0
         let diverged = false
@@ -376,15 +422,20 @@ export function createUfFinalePushStateTool(
         if (upstreamExists) {
           try {
             const ahead = exec(["rev-list", "@{u}..HEAD", "--count"], cwd)
-            aheadBy = parseInt(ahead, 10) || 0
-          } catch {
-            // Count failure.
-          }
-          try {
+            aheadBy = parseRevCount(ahead)
             const behind = exec(["rev-list", "HEAD..@{u}", "--count"], cwd)
-            behindBy = parseInt(behind, 10) || 0
-          } catch {
-            // Count failure.
+            behindBy = parseRevCount(behind)
+          } catch (countErr: unknown) {
+            const msg =
+              countErr instanceof Error ? countErr.message : String(countErr)
+            return {
+              output: JSON.stringify(
+                failure(`Could not count commits versus @{u}: ${msg}`, {
+                  retryable: true,
+                  code: "PUSH_SYNC_COUNT",
+                }),
+              ),
+            }
           }
           diverged = aheadBy > 0 && behindBy > 0
         }

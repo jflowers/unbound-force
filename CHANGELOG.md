@@ -574,6 +574,13 @@ Each entry follows the format: `- <change-name>: <summary>`.
   sub-tool sentinel).
   (Spec: openspec/changes/fix-init-speckit-sentinel/,
   Docs: #827, unbound-force/website#325)
+- fix-push-state-catch-to-zero: uf_finale_push_state no longer
+  swallows rev-list count failures into zeroed ahead/behind
+  counts (issue #821); counting failures and unparseable output
+  now return a retryable PUSH_SYNC_COUNT envelope mirroring
+  BASE_SYNC_COUNT, /uf.finale step 5 treats it as a soft gate
+  with a safe push mode, and shared parsing moved to a tested
+  parseRevCount helper. Scaffold mirrors updated byte-identically.
 - fix-review-dispatch-correlation-release: `dispatch_review_runs`
   now mints a fresh correlation ID per invocation instead of
   binding one correlation ID per opencode conversation for the

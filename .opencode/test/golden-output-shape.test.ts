@@ -55,8 +55,8 @@ import { withBun } from "./helpers/bun-runtime.js"
 // - uf-finale: 9 sites -- uf_finale_startup (uf.finale.md:51),
 //   uf_finale_stage (72), uf_finale_commit_context (83),
 //   uf_finale_base_state (132), uf_finale_push_state (172),
-//   uf_finale_pr_context (204), uf_finale_create_pr (262),
-//   uf_finale_ci_poll (270), uf_finale_return_to_main (349)
+//   uf_finale_pr_context (212), uf_finale_create_pr (270),
+//   uf_finale_ci_poll (278), uf_finale_return_to_main (357)
 // - review-dispatch: 14 sites -- plan_review_dispatch x7 (uf.unleash.md:353
 //   and 799, uf.review-council.md:231, uf.review-pr.md:353,
 //   uf.triage-issue.md:190, uf.address-feedback.md:339,
@@ -909,7 +909,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
     expect(data).toEqual({ upstreamExists: true, diverged: true, aheadBy: 2, behindBy: 1 })
   })
 
-  it("uf_finale_pr_context [uf.finale.md:204] returns existingPr, isFork, forkParent, templateSections, commitLog, diffStat, originatingIssue, and unleashSummary", async () => {
+  it("uf_finale_pr_context [uf.finale.md:212] returns existingPr, isFork, forkParent, templateSections, commitLog, diffStat, originatingIssue, and unleashSummary", async () => {
     const directory = await makeScratch()
     await writeProjectFile(directory, ".github/PULL_REQUEST_TEMPLATE.md", "## Summary\n\n## Changes\n")
     await writeProjectFile(directory, ".openspec.yaml", "change: golden\noriginating_issue: 732\n")
@@ -963,7 +963,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
     expect(data.unleashSummary).toEqual({ change_name: "golden", tier: "openspec" })
   })
 
-  it("uf_finale_create_pr [uf.finale.md:262] returns number and url", async () => {
+  it("uf_finale_create_pr [uf.finale.md:270] returns number and url", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGh([
@@ -985,7 +985,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
     })
   })
 
-  it("uf_finale_ci_poll [uf.finale.md:270] returns status, failedChecks, mergeable, and workflowsConfigured", async () => {
+  it("uf_finale_ci_poll [uf.finale.md:278] returns status, failedChecks, mergeable, and workflowsConfigured", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfFinalePlugin, directory)
     mockGh([

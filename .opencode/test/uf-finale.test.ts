@@ -709,6 +709,33 @@ describe("uf_finale_base_state", () => {
     }
   })
 
+  it("returns a retryable BASE_SYNC_COUNT failure when rev-list output is unparseable", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd === "remote") return "origin\n"
+      if (cmd.includes("symbolic-ref refs/remotes/origin/HEAD"))
+        return "refs/remotes/origin/main\n"
+      if (cmd.includes("fetch origin main")) return ""
+      // Successful exit but garbage stdout — the old parseInt || 0
+      // coercion turned this into the 0 sentinel.
+      if (cmd.includes("origin/main..HEAD --count")) return "2"
+      if (cmd.includes("HEAD..origin/main --count")) return "garbage"
+      return ""
+    }
+    const result = await invokeTool(
+      createUfFinaleBaseStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("BASE_SYNC_COUNT")
+      expect(result.retryable).toBe(true)
+      expect(result.message).toContain("unparseable rev-list --count output")
+      expect(result.message).toContain("garbage")
+    }
+  })
+
   it("reports behind-base counts without mutating the working tree", async () => {
     const commands: string[] = []
     const mockExec: GitExec = (args: string[]) => {
@@ -860,6 +887,74 @@ describe("uf_finale_push_state", () => {
       expect(result.data?.aheadBy).toBe(0)
       expect(result.data?.behindBy).toBe(4)
       expect(result.data?.diverged).toBe(false)
+    }
+  })
+
+  it("returns a retryable PUSH_SYNC_COUNT failure when rev-list counting fails", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref @{u}")) return "origin/feature"
+      if (cmd.includes("rev-list")) throw new Error("bad revision")
+      return ""
+    }
+    const result = await invokeTool(
+      createUfFinalePushStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PUSH_SYNC_COUNT")
+      expect(result.retryable).toBe(true)
+      expect(result.message).toContain("@{u}")
+      expect(result.message).toContain("bad revision")
+    }
+  })
+
+  it("returns a retryable PUSH_SYNC_COUNT failure when rev-list output is unparseable", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref @{u}")) return "origin/feature"
+      // Successful exit but unparseable stdout — the old parseInt
+      // || 0 coercion read behindBy as 0 and diverged as false.
+      if (cmd.includes("@{u}..HEAD --count")) return "2"
+      if (cmd.includes("HEAD..@{u} --count")) return ""
+      return ""
+    }
+    const result = await invokeTool(
+      createUfFinalePushStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PUSH_SYNC_COUNT")
+      expect(result.retryable).toBe(true)
+      expect(result.message).toContain("unparseable rev-list --count output")
+    }
+  })
+
+  it("returns a retryable PUSH_SYNC_COUNT failure when rev-list output is partially numeric", async () => {
+    const mockExec: GitExec = (args: string[]) => {
+      const cmd = args.join(" ")
+      if (cmd.includes("--abbrev-ref @{u}")) return "origin/feature"
+      // Successful exit but prefix-numeric stdout — parseInt("2x")
+      // parses as 2, so the full-token digits check must reject it.
+      if (cmd.includes("@{u}..HEAD --count")) return "2x"
+      if (cmd.includes("HEAD..@{u} --count")) return "1"
+      return ""
+    }
+    const result = await invokeTool(
+      createUfFinalePushStateTool(mockExec, "/fake"),
+      {},
+    )
+
+    expect(result.status).toBe("error")
+    if (result.status === "error") {
+      expect(result.code).toBe("PUSH_SYNC_COUNT")
+      expect(result.retryable).toBe(true)
+      expect(result.message).toContain("unparseable rev-list --count output")
+      expect(result.message).toContain("2x")
     }
   })
 })

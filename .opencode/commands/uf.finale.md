@@ -172,6 +172,14 @@ Use **question tool**: `["Rebase onto <baseRef> (recommended)",
 Call `uf_finale_push_state` → `{upstreamExists, diverged,
 aheadBy, behindBy}`.
 
+**Push state failure** (`retryable: true`, code `PUSH_SYNC_COUNT`):
+**soft gate** — warn that the branch's upstream state and
+divergence are unknown, then present the gate with a safe push
+mode: `git_push_force_with_lease` after a step-4 rebase (the
+lease protects any existing remote branch), else `git_push` with
+`{setUpstream: true, branch}` (safe whether or not an upstream
+exists). Never block on a push-state check.
+
 >>> MANDATORY GATE <<<
 
 **Session-resume guard**: Re-present and re-confirm if

@@ -104,6 +104,8 @@ branch is behind the base branch, a confirmation gate offers
 to rebase onto it (recommended), continue without rebase, or
 abort. A base-state check failure (fetch or count, e.g.
 offline) degrades to a warning and the finale proceeds.
+A push-state count failure likewise degrades to a warning,
+with the push gate selecting a safe push mode.
 
 ### Build a Feature (Large)
 
