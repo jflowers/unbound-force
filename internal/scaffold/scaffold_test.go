@@ -894,6 +894,10 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	// inventory from the structured phase object.
 	t.Run("fix loop iteration budget survives resume", func(t *testing.T) {
 		for _, param := range []string{
+			// quick-gate budget-only checkpoint step
+			"quick-fix-budget",
+			// quick-gate completion-claim separation
+			"ONLY completion",
 			// quick-gate checkpoint data key
 			"fixLoopQuick",
 			// quick-gate budget phrasing
@@ -922,6 +926,31 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 			if !strings.Contains(codeReviewStep, param) {
 				t.Errorf("step 6 preflight missing durable iteration budget wiring: %s", param)
 			}
+		}
+	})
+
+	// Pin: the loop's exit half -- the fail-closed
+	// classification fallback, exhaustion exits at each
+	// gate, supersession at the recording site, and the
+	// guardrails exit-list entry. Each phrase is
+	// site-unique so deleting one wiring fails this
+	// subtest.
+	t.Run("fix loop exits and supersession stay wired", func(t *testing.T) {
+		if !strings.Contains(implementExecution, "fail closed into the loop") {
+			t.Error("causality contract missing the fail-closed classification rule")
+		}
+		if !strings.Contains(implementExecution, "the phase checkpoint with verdict") {
+			t.Error("phase checkpoint missing green-supersession at the recording site")
+		}
+		if !strings.Contains(implementExecution, "When the loop exhausts its 3 iterations") {
+			t.Error("phase checkpoint missing its exhaustion exit")
+		}
+		if !strings.Contains(codeReviewStep, "persist after 3 iterations") {
+			t.Error("step 6 preflight missing its persistence STOP")
+		}
+		guardrails := between(t, command, "## Guardrails", "</protect>")
+		if !strings.Contains(guardrails, "after the fix loop's") {
+			t.Error("guardrails exit list missing the fix-loop exhaustion exit")
 		}
 	})
 

@@ -33,10 +33,14 @@ exiting:
   recorded in the calling gate's checkpoint data as
   gate-distinct free-form `data` keys (the phase
   checkpoint's `data.fixLoopPhase[N]` key, the quick
-  gate's `data.fixLoopQuick`, or Step 6's
+  gate's budget-only `quick-fix-budget` step
+  (`data.fixLoopQuick`), or Step 6's
   `data.fixLoopPreflight`), incremented after every
   delegated attempt, and read back on resume. The budget
   is 3 total across sessions, never 3 more per resume.
+  The quick gate's completion claim stays separate: only
+  its success-only `quick-pre-flight` step signals gate
+  completion to resume detection.
 - **Green supersession** — a phase checkpoint whose loop
   succeeds re-records its verdict as `"green"` (superseding
   the `"failed"` record; inventory and the gate's data key
@@ -79,9 +83,14 @@ capability)
   byte-identical scaffold mirror (TC-007).
 - `internal/scaffold/scaffold_test.go`: scaffold pins —
   per-gate wiring phrases (one distinct phrase per wiring
-  site), durable-budget wiring, and the fix-loop
-  delegation-shape pin (uf_delegate_command present,
-  prompt-only, task_classification declared).
+  site), durable-budget wiring (including the quick
+  gate's budget-only `quick-fix-budget` step), the
+  fix-loop delegation-shape pin (uf_delegate_command
+  present, prompt-only, task_classification declared),
+  the quick-tier whole-change delegation pin, and
+  exit-half pins (fail-closed fallback, exhaustion
+  exits, supersession at the recording site, guardrails
+  exit-list entry).
 - `CHANGELOG.md`: `unleash-build-test-fix-loop` entry under
   Changed.
 - Documentation: unbound-force/unbound-force#819 (repo
@@ -149,7 +158,9 @@ deterministic/judgment classification recorded per call.
 
 **Assessment**: PASS
 
-The fix work is classified deterministic and bound through
+Classification is declared per call through
 uf_delegate_command's task_classification contract
-(DE-008); the re-run is the exact detected pre-flight
+(DE-008), with judgment anticipated as the usual case
+for diagnosing a broken test; the re-run is the exact
+detected pre-flight
 command set in the calling gate's mode.

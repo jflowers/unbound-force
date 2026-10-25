@@ -52,17 +52,19 @@ repairs.
 The quick-tier pre-flight hard gate runs before any phase
 checkpoint exists, so it cannot inherit the phase
 checkpoint's classification rule by reference. The gate
-entry text wires the classification contract directly and
-its `quick-pre-flight` checkpoint record gains
-`data.fixLoopQuick` and `data.inventory` fields mirroring the
-phase checkpoint's.
+entry text wires the classification contract directly.
+Its `quick-pre-flight` checkpoint record is a success-only
+completion claim carrying the inventory; the fix-loop
+budget rides a separate budget-only `quick-fix-budget`
+step (`data.fixLoopQuick`) that resume detection ignores.
 
 ### D3: The iteration budget is durable checkpoint state
 
 The count lives in the calling gate's checkpoint data as a
 gate-distinct free-form `data` key — the phase checkpoint's
-`data.fixLoopPhase[N]` key, the quick gate's
-`data.fixLoopQuick`, or Step 6's `data.fixLoopPreflight` —
+`data.fixLoopPhase[N]` key, the quick gate's budget-only
+`quick-fix-budget` step (`data.fixLoopQuick`), or Step 6's
+`data.fixLoopPreflight` —
 following the precedent of the two
 pre-existing bounded loops (Step 4 spec-review decision
 gate and Step 6 code-review fix loop both checkpoint
@@ -70,7 +72,28 @@ their counters). The keys ride the free-form `data`
 parameter because the checkpoint tool persists only
 `number`, `verdict`, and `inventory` from the structured
 `phase` object; top-level distinct keys avoid the
-state-global `data` merge colliding across gates. A
+state-global `data` merge colliding across gates.
+
+The three gates' checkpoint steps have different resume
+semantics, so the mid-loop budget write lands differently
+per gate: the phase checkpoint is verdict-bearing
+(`uf_unleash_detect_resume` re-enters the loop on a
+recorded `"failed"` verdict, so re-recording mid-loop is
+safe), Step 6's `code-review-preflight` step is
+resume-inert for the build/test loop (completion derives
+from dispatch artifacts), but the quick gate's
+`quick-pre-flight` step is a completion claim — derive
+implement-done from it and a resumed session would skip
+the gate entirely. Recording the budget into
+`quick-pre-flight` mid-loop would therefore falsely
+signal completion; deferring the write to success would
+leave the budget unwritten at exhaustion. The dedicated
+budget-only `quick-fix-budget` step resolves the conflict:
+resume detection ignores it, `quick-pre-flight` remains
+the only completion claim, and the budget survives both
+mid-loop crashes and exhaustion exits.
+
+A
 resumed session reads the spent budget and
 continues toward the same 3-total cap rather than
 resetting. Conversation-scoped counters were rejected: the
@@ -108,7 +131,17 @@ fix-loop delegation shape gets a dedicated span pin
 tasks.md**"), and the per-task delegation's
 `command_path:` negative is scoped to its own subsection
 span so prose mentions of the token elsewhere cannot trip
-it.
+it. Exit-half behavior (fail-closed fallback, exhaustion
+exits, supersession at the recording site, the guardrails
+exit-list entry) carries its own site-unique pins, and a
+Guardrails-scoped span (between "## Guardrails" and
+"</protect>") covers the exit-list entry.
+
+DE-004 line deltas (instruction-text measurability): the
+canonical command grows 1692 lines at the reviewed PR head
+to 1775 lines after the review-feedback fixes — net +163
+against the change base (+176/−13), byte-identical in the
+scaffold mirror.
 
 ## Risks / Trade-offs
 

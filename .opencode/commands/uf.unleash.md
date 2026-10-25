@@ -799,12 +799,32 @@ checkpoint
   command: "uf.unleash"
   step: "quick-pre-flight"
   data:
-    fixLoopQuick: [fix-loop iterations used, 0 if the
-                   loop never ran]
     inventory:
       - name: [failing check]
         classification: pre-existing | environmental
 ```
+
+`quick-pre-flight` is the quick gate's ONLY completion
+claim: `uf_unleash_detect_resume` derives implement-done
+from it, so record it only on success. Persist the
+fix-loop budget through a separate budget-only step
+that resume detection ignores:
+
+```
+checkpoint
+  command: "uf.unleash"
+  step: "quick-fix-budget"
+  data:
+    fixLoopQuick: [fix-loop iterations used, 0 if the
+                   loop never ran]
+```
+
+Record `quick-fix-budget` after every delegated attempt
+and at exhaustion, and read `fixLoopQuick` back on
+resume. It is not a completion claim -- it never
+signals gate completion, so a mid-loop crash or an
+exhaustion exit cannot be mistaken for a passed gate
+on resume.
 
 On failure, emit the envelope's error and **STOP**. Then
 proceed directly to Step 6 (Code Review).
@@ -957,13 +977,16 @@ For each iteration (up to 3 total):
    `"green"` (superseding the `"failed"` record, with
    the inventory carrying forward and the gate's data
    key recording the spent budget), the quick gate
-   records its `quick-pre-flight` checkpoint (same
-   fields), and Step 6 proceeds to its dispatch.
+   records its `quick-pre-flight` checkpoint (inventory
+   only -- the spent budget stays in its
+   `quick-fix-budget` record), and Step 6 proceeds to
+   its dispatch.
 
 4. If checks still fail: keep the iteration counter in
    the calling gate's durable checkpoint data — the
    phase checkpoint's `data.fixLoopPhase[N]` key, the
-   quick gate's `data.fixLoopQuick`, or Step 6's
+   quick gate's budget-only `quick-fix-budget` step
+   (`data.fixLoopQuick`), or Step 6's
    `data.fixLoopPreflight` — incrementing it after
    every delegated attempt. At 3 iterations exhausted
    (total across sessions, never reset by a resume),
@@ -980,8 +1003,8 @@ rule applies only to `"green"` verdicts. On re-entry
 the loop continues from the recorded iteration count:
 the budget is 3 delegated attempts total across
 sessions, never 3 more per resume. The quick gate reads
-its spent budget the same way, from its
-`data.fixLoopQuick` key, and Step 6 from its
+its spent budget the same way, from its budget-only
+`quick-fix-budget` checkpoint step, and Step 6 from its
 `data.fixLoopPreflight` key.
 
 **For each phase in tasks.md**:

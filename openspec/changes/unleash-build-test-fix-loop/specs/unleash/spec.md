@@ -59,10 +59,15 @@ remaining failures.
 The fix-loop iteration count MUST be recorded in the
 calling gate's durable checkpoint data as a gate-distinct
 free-form `data` key — the phase checkpoint's
-`data.fixLoopPhase[N]` key, the quick gate's
-`data.fixLoopQuick`, or Step 6's `data.fixLoopPreflight`
-— incremented after every delegated
-attempt, and read back on resume. The budget MUST be 3
+`data.fixLoopPhase[N]` key, the quick gate's budget-only
+`quick-fix-budget` step (`data.fixLoopQuick`), or Step
+6's `data.fixLoopPreflight` — incremented after every
+delegated attempt, and read back on resume. The quick
+gate's completion claim MUST stay separate: only its
+success-only `quick-pre-flight` step signals gate
+completion to resume detection, and the budget-only
+`quick-fix-budget` step MUST NOT signal completion. The
+budget MUST be 3
 delegated attempts total across sessions; a resumed session
 MUST continue from the recorded count and MUST NOT receive
 a fresh budget. A phase checkpoint whose loop succeeds MUST
@@ -70,6 +75,15 @@ re-record its verdict as `"green"`, superseding the
 `"failed"` record, with the inventory and the gate's data
 key carrying forward. Once the budget is exhausted, the gate
 MUST take its existing exit path unchanged.
+
+#### Scenario: Budget writes do not complete the quick gate
+
+- **GIVEN** a mid-loop `quick-fix-budget` record with
+  `fixLoopQuick` = 2 and no `quick-pre-flight` claim
+- **WHEN** a resumed session runs resume detection
+- **THEN** implement-done is not derived for the quick
+  gate (the gate re-runs)
+- **AND** the loop continues from the recorded count of 2
 
 #### Scenario: Loop success supersedes the failed record
 
