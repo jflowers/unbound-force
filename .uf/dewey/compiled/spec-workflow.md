@@ -1,65 +1,102 @@
 ---
-tier: draft
-compiled_at: 2026-08-14T19:59:19Z
-compiled_by: claude-opus-4-6
+tier: validated
+compiled_at: 2026-10-25T16:37:57Z
+compiled_by: rits/zai-org/glm-5-3
 sources:
-  - ci-1
+  - openspec-workflow-20260623T195615-jay-flowers
+  - specify-cli-20260811T174019-jay-flowers
+  - openspec-conventions-20261010T140556-jay-flowers
+  - openspec-parallel-markers-20261012T000228-jay-flowers
+  - spec-workflow-20261015T182731-jay-flowers
+  - spec-workflow-20261022T192854-jay-flowers
 topic: spec-workflow
 ---
 
-# Theme: Specification Workflow Patterns
+# Spec Workflow
 
-## Current State (August 2026)
+## Current State (October 2026)
 
-Cross-repo learnings reveal process patterns that improve spec-to-implementation throughput and reduce iteration cycles.
+### Three Tiers
 
-## Pre-Resolving Decisions
+All non-trivial changes route into one of three spec tiers:
 
-The highest-impact process optimization: resolve design decisions BEFORE running `speckit specify`, not during clarification rounds.
+| Tier | Tool | Scope | Artifacts | Branch |
+|------|------|-------|-----------|--------|
+| Strategic | Speckit | >= 3 stories or cross-repo | specs/NNN-*/ | NNN-<name> |
+| Tactical | OpenSpec | < 3 stories, single-repo | openspec/changes/* | opsx/<name> |
+| Quick | /uf.unleash routing | trivial fixes, chores, docs | none | quick/<name> |
 
-**Evidence**: gaze 039-baseline-gazecrap-threshold achieved a whole pipeline zero-findings single `/uf.unleash` run. Success factor: design decisions pre-resolved before the specify phase, eliminating NEEDS CLARIFICATION cycles.
+Quick-tier changes carry no spec artifacts but run full quality gates.
+Speckit pipeline: constitution -> specify -> clarify -> plan -> tasks ->
+analyze -> checklist -> implement.
 
-Similarly, review-context-skill triage resolved 3 decisions upfront (hard-dependency over graceful-degradation, matching pre-flight precedent) → clean 5/5 APPROVE from council.
+### Ordering and Phase Boundaries
 
-## Spec Artifact Quality
+- Constitution before specs; spec before plan; plan before tasks; tasks
+  before implementation.
+- Spec artifacts MUST be committed and pushed before implementation
+  begins. opsx-propose never commits artifacts by design, so the
+  /uf.unleash implement phase can land commits on opsx/<name> while
+  openspec/changes/<name>/ stays untracked; guard reviewers flag this
+  mixed state (the review context's working-tree note shows the
+  committed/uncommitted/untracked split) and remediation is to commit
+  and push spec artifacts together with the implementation edit before
+  /uf.finale creates the PR.
+- Before merge, reconcile review-phase learnings that contradict
+  design.md decisions or proposal claims (observed on PR #733, where
+  design rationale claimed enforcement a same-PR learning disproved):
+  either act on the learning or amend the rationale to cite it as a
+  tracked follow-up. Shipping both leaves an inconsistent change record;
+  future contributors trust the design doc over the learning.
 
-### Most-Missed Elements
-From finale and spec-review learnings:
-1. **Error-path scenarios**: Consistently underspecified in slash-command delta specs
-2. **Algorithm specificity**: Vague descriptions like "process the data" instead of explicit steps
-3. **Task phrasing**: "or delete" style options are ambiguous — specs must be definitive (4/5 council flagged)
-4. **[P] markers**: Can't cross section dependencies — verify task independence before marking parallel
+### Tier Routing and Risk Floors
 
-### Spec Review vs Code Review
-Different defect classes caught at different phases:
-- **Spec review**: Missing coverage strategy, missing error paths, thread safety requirements
-- **Code review**: Assertion quality, DRY violations, naming conflicts
+/uf.unleash routes changes via the tier-routing skill (Oct 19-20, 2026):
 
-### Design Artifact Maintenance
-Update design artifacts when implementation simplifies — e.g., `errors.As` dropped during implementation should be reflected in the design doc (replicator spec-design-alignment).
+- Scope signals select quick vs. spec tier.
+- Escalate-only risk floors forbid quick for security-sensitive, auth,
+  data-loss, and public-API-breaking changes.
+- Issue references (#NNN or URL) resolve via gh.
+- ON_MAIN and UNRECOGNIZED_BRANCH states trigger routing.
 
-## Process Anti-Patterns
+### Task Bookkeeping
 
-1. **Don't halt at invented gates**: No gate points in the review-council pipeline except REQUEST CHANGES
-2. **Don't mix phase artifacts**: Spec phases produce spec artifacts only; implementation produces source code
-3. **Don't skip post-release verification**: Separate from implementation tasks (dewey go-module-v3)
-4. **OpenSpec supersession**: Use supersession notes for replaced tasks, don't uncheck completed work
+- Mark checkboxes [x] immediately on completion.
+- [P] marks parallel-eligible tasks; verify independence first. [P] is
+  validated at the file level, not task-independence: two logically
+  independent tasks editing the same file still violate the [P] contract
+  because parallel workers conflict on that file (documented in the
+  tasks.md template header, easy to overlook).
+- When new tasks supersede completed ones, annotate the completed task
+  with a supersession note ("superseded by tasks X.Y") instead of
+  unchecking it, preserving the audit trail. Conversely, uncheck a
+  completed scaffold-sync task when later tasks modify the same file,
+  preventing stale scaffold copies.
+- Review-dispatch plugin tool specs follow a standing 4-phase task
+  structure -- (1) Tool Implementation, (2) Dual-Copy Sync, (3) Tests,
+  (4) Verification -- with the FR-009 dual-copy sync requirement repeated
+  verbatim across specs (build-review-prompts, dispatch-review-runs,
+  fetch-pr-review-context); usable as a template for future tool additions.
 
-## Cross-Command Consistency
-Architect flags DRY violations when instruction substance differs between similar commands. When consolidating, be explicit about strict-parity vs intentional-expansion.
+### What Requires a Spec
 
-## Speckit CLI Contract (v0.9.4+)
-```bash
-specify init --here --integration opencode --offline
-```
-- `--here` replaces `name` positional arg
-- `--ai` renamed to `--integration`
-- Non-interactive defaults to copilot
-- `--offline` uses bundled wheel
+Requires a spec: new features, signature-changing refactors,
+multi-function test additions, agent changes, CI changes, data-model
+changes. Exempt: constitution amendments, typo fixes, emergency hotfixes
+(retroactively documented). When in doubt, start with OpenSpec; escalate
+to Speckit if scope grows past 3 stories or crosses repos.
 
 ## History
-- gaze 039-baseline: Pre-resolving decisions
-- unbound-force review-context-skill: Upfront decision resolution
-- unbound-force finale: Most-missed spec elements
-- unbound-force ci-causality-soft-gate: Skill mode design
-- unbound-force specify-cli: Speckit CLI contract changes
+
+- The two-tier model (Speckit strategic / OpenSpec tactical) became
+  three-tier when quick routing was added Oct 19-20, 2026: /uf.unleash
+  gained the tier-routing skill with scope signals, escalate-only risk
+  floors, gh-based issue-reference resolution, and ON_MAIN /
+  UNRECOGNIZED_BRANCH triggers.
+- specify-cli (Speckit) changed its CLI contract around v0.9.4+: bare
+  `specify init` requires --here or a project name; --ai was replaced by
+  --integration; non-interactive sessions default to copilot, not
+  opencode; --offline uses bundled wheel assets instead of GitHub
+  Releases downloads. The pinned uf init invocation is `specify init
+  --here --integration opencode --offline`, passed via simpleTools
+  extraArgs (scaffold.go:1854) and asserted in tests.

@@ -1,62 +1,89 @@
 ---
 tier: validated
-compiled_at: 2026-08-14T19:58:08Z
-compiled_by: claude-opus-4-6
-promoted_at: 2026-08-14T20:37:01Z
-promoted_by: jay-flowers
+compiled_at: 2026-10-25T16:40:58Z
+compiled_by: rits/zai-org/glm-5-3
 sources:
   - ci-1
+  - error-handling-20261023T171909-jay-flowers
 topic: fail-fast
-related: gateway, ci-coverage
 ---
 
-# Theme: Fail-Fast Over Silent Defaults
+# Fail Fast
 
-## Current State (August 2026)
+## Current State (October 2026)
 
-A consistent anti-pattern across all repos: code silently falls back to a default behavior when it should error explicitly. 10+ learnings demonstrate the cost of silent defaults.
+The anti-pattern: code silently falls back to a default, or reports
+success with zero values masking a failure, when it should error
+explicitly. All claims verified against current code.
 
-## Examples by Severity
+### Still live
 
-### CRITICAL: Silent Data Loss
-- **dewey content-sanitizer**: `vault.ParseDocument()` silently overwrites metadata Properties during frontmatter parsing. Fix: merge-after-parse. Without this, stored metadata is lost without warning.
-- **gaze ci-gate-integrity**: `int` type for threshold results reports `0` when data is unavailable — silently passes gates that should fail. Fix: `*int` (nil = unavailable, 0 = computed zero). Required changes across 5 types and 5 test files.
+- **sandbox autoDetectBackend** (unbound-force
+  `internal/sandbox/backend.go:130-139`): DevPod intended but
+  `.devcontainer/devcontainer.json` missing (or devpod off PATH)
+  → silent Podman fallback. The proposed warn-on-fallback
+  convention rule was never adopted; the closest adopted rule is
+  `default.md` CS-006 (errors MUST NOT be silently swallowed).
+- **uf_finale_push_state** (unbound-force
+  `.opencode/plugins/uf-finale/index.ts:381,387`): bare `catch`
+  blocks swallow rev-list count failures, leaving `behindBy` at
+  0 in a success envelope feeding the step-5 push gate (the
+  base_state sibling defect; fixed there in 1f3e52f, live here).
+- **dewey DetermineSanitizeMode** (`sanitize/sanitize.go:324`):
+  web/github → warn, everything else → `off`; a new source type
+  silently sanitizes as `off` unless the switch is updated.
 
-### HIGH: Wrong Behavior
-- **gateway region**: Global region silently works for most endpoints but fails for rawPredict Claude. Fix: error explicitly, don't fall back to `us-east5`.
-- **gateway token refresh**: Failed background refresh kept forwarding stale token → 401 errors. Fix: clear atomically on failure.
-- **replicator coverage ratchet**: Renamed package produces 0.0% coverage. `bc` empty-string comparison silently passes. Fix: `[ -z ]` guard + awk `END { if (c>0) }` guard.
-- **dewey identity format**: Old parser silently misparsed new format instead of erroring → wrong tag extraction.
+### Fixed exemplars (patterns to copy)
 
-### MEDIUM: Confusing Behavior
-- **dewey source type**: Adding a new source type without updating `DetermineSanitizeMode()` switch → silent wrong sanitization mode.
-- **sandbox autoDetectBackend**: Missing `.devcontainer/devcontainer.json` silently falls back to Podman instead of erroring when DevPod is intended.
-- **unbound-force setup**: `buildSteps()` ordering installs tools in wrong order (Gaze before gh) → confusing failures.
+- **gateway region** (`internal/gateway/provider.go:203-212`, fix
+  79dc563): region "global" errors explicitly with override env
+  vars named, instead of silently falling back to `us-east5` and
+  failing later on rawPredict.
+- **gateway token refresh** (`internal/gateway/provider.go:247-253`,
+  fix 3f1bf3b): failed background refresh atomically clears the
+  token under `tokenMu`, so `PrepareRequest` returns a clear error
+  instead of forwarding a stale token into 401s.
+- **gaze threshold flags** (`cmd/gaze/main.go:2127-2130`):
+  thresholds use `*int` — nil = not provided, non-nil (including
+  `*0`) = active threshold — making "unavailable" distinguishable
+  from "computed zero".
+- **replicator coverage averaging** (`Makefile:50`): the awk
+  `END {if(c>0) ... else print "0.0"}` guard stops an empty or
+  renamed package from silently yielding a passing 0.0% average.
+- **uf_finale_base_state** (fix 1f3e52f, 2026-10-23): rev-list
+  count failures now return a retryable failure envelope
+  (`BASE_SYNC_COUNT`) treated as a soft gate, so `behindBy: 0`
+  reliably means "current with base".
 
-## The Rule
+### The rule
 
-**Prefer explicit errors over silent defaults when:**
-1. The default behavior differs from user intent
-2. Data could be silently lost or corrupted
-3. The fallback masks a configuration problem
-4. Zero-value has semantic meaning (use pointer types)
+Fail explicitly instead of defaulting silently when the default
+differs from user intent, data could be lost or corrupted, the
+fallback masks a configuration problem, or zero carries meaning
+(use `*T` / nullable fields). Silent defaults remain appropriate
+for the documented common case or backward compatibility — but
+log a warning.
 
-**Silent defaults ARE appropriate when:**
-1. The default is genuinely the common case
-2. The behavior is documented and expected
-3. Backward compatibility requires it (but log a warning)
+For tool envelopes (2026-10-23 learning): a success envelope with
+default-zero numeric fields driving consumer branching is a false
+negative — "genuinely zero" is indistinguishable from "count
+failed". Return a failure envelope for decision-essential counts,
+or make the field nullable (`behindBy: number | null`).
 
-## Convention Pack Candidate
-
-**Proposed rule**: "Functions MUST NOT silently fall back to default behavior when the fallback differs from documented intent. Use explicit errors, `*T` for nullable values, and `warn-by-default` for configuration-dependent behavior."
-
-## Related Patterns
-- Content sanitization: `warn-by-default` mode (dewey) — log warnings about potentially dangerous content rather than silently accepting or rejecting
-- Tier system: Extending from 4-tier to 5-tier (adding `untrusted`) required tracing every consumer — silent defaults would have meant untrusted content treated as draft
+Related encodings: dewey's warn-by-default sanitization (findings
+logged; blocking opt-in via strict mode) and the 5-tier trust
+ordering — authored > curated > validated > draft > untrusted
+(`source/config.go:79`) — whose extension required tracing every
+consumer so untrusted never inherited draft treatment silently.
 
 ## History
-- dewey content-sanitizer: Silent metadata overwrite
-- gaze ci-gate-integrity: int vs *int for nil-vs-zero
-- gateway-2,3: Region fallback, token clearing
-- replicator ci-coverage-ratchets: Empty-string silent pass
-- dewey identity-format-change: Silent misparse
+
+- Compiled 2026-08-14; audited claim-by-claim, recompiled October
+  2026.
+- Two August claims were stale even at compile time: the
+  `buildSteps()` ordering bug (Gaze before gh) was already fixed
+  Aug 12 (e98360e), and dewey `ParseDocument`'s silent metadata
+  overwrite no longer exists in current dewey.
+- The 2026-10-23 error-handling learning (success-envelope
+  catch-to-zero in finale tooling) is folded in above; its
+  prescribed fix shipped the same day as 1f3e52f.

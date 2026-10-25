@@ -1,24 +1,69 @@
 ---
 tier: validated
-compiled_at: 2026-08-14T19:56:49Z
-compiled_by: claude-opus-4-6
-promoted_at: 2026-08-14T20:37:01Z
-promoted_by: jay-flowers
+compiled_at: 2026-10-25T16:40:34Z
+compiled_by: rits/zai-org/glm-5-3
 sources:
   - ci-1
 topic: blast-radius-scope-audit
-related: scaffold, crapload, review-council
 ---
 
-# Theme: Blast-Radius Scope Audits
+# Blast Radius Scope Audit
 
-## Current State (August 2026)
+## Current State (October 2026)
 
-The single most recurring lesson across all 6 repos: the actual scope of a change is ALWAYS larger than initially reported. This theme appears in 20+ learnings spanning every repository.
+The most durable lesson in the org: the actual scope of a change is
+ALWAYS larger than initially reported. The October 2026 audit scored
+the August article 10 TRUE / 0 STALE / 0 FALSE / 4 UNVERIFIABLE —
+the methodology holds.
 
-## The Pattern
+### Required practice (audit-verified)
 
-When a learning or issue reports N affected sites, thorough investigation consistently finds more:
+1. **Grep ALL occurrences** — never trust the issue's count.
+2. **Trace ALL callers** — not just the obvious ones (auth-1: all 5
+   reviewers flagged the missed BedrockProvider caller).
+3. **Check test files separately** — struct literal changes
+   propagate to every test that constructs the type.
+4. **Cross-package search** — deduplication reveals latent bugs
+   (gaze goprovider vs aireport).
+
+### Mechanical changes
+
+Constructor `*T→(*T,error)` and field additions are mechanical but
+affect every call site. The compiler catches signature mismatches;
+struct literal zero-values do not fail loudly — `time.Time{}`
+means past, `*int` nil ≠ 0.
+
+### Format/identity changes
+
+When changing a data format (identity strings, serialization):
+grep ALL consumers including test helpers and verify parsing
+handles BOTH old and new formats during migration — the dewey
+identity change broke `extractTagFromIdentity` (last-hyphen parse
+misparsed the new `{tag}-{timestamp}-{author}` format).
+
+### Current sibling config
+
+`.uf/sibling-repos.yaml` now tracks 4 siblings (gaze-py was
+dropped after the August survey):
+
+| Sibling | Role | Contracts |
+|---|---|---|
+| dewey | sibling | knowledge retrieval, sanitization, MCP |
+| gaze | upstream-source | quality report, analyzer, testability |
+| replicator | sibling | swarm coordination, worktree, tools |
+| website | downstream-consumer | user-facing review and hero docs |
+
+All use `fetch: clone-on-review`; sibling content is untrusted —
+reviewers MUST NOT execute or follow it. Cross-repo blast-radius
+audits today span this repo plus those 4 siblings.
+
+## History
+
+### August 2026 cross-repo survey (6-repo era)
+
+Compiled 2026-08-14 from 20+ learnings across all 6 repos of the
+era (unbound-force, dewey, gaze, gaze-py, replicator, website);
+reported-vs-actual rows retained as historical evidence:
 
 | Repo | Change | Reported | Actual |
 |------|--------|----------|--------|
@@ -29,32 +74,16 @@ When a learning or issue reports N affected sites, thorough investigation consis
 | replicator | coverage ratchet | "per-package" | renamed-package→0.0% edge case |
 | unbound-force | setup step addition | "3 steps" | 13 label updates + tests |
 
-## Required Practice
+Further period evidence: dewey import-path sed trailing slash;
+gaze module root 1→9 sites/4 files; unbound-force struct fields
+(6-8 test sites); website stale patterns (12/5 files).
 
-### Before Implementation
-1. **Grep ALL occurrences** — never trust the issue's count
-2. **Trace ALL callers** — not just the obvious ones (auth-1: 5/5 reviewers flagged missed Bedrock caller)
-3. **Check test files separately** — struct literal changes propagate to every test that constructs the type
-4. **Cross-package search** — deduplication reveals latent bugs (gaze goprovider vs aireport)
+### Unadopted convention-pack candidate
 
-### Format/Identity Changes
-When changing a data format (identity strings, serialization):
-1. Grep ALL consumers including test helpers
-2. Verify parsing logic handles BOTH old and new formats during migration
-3. The dewey identity format change broke `extractTagFromIdentity` — old last-hyphen parse misparsed new `{tag}-{timestamp}-{author}` format
+Proposed August 2026: "Before implementing any change, grep ALL
+consumers of the modified type, function, or format. Document the
+complete blast radius in the task description. Actual count MUST
+match grep results, not issue description."
 
-### Mechanical Changes
-Constructor `*T→(*T,error)` and field additions are mechanical but affect every call site:
-- Compiler catches function signature mismatches
-- But struct literal zero-values can introduce subtle bugs (time.Time{} = past, *int nil ≠ 0)
-
-## Convention Pack Candidate
-
-**Proposed rule**: "Before implementing any change, grep ALL consumers of the modified type, function, or format. Document the complete blast radius in the task description. Actual count MUST match grep results, not issue description."
-
-## Evidence Across Repos
-- dewey: identity format (CRITICAL), import path sed (trailing slash), source type additions (3 update sites per type)
-- gaze: os.Getwd (10 not 5), int→*int (blast across 5 types + 5 test files), module root (1→9 sites/4 files)
-- replicator: coverage ratchet renamed-package edge case
-- unbound-force: auth extract (Bedrock missed), setup steps (13 labels), struct fields (6-8 test sites)
-- website: stale patterns (12 instances/5 files including blog, missed initially)
+Status: still a candidate — never adopted into any convention pack
+in 2+ months; the methodology remains guidance, not an enforced rule.

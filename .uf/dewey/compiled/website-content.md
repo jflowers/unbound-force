@@ -1,62 +1,81 @@
 ---
-tier: draft
-compiled_at: 2026-08-14T19:58:52Z
-compiled_by: claude-opus-4-6
+tier: validated
+compiled_at: 2026-10-25T16:41:38Z
+compiled_by: rits/zai-org/glm-5-3
 sources:
   - ci-1
 topic: website-content
 ---
 
-# Website Content Patterns
+# Website Content
 
-## Current State (August 2026)
+## Current State (October 2026)
 
-12 learnings from the website repo capture documentation accuracy, content pipeline efficiency, and a critical recurring mistake about constitution application.
+30 learnings in the website repo (was 12 at the August compile)
+cover documentation accuracy, pipeline efficiency, and
+constitution governance. The site is a Hugo static site:
+`config/_default/hugo.toml`, `layouts/`, `content/`, `go.mod`.
 
-## CRITICAL: Wrong Constitution (Recurring)
+### Constitution Governance (corrected)
 
-Every website change MUST be assessed against the website's own constitution (`.specify/memory/constitution.md`), which prioritizes:
-- **Content Accuracy**: Technical claims match implementation
-- **Minimal Footprint**: Hugo static site, no unnecessary complexity
-- **Visitor Clarity**: First-time users can navigate without prior knowledge
+The website constitution (`.specify/memory/constitution.md`) is
+now the scaffold-default org-style document (v1.0.0): Autonomous
+Collaboration, Composability First, Observable Quality,
+Testability, Security by Default. The org constitution v1.4.0
+(2026-10-14) asserts hero constitutions extend it and prevails
+on cross-cutting concerns — the old "does not apply" claim is
+FALSE. Content Accuracy / Minimal Footprint / Visitor Clarity
+survive only in historical spec artifacts. Root cause never
+fixed: website `openspec/config.yaml` still references the
+org constitution.
 
-The org-level constitution (unbound-force repo) does NOT apply. Root cause: OpenSpec `config.yaml` context block references the org constitution. This was identified and fixed proactively by the 3rd change but recurred because the config wasn't updated.
-
-## Verify-Against-Source Discipline
-
-Documentation claims MUST be verified against source code:
+### Verify-Against-Source Discipline
 
 | Claim | Correct Source | Common Mistake |
 |-------|---------------|----------------|
 | API key env var | `ANTHROPIC_API_KEY` | `ANTHROPIC_AUTH_TOKEN` |
 | Gateway service name | `gateway` | `gateway-proxy` |
-| Config precedence | CLI > env > repo > user > defaults | Inverted order |
-| Bedrock credentials | `aws configure export-credentials` | Direct env-var reads |
+| Config precedence | CLI > env > repo > user > defaults (`internal/config/config.go:6`) | Inverted order |
+| Bedrock credentials | `aws configure export-credentials` (`internal/gateway/refresh.go:72-78`) | Direct env-var reads |
 | Homepage content | `content/_index.md` (frontmatter only) | Assuming body content |
-| Stack table location | `content/docs/getting-started/` | Homepage |
+| Stack table location | `content/docs/getting-started/quick-start.md` "## The Stack" | Homepage |
 
-### Source Files Referenced
-- `internal/sandbox/config.go:79`: Gateway placeholder
-- `internal/config/config.go`: Config precedence
-- `internal/gateway/refresh.go`: Bedrock credentials
+LIVE TECH-DEBT signal: the site currently contains the
+`ANTHROPIC_AUTH_TOKEN` / `gateway-proxy` mistakes in 3 files —
+`content/docs/getting-started/devenv-setup.md:184`,
+`content/docs/reference/sandbox.md:287`,
+`content/docs/reference/gateway.md:118`.
 
-## Hugo Conventions
-- Section pages: `_index.md` with `weight: 10` convention
+### Sandbox Credential Model (corrected)
+
+Credential-mount framing removed. Gateway path forwards env
+vars (`ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY=gateway`
+placeholder, `internal/sandbox/config.go:87` — was :79); the
+no-gateway fallback forwards provider keys via `-e` env vars
+(`forwardedEnvVars`). No credential mounts in either path.
+
+### Hugo Conventions
+
+- Homepage: frontmatter-only `content/_index.md` rendered by
+  `layouts/home.html`
+- Section pages: `_index.md`; docs sections `weight: 10`,
+  vision 5, roadmap 6, tutorials 100
 - Sidebar ordering: `config/_default/menus/menus.en.toml`
-- Homepage: frontmatter-only `_index.md` rendered by `layouts/home.html`
 
-## Content Pipeline Efficiency
-- **Batch throughput**: 19 issues + 12 PRs achievable in a single session
-- **Skip full council for validated patterns**: After 3+ blog post reviews confirm consistent findings, skip full review council for that content type
-- **Grep ALL content/ first**: Before writing any spec, search all `content/` for stale patterns (12 instances across 5 files including blog were missed initially)
+### Content Pipeline Efficiency
 
-## Sandbox Documentation
-Two distinct credential paths must not be conflated:
-1. **Gateway path**: No credential mount, gateway handles auth
-2. **Direct-mount fallback**: Credentials mounted into container
+- **Batch throughput**: 19 issues + 12 PRs in a single session
+- **Skip full council for validated patterns** after 3+ blog
+  post reviews confirm consistent findings
+- **Grep ALL content/ first** before writing any spec — 12
+  stale instances across 5 files missed initially
 
 ## History
-- website wrong-constitution (3 files): Recurring critical mistake
+
+- Aug 14 compile: "org constitution does not apply" — FALSE now
+- website wrong-constitution (3 files): recurring critical
+  mistake; `openspec/config.yaml` never updated
 - website verify-against-source: 6 specific claim corrections
-- website sandbox-docs-1: Two credential paths
-- website blog-gateway-credentials-1: Batch throughput patterns
+- website sandbox-docs-1: "two credential paths" framing —
+  historical; credential mounts removed entirely
+- website blog-gateway-credentials-1: batch throughput patterns

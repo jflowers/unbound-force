@@ -1,69 +1,80 @@
 ---
 tier: validated
-compiled_at: 2026-08-14T19:55:27Z
-compiled_by: claude-opus-4-6
-promoted_at: 2026-08-14T20:37:01Z
-promoted_by: jay-flowers
+compiled_at: 2026-10-25T16:40:42Z
+compiled_by: rits/zai-org/glm-5-3
 sources:
   - ci-1
 topic: crapload
-related: di-testability, blast-radius-scope-audit, ci-coverage
 ---
 
-# CRAPload Optimization: testing.Short() and Coverage
+# Crapload
 
-## Current State (August 2026)
+## Current State (October 2026)
 
-CRAPload (Change Risk Anti-Patterns) is gaze's core quality metric. 11 learnings across gaze capture the most impactful optimization discovery: `testing.Short()` guards silently destroy coverage when `gaze crap` runs tests internally.
+CRAPload (Change Risk Anti-Patterns) is gaze's core quality metric. The
+August 2026 compile's central premise has flipped, and two proposed fixes
+never landed on main.
 
-## The Core Problem
+### Premise correction: `gaze crap` no longer runs `-short`
 
-`gaze crap` runs `go test -short -coverprofile` internally. Any test guarded by `testing.Short()` contributes ZERO coverage to the CRAPload calculation. This means functions that ARE well-tested appear to have no coverage.
+`--test-short` is opt-in and defaults FALSE for `gaze crap`; only `gaze
+self-check` defaults to `-short`. Short()-guarded tests now contribute
+coverage to normal CRAPload runs — the August zero-coverage guidance
+described the old default.
 
-## Highest-ROI Fix: Delete Unnecessary Short() Guards
+### Current regression-gating model
 
-The single highest-impact optimization is removing `testing.Short()` guards from tests that don't need them:
+- CI delegates CRAP analysis to the pinned `complytime/org-infra`
+  `reusable_crapload_analysis.yml` (SHA pinned in `ci_crapload.yml`).
+- The reference is a manually committed `.gaze/baseline.json`,
+  regenerated via `make crapload-baseline`.
+- `make crapload-check` compares current vs baseline with a strict `>`
+  (`bc -l`); new functions get a separate threshold.
 
-**Example**: `ResolvePackagePaths` — CRAPload dropped from **81.6 → 10.1** with zero code changes, only 12 lines of `testing.Short()` guards removed. The function's `packages.NeedName` mode runs sub-second and never warranted a guard.
+### Never-merged proposals (do not cite as current)
 
-**Rule**: Only use `testing.Short()` for tests that genuinely take >1 second or require external resources.
+The epsilon-0.5 comparison tolerance and CI-runner baseline regeneration
+exist only on unmerged `origin/036-ci-crap-baseline`; main never contained
+them. Cross-platform coverage divergence (platform-conditional paths)
+remains the documented cause of historical CI CRAP false regressions.
 
-## DI for Heavy-I/O Functions
+### testing.Short() convention
 
-When `testing.Short()` IS warranted (e.g., `packages.Load` doing real filesystem I/O), inject dependencies so tests can use synthetic data WITHOUT the `-short` flag:
-- `packages.Load` CRAPload: 38 → 32 with DI
-- When adding DI to orchestrator functions, inject ALL data-producing internal helpers, not just cross-package ones (e.g., `BuildContractCoverageFunc` needed a 4th field `buildCoverageMapFn`)
+The proposed "no Short() on sub-1s tests" pack rule was never adopted. The
+landed rule is go.md TC-011: guard slow tests (subprocess execution,
+full-module analysis) with `testing.Short()` — guards only for genuinely
+slow tests.
 
-## Decomposition for Complex Functions
+### Verified code-anchored guidance (still TRUE)
 
-High-complexity functions benefit from extraction by distinct concern:
-- `BuildContractCoverageFunc`: complexity 22 → 7
-- `matchContainerUnwrap`: complexity 50 → 8 (but extracted core `traceForwardDataFlow` retained complexity 32)
-- **Expect 60-70% complexity retention in AST analysis cores** — they are inherently complex
-
-## Structural Unreachable Branches
-
-Some functions have structurally unreachable branches that cap coverage regardless of test quality:
-- `isPointerArgStore`: `tracesToParam` Swiss-Army function catches all real SSA cases, capping coverage at 50%
-- Fix: structural decomposition to eliminate dead branches
-
-## Cross-Package Deduplication
-
-Compare similar functions across packages line-by-line:
-- `goprovider.loadTestPackage` had `pkg.Errors` validation that `aireport` lacked = latent bug
-- Consolidating to `goprovider.LoadTestPackage` fixed the bug and reduced maintenance surface
-
-## Technical Gotchas
-- Variadic + deps struct conflict: Go disallows 2 variadic params — absorb `aiMapperFn` into deps struct
-- `parseAndTypeCheck` test helper with `Importer:nil` for AST function testing
-- Bubble Tea `Update` can be tested as a pure function: execute `cmd()`, check `msg` type
-- CI CRAP regressions from cross-platform coverage divergence (platform-conditional paths), not float precision — fix: baseline on CI runner + epsilon ε=0.5
-
-## Convention Pack Candidate
-
-**Proposed rule**: "SHOULD NOT use `testing.Short()` guards on tests that complete in under 1 second. `gaze crap` runs with `-short`, so guarded tests contribute zero coverage."
+- Cross-package deduplication: `goprovider.LoadTestPackage` is exported,
+  validates `pkg.Errors`, and is reused by aireport; consolidation fixed
+  a latent bug (aireport's copy lacked validation).
+- DI for heavy-I/O orchestrators: `contractCoverageDeps` carries 4
+  injectable fields including `buildCoverageMapFn` and `aiMapperFn`.
+  Inject ALL data-producing internal helpers. Gotcha: Go disallows two
+  variadic params — absorb `aiMapperFn` into the deps struct.
+- AST testing: `parseAndTypeCheck` with `Importer:nil` tests AST-walking
+  functions without full type resolution.
+- Bubble Tea: `Update` tests as a pure function — execute the returned
+  `cmd()`, then assert on the `msg` type.
+- Structural dead branches: `isPointerArgStore`'s `tracesToParam`
+  Swiss-Army helper catches all real SSA cases, capping coverage at
+  ~50%; fix via structural decomposition.
 
 ## History
-- gaze crapload-* series (yvonne-devlin, 9 files): Core Short() discovery and DI patterns
-- unbound-force ci-1: CI CRAP regression analysis
-- gaze ci-gate-integrity: *int for nil-vs-zero distinction
+
+- 11 gaze crapload learnings (yvonne-devlin); the August compile's
+  history line said 9 — its own intro already said 11.
+- Point-in-time metrics from the Short()-guard discovery (historical
+  data, not current measurements):
+  - `ResolvePackagePaths`: CRAPload 81.6 → 10.1 after removing 12 lines
+    of Short() guards (sub-second `packages.NeedName` mode).
+  - `packages.Load`: 38 → 32 with DI — genuinely slow filesystem I/O
+    where injection, not guard removal, applies.
+  - `BuildContractCoverageFunc`: complexity 22 → 7 via extraction.
+  - `matchContainerUnwrap`: 50 → 8; extracted core `traceForwardDataFlow`
+    retained 32. Expect 60-70% complexity retention in AST cores.
+- unbound-force ci-1: CI CRAP regression analysis; root cause was
+  cross-platform coverage divergence, not float precision.
+- gaze ci-gate-integrity: `*int` for nil-vs-zero distinction.

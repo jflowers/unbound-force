@@ -1,52 +1,88 @@
 ---
-tier: draft
-compiled_at: 2026-08-14T19:56:05Z
-compiled_by: claude-opus-4-6
+tier: validated
+compiled_at: 2026-10-25T16:41:31Z
+compiled_by: rits/zai-org/glm-5-3
 sources:
   - ci-1
 topic: remote-llm-provider
 ---
 
-# Remote LLM Provider Integration
+# Remote LLM Provider
 
-## Current State (August 2026)
+## Current State (October 2026)
 
-The remote LLM provider system enables pluggable synthesis backends (Vertex AI, Bedrock, Anthropic) for Dewey's compilation pipeline. 5 learnings capture architectural decisions and security patterns.
+The `llm` package is Dewey's pluggable synthesis layer for the
+compile pipeline. Supported providers are **ollama + vertex only**
+(`llm/provider.go`); Bedrock and Anthropic never shipped — the
+August article's provider trio was wrong.
 
-## Architecture
+### Factory
 
-### Factory Pattern
-`NewSynthesizer()` factory with config struct supporting:
-- File YAML configuration
-- Environment variable override
-- Legacy fallback
-- Returns `(*Synthesizer, error)` — unknown provider must return error (caught by spec review, 4/5 reviewers)
+`NewSynthesizerFromConfig(cfg ProviderConfig) (Synthesizer, error)`
+(`llm/provider.go:33-52`) dispatches on `cfg.Provider`:
+- `"ollama"` or empty — endpoint defaults to
+  `embed.DefaultOllamaEndpoint`
+- `"vertex"` — requires Project and Region
+- anything else — error naming the supported set
 
-### Leaf-Dependency Constraint
-The synthesizer package is constrained to stdlib + `charmbracelet/log` only. No external LLM SDK dependencies allowed — all provider communication via HTTP/REST.
+### Configuration precedence
 
-## Security Patterns
+`ReadSynthesisConfig(deweyDir)` (`llm/config.go`), highest to lowest:
+1. Per-vault `{deweyDir}/config.yaml` `synthesis:` section
+2. Per-vault legacy `compile_model` field (implies ollama)
+3. Global `~/.config/dewey/config.yaml` synthesis section
+4. `DEWEY_GENERATION_MODEL` env var (implies ollama)
+5. Zero config — no synthesizer; compile runs prompt-only
 
-### Credential Handling
-- `maskKey()` shows only last 4 characters of API keys
-- `Available()` semantics differ by provider type: credential-presence for remote, network connectivity for local (Decision D8)
-- Response body size limits enforced (spec review finding)
-- Error-path test coverage required (spec review finding)
+`DEWEY_GENERATION_MODEL` is the lowest-priority fallback and does
+NOT override config files (unlike embedding env vars). Endpoint
+resolution is separate: `DEWEY_SYNTHESIS_ENDPOINT` > `OLLAMA_HOST`.
 
-### Constitutional Decision (D7)
-Tension between "no data leaves the machine" principle and remote LLM needs. Resolution: synthesis is opt-in enhancement (user explicitly configures remote provider), embeddings remain core (local-only via Ollama granite-embedding:30m).
+### Dependency constraint
 
-### Credential Acquisition
-Prefer `gcloud` shell-out (`os/exec`, injectable `ExecCommandFunc`, `sync.RWMutex` double-check cache) over manual `DEWEY_VERTEX_ACCESS_TOKEN` environment variable. Tokens expire ~1hr, making env vars a UX anti-pattern for long-running `dewey serve` sessions.
+Leaf package: stdlib, `charmbracelet/log`, `golang.org/x/oauth2`,
+`gopkg.in/yaml.v3`, plus the internal `embed` package. Still no LLM
+SDK — all provider communication is direct HTTP/REST.
 
-## Spec Review Impact
-6 HIGH issues caught before implementation:
-1. Unknown-provider error handling (factory returns error)
-2. Credential logging prevention
-3. Response body size limits
-4. `Available()` semantics clarification
-5. Error-path test coverage
-6. Constitutional interpretation for data sovereignty
+### Backends
+
+- Ollama: POST `/api/generate` (stream=false), 120s timeout.
+- Vertex: rawPredict with Anthropic Messages format (design D4;
+  tested with claude-opus-4-6), 300s timeout, 16000 max tokens, up
+  to 5 retries on HTTP 429 with backoff plus jitter.
+- Vertex credentials via `google.FindDefaultCredentials` (ADC
+  library, no gcloud shell-out, no CGO) with injectable `tokenFn`
+  (`vertex.go:44,109-119`) for testability.
+
+### Available() semantics (Decision D8)
+
+- Remote (vertex): credential presence — a 5s-bounded `tokenFn`
+  probe, cached 30s behind `sync.RWMutex` double-check.
+- Local (ollama): GET `/api/tags` reachability plus model presence,
+  cached 30s. `NoopSynthesizer` is the exported test double.
+
+### Security
+
+Response bodies capped at 50MB via `io.LimitReader` (`llm.go:170,245`,
+`vertex.go:188`). Tokens go only into Authorization headers;
+`maskKey()` never existed in any reachable branch (August phantom).
+
+### Embeddings
+
+Embeddings now also support a Vertex backend (`embed/provider.go:8`,
+`NewEmbedderFromConfig`), with Ollama `granite-embedding:30m`
+remaining the default. Synthesis is opt-in (Decision D7): nothing
+leaves the machine unless a remote provider is explicitly
+configured — relevant to long-running `dewey serve` sessions.
 
 ## History
-- remote-llm-provider (5 files): Factory pattern, security, constitutional tension, credential acquisition
+
+- **D7/D8**: opt-in remote synthesis resolved the "no data leaves
+  the machine" tension; Available() semantics split by provider type.
+- **Spec review**: 6 HIGH findings — unknown-provider errors,
+  credential-logging prevention, body size limits, Available()
+  clarity, error-path tests, data-sovereignty ruling.
+- **August 2026 compile drift**: claimed Vertex/Bedrock/Anthropic,
+  `NewSynthesizer()`, env-var override, `maskKey()`, and gcloud
+  shell-out credentials — corrected above per the October 2026
+  audit (learnings-review-2026-10.md, F6).
