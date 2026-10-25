@@ -777,20 +777,32 @@ from the pre-flight gate below):
 
 Run the `pre-flight` skill in `hard-gate` mode — the
 quick-tier equivalent of the phase checkpoint and the
-tier's only blocking build/test gate. If any check fails,
-run the build/test fix loop (defined below the
-classification contract in this step) before exiting.
-If a check still fails after the loop's 3 iterations,
+tier's only blocking build/test gate. If any check
+fails, classify every failure by causality before
+acting (the classification contract below): only
+`change-caused` or unknown-origin failures enter the
+build/test fix loop (defined below the classification
+contract in this step); `pre-existing` and
+`environmental` failures never enter the loop — record
+them in the checkpoint inventory and treat the gate as
+green over them, mirroring the phase checkpoint's
+inventory rule. If a check still fails after the loop's 3 iterations,
 **EXIT** by calling `format_unleash_exit` with variant
 `implement-phase-checkpoint`, `phase: 1`, the failed
-command, and its output. On success (initially or after
-fix-loop repairs), record the gate result durably by
-calling the `checkpoint` tool:
+command, and its output. On success (initially or
+after fix-loop repairs), record the gate result
+durably by calling the `checkpoint` tool:
 
 ```
 checkpoint
   command: "uf.unleash"
   step: "quick-pre-flight"
+  data:
+    iteration: [fix-loop iterations used, 0 if the
+                loop never ran]
+    inventory:
+      - name: [failing check]
+        classification: pre-existing | environmental
 ```
 
 On failure, emit the envelope's error and **STOP**. Then
@@ -925,21 +937,32 @@ each iteration (up to 3 total):
 3. If the gate now passes: the calling gate proceeds as
    green -- a phase checkpoint re-records its verdict as
    `"green"` (superseding the `"failed"` record, with
-   the inventory carrying forward), the quick gate
-   records its `quick-pre-flight` checkpoint, and Step 6
-   proceeds to its dispatch.
+   the inventory and iteration count carrying forward),
+   the quick gate records its `quick-pre-flight`
+   checkpoint (same fields), and Step 6 proceeds to its
+   dispatch.
 
-4. If checks still fail: keep the iteration counter. At
-   3 iterations exhausted, the calling gate takes its
-   exit path unchanged (the `implement-phase-checkpoint`
-   exit for both implement gates, the
-   `code-review-preflight` exit for Step 6).
+4. If checks still fail: keep the iteration counter in
+   the calling gate's durable checkpoint data — the
+   phase checkpoint's `iteration` field or the quick
+   gate's `data.iteration` — incrementing it after
+   every delegated attempt. At 3 iterations exhausted
+   (total across sessions, never reset by a resume),
+   the calling gate takes its exit path unchanged (the
+   `implement-phase-checkpoint` exit for both
+   implement gates, the `code-review-preflight` exit
+   for Step 6).
 
 Pre-existing and environmental failures never enter the
 loop. A recorded `phases["<N>"]` verdict of `"failed"`
 on resume means the loop re-enters -- the exit fires
 only at exhaustion, and the resume guard's never-re-run
-rule applies only to `"green"` verdicts.
+rule applies only to `"green"` verdicts. On re-entry
+the loop continues from the recorded iteration count:
+the budget is 3 delegated attempts total across
+sessions, never 3 more per resume. The quick gate reads
+its spent budget the same way, from the
+`quick-pre-flight` checkpoint data.
 
 **For each phase in tasks.md**:
 
@@ -1154,6 +1177,8 @@ rule applies only to `"green"` verdicts.
        phase:
          number: [N]
          verdict: "green" | "failed"
+         iteration: [fix-loop iterations used so far, 0
+                     if the loop never ran]
          inventory:
            - name: [failing check]
              classification: pre-existing | environmental
@@ -1164,7 +1189,11 @@ rule applies only to `"green"` verdicts.
      every failure was classified `pre-existing` or
      `environmental` (inventory carries those entries);
      otherwise `"failed"` (inventory carries every
-     classified failure).
+     classified failure). `iteration` is the durable
+     fix-loop budget: record it on every checkpoint,
+     increment it after each delegated fix attempt, and
+     read it back on resume so the 3-iteration budget
+     spans sessions rather than resetting per resume.
 
    - If green: proceed to the next phase.
    - If failed: run the build/test fix loop (above)

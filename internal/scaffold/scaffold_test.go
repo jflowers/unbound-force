@@ -483,7 +483,13 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		if !strings.Contains(implementStep, "prompt:") {
 			t.Error("implement step delegation missing prompt-only call shape")
 		}
-		if strings.Contains(implementStep, "command_path:") {
+		// Scope the prompt-only negative to the per-task
+		// delegation block so prose mentions of the
+		// `command_path` parameter elsewhere in the step
+		// cannot trip it; the Step 5 fix loop's call site
+		// carries its own dedicated pin above.
+		perTaskDelegation := between(t, command, "Sequential execution", "Parallel execution")
+		if strings.Contains(perTaskDelegation, "command_path:") {
 			t.Error("implement step per-task delegation must be prompt-only (no command_path)")
 		}
 		if strings.Contains(implementStep, "via the Task tool") {
@@ -821,10 +827,16 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	})
 
 	// Pin: failing checks at blocking gates route through the
-	// build/test fix loop before any exit fires.
+	// build/test fix loop before any exit fires. Each wiring
+	// site carries a distinct phrase so deleting either one
+	// fails this subtest (span-machinery intent: one distinct
+	// phrase per wiring site).
 	t.Run("blocking gates run the build/test fix loop before exiting", func(t *testing.T) {
-		if !strings.Contains(implementExecution, "build/test fix loop") {
-			t.Error("implement step missing the build/test fix loop")
+		if !strings.Contains(implementExecution, "build/test fix loop (defined below the") {
+			t.Error("quick-tier pre-flight gate missing the build/test fix loop wiring")
+		}
+		if !strings.Contains(implementExecution, "build/test fix loop (above)") {
+			t.Error("phase checkpoint missing the build/test fix loop wiring")
 		}
 		for _, param := range []string{
 			"up to 3 total",
@@ -834,8 +846,44 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 				t.Errorf("implement fix loop missing %s parameter", param)
 			}
 		}
-		if !strings.Contains(codeReviewStep, "build/test fix loop") {
-			t.Error("code review preflight missing the build/test fix loop")
+		if !strings.Contains(codeReviewStep, "build/test fix loop (defined in Step 5)") {
+			t.Error("code review preflight missing the build/test fix loop wiring")
+		}
+	})
+
+	// Pin: the fix-loop iteration budget is durable -- recorded
+	// in gate checkpoint data and continued on resume, never
+	// reset per session.
+	t.Run("fix loop iteration budget survives resume", func(t *testing.T) {
+		for _, param := range []string{
+			"iteration: [fix-loop iterations",
+			"total across sessions",
+		} {
+			if !strings.Contains(implementExecution, param) {
+				t.Errorf("implement fix loop missing durable iteration budget wiring: %s", param)
+			}
+		}
+	})
+
+	// Pin: the Step 5 build/test fix loop delegates through
+	// uf_delegate_command with the prompt-only, classified call
+	// shape (mirrors the Step 6 fix-loop delegation pin above).
+	t.Run("build/test fix loop delegates through uf_delegate_command", func(t *testing.T) {
+		buildTestFixLoop := between(t, command, "**Build/test fix loop**", "**For each phase in tasks.md**")
+		if !strings.Contains(buildTestFixLoop, "uf_delegate_command") {
+			t.Error("build/test fix loop missing uf_delegate_command delegation")
+		}
+		if !strings.Contains(buildTestFixLoop, "prompt:") {
+			t.Error("build/test fix loop delegation missing prompt-only call shape")
+		}
+		if !strings.Contains(buildTestFixLoop, "task_classification:") {
+			t.Error("build/test fix loop delegation missing task_classification contract")
+		}
+		if strings.Contains(buildTestFixLoop, "command_path:") {
+			t.Error("build/test fix loop delegation must be prompt-only (no command_path)")
+		}
+		if strings.Contains(buildTestFixLoop, "via the Task tool") {
+			t.Error("build/test fix loop still delegates via the Task tool")
 		}
 	})
 
