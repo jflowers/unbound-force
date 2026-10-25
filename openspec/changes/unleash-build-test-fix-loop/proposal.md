@@ -30,16 +30,18 @@ exiting:
   call), then deterministically re-running the exact
   pre-flight commands in the calling gate's mode.
 - **Durable iteration budget** — the 3-iteration count is
-  recorded in the calling gate's checkpoint data (the phase
-  checkpoint's `iteration` field or the quick gate's
-  `data.iteration`), incremented after every delegated
-  attempt, and read back on resume. The budget is 3 total
-  across sessions, never 3 more per resume.
+  recorded in the calling gate's checkpoint data as
+  gate-distinct free-form `data` keys (the phase
+  checkpoint's `data.fixLoopPhase[N]` key, the quick
+  gate's `data.fixLoopQuick`, or Step 6's
+  `data.fixLoopPreflight`), incremented after every
+  delegated attempt, and read back on resume. The budget
+  is 3 total across sessions, never 3 more per resume.
 - **Green supersession** — a phase checkpoint whose loop
   succeeds re-records its verdict as `"green"` (superseding
-  the `"failed"` record; inventory and iteration count carry
-  forward); the quick gate records `quick-pre-flight`; Step
-  6 proceeds to its dispatch.
+  the `"failed"` record; inventory and the gate's data key
+  carry forward); the quick gate records `quick-pre-flight`;
+  Step 6 proceeds to its dispatch.
 - **Unchanged exits** — each gate still exits through its
   unchanged `format_unleash_exit` variant once change-caused
   checks persist past the budget's 3 total iterations.
@@ -71,7 +73,8 @@ capability)
 - `.opencode/commands/uf.unleash.md`: quick-gate entry
   classification wiring, the fix-loop block (delegation
   template, re-run, supersession, durable budget, resume
-  semantics), and the phase-checkpoint `iteration` field.
+  semantics), and the phase-checkpoint `data.fixLoopPhase[N]`
+  budget key.
 - `internal/scaffold/assets/opencode/commands/uf.unleash.md`:
   byte-identical scaffold mirror (TC-007).
 - `internal/scaffold/scaffold_test.go`: scaffold pins —
@@ -85,6 +88,10 @@ capability)
   companion) and unbound-force/website#322 (cross-repo
   tracking) per the AGENTS.md documentation gate and the
   constitution Cross-Repo Documentation rule.
+- Content coverage: blog assessed — no (a behavior
+  enhancement below the content-pipeline thresholds); tutorial
+  assessed — no (no new manual workflow; the vocabulary is
+  tracked by website#322).
 - Retroactive note: implementation landed on PR #815 ahead
   of these artifacts; this change records the planning
   decision retroactively before merge, per review feedback

@@ -885,15 +885,22 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	})
 
 	// Pin: the fix-loop iteration budget is durable -- recorded
-	// in each gate's checkpoint data and continued on resume,
-	// never reset per session. Each store site carries a
-	// distinct contiguous phrase so deleting any one store
-	// fails this subtest.
+	// in each gate's checkpoint data as a gate-distinct free-form
+	// data key and continued on resume, never reset per session.
+	// Each store site carries a distinct contiguous phrase so
+	// deleting any one store fails this subtest. The seam pin
+	// ("iteration:" absent) keeps the count on the free-form data
+	// keys: the checkpoint tool persists only number, verdict, and
+	// inventory from the structured phase object.
 	t.Run("fix loop iteration budget survives resume", func(t *testing.T) {
 		for _, param := range []string{
-			// quick-gate checkpoint data field
+			// quick-gate checkpoint data key
+			"fixLoopQuick",
+			// quick-gate budget phrasing
 			"iterations used, 0 if the",
-			// phase-checkpoint schema field
+			// phase-checkpoint data key
+			"fixLoopPhase[N]",
+			// phase-checkpoint budget phrasing
 			"iterations used so far",
 			// resume rule (loop block)
 			"never 3 more per resume",
@@ -904,8 +911,17 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 				t.Errorf("implement fix loop missing durable iteration budget wiring: %s", param)
 			}
 		}
-		if !strings.Contains(codeReviewStep, "3-attempt budget spans sessions") {
-			t.Error("step 6 preflight missing durable iteration budget wiring")
+		if strings.Contains(implementExecution, "iteration:") {
+			t.Error("fix-loop budget must ride the free-form data keys, not the structured phase object (checkpoint tool drops undeclared phase fields)")
+		}
+		for _, param := range []string{
+			// Step 6 preflight data key and durability phrasing
+			"fixLoopPreflight",
+			"3-attempt budget spans sessions",
+		} {
+			if !strings.Contains(codeReviewStep, param) {
+				t.Errorf("step 6 preflight missing durable iteration budget wiring: %s", param)
+			}
 		}
 	})
 

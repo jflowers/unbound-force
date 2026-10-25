@@ -54,17 +54,24 @@ checkpoint exists, so it cannot inherit the phase
 checkpoint's classification rule by reference. The gate
 entry text wires the classification contract directly and
 its `quick-pre-flight` checkpoint record gains
-`data.iteration` and `data.inventory` fields mirroring the
+`data.fixLoopQuick` and `data.inventory` fields mirroring the
 phase checkpoint's.
 
 ### D3: The iteration budget is durable checkpoint state
 
-The count lives in the calling gate's checkpoint data — the
-phase checkpoint's `iteration` field or the quick gate's
-`data.iteration` — following the precedent of the two
+The count lives in the calling gate's checkpoint data as a
+gate-distinct free-form `data` key — the phase checkpoint's
+`data.fixLoopPhase[N]` key, the quick gate's
+`data.fixLoopQuick`, or Step 6's `data.fixLoopPreflight` —
+following the precedent of the two
 pre-existing bounded loops (Step 4 spec-review decision
 gate and Step 6 code-review fix loop both checkpoint
-`iteration`). A resumed session reads the spent budget and
+their counters). The keys ride the free-form `data`
+parameter because the checkpoint tool persists only
+`number`, `verdict`, and `inventory` from the structured
+`phase` object; top-level distinct keys avoid the
+state-global `data` merge colliding across gates. A
+resumed session reads the spent budget and
 continues toward the same 3-total cap rather than
 resetting. Conversation-scoped counters were rejected: the
 resume guard re-enters the loop on a recorded `"failed"`
@@ -83,7 +90,7 @@ pre-flight commands in the calling gate's mode.
 
 A phase checkpoint whose loop succeeds re-records verdict
 `"green"`, superseding the `"failed"` record with the
-inventory and iteration count carrying forward. Exhaustion
+inventory and the gate's data key carrying forward. Exhaustion
 takes the gate's existing exit path unchanged. Rationale:
 the exit variants, guardrails list, and downstream
 consumers (resume detection, finale) keep their contracts.

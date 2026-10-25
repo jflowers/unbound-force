@@ -22,11 +22,13 @@
   and the 3-iteration cap. Files:
   `.opencode/commands/uf.unleash.md`
 - [x] 1.3 Make the iteration budget durable: record the
-  count in the calling gate's checkpoint data (phase
-  checkpoint `iteration` field; quick gate
-  `data.iteration`), increment after each delegated
-  attempt, read back on resume; budget is 3 total across
-  sessions. Files: `.opencode/commands/uf.unleash.md`
+  count in the calling gate's checkpoint data as
+  gate-distinct free-form `data` keys (phase checkpoint
+  `data.fixLoopPhase[N]`; quick gate `data.fixLoopQuick`;
+  Step 6 `data.fixLoopPreflight`), increment after each
+  delegated attempt, read back on resume; budget is 3
+  total across sessions. Files:
+  `.opencode/commands/uf.unleash.md`
 - [x] 1.4 Mirror the command byte-identical to the scaffold
   asset (TC-007). File:
   `internal/scaffold/assets/opencode/commands/uf.unleash.md`
@@ -38,14 +40,19 @@
   below the", phase checkpoint "build/test fix loop
   (above)", Step 6 "build/test fix loop (defined in Step
   5)". File: `internal/scaffold/scaffold_test.go`
-- [x] 2.2 Pin the durable iteration budget wiring
-  ("iteration: [fix-loop iterations", "total across
-  sessions"). File: `internal/scaffold/scaffold_test.go`
+- [x] 2.2 Pin the durable iteration budget wiring with
+  per-site phrases ("iterations used, 0 if the",
+  "iterations used so far", "never 3 more per resume",
+  "read it back on resume", "3-attempt budget spans
+  sessions") and the gate-distinct data keys
+  ("fixLoopQuick", "fixLoopPhase[N]", "fixLoopPreflight");
+  assert no "iteration:" field rides the structured
+  phase object. File: `internal/scaffold/scaffold_test.go`
 - [x] 2.3 Pin the fix-loop delegation shape in a dedicated
   span (uf_delegate_command present, "prompt:" present,
   "task_classification:" present, "command_path:" absent,
-  "via the Task tool" absent). File:
-  `internal/scaffold/scaffold_test.go`
+  "checkpoint_step:" absent, "via the Task tool" absent).
+  File: `internal/scaffold/scaffold_test.go`
 - [x] 2.4 Scope the per-task delegation `command_path:`
   negative to its own subsection span so prose token
   mentions cannot trip it. File:

@@ -799,8 +799,8 @@ checkpoint
   command: "uf.unleash"
   step: "quick-pre-flight"
   data:
-    iteration: [fix-loop iterations used, 0 if the
-                loop never ran]
+    fixLoopQuick: [fix-loop iterations used, 0 if the
+                   loop never ran]
     inventory:
       - name: [failing check]
         classification: pre-existing | environmental
@@ -909,6 +909,10 @@ unknown-origin failures enter the loop;
 enter it -- the calling gate records them in its
 checkpoint inventory and treats itself as green over
 them (the phase checkpoint's inventory match rule).
+When the baseline comparison cannot be established --
+`hard-gate` pre-flight mode runs checks without a
+classification phase -- classify the failure as
+`change-caused` (fail closed into the loop).
 
 For each iteration (up to 3 total):
 
@@ -951,16 +955,16 @@ For each iteration (up to 3 total):
 3. If the gate now passes: the calling gate proceeds as
    green -- a phase checkpoint re-records its verdict as
    `"green"` (superseding the `"failed"` record, with
-   the inventory and iteration count carrying forward),
-   the quick gate records its `quick-pre-flight`
-   checkpoint (same fields), and Step 6 proceeds to its
-   dispatch.
+   the inventory carrying forward and the gate's data
+   key recording the spent budget), the quick gate
+   records its `quick-pre-flight` checkpoint (same
+   fields), and Step 6 proceeds to its dispatch.
 
 4. If checks still fail: keep the iteration counter in
    the calling gate's durable checkpoint data — the
-   phase checkpoint's `iteration` field, the quick
-   gate's `data.iteration`, or Step 6's
-   `code-review-preflight` data — incrementing it after
+   phase checkpoint's `data.fixLoopPhase[N]` key, the
+   quick gate's `data.fixLoopQuick`, or Step 6's
+   `data.fixLoopPreflight` — incrementing it after
    every delegated attempt. At 3 iterations exhausted
    (total across sessions, never reset by a resume),
    the calling gate takes its exit path unchanged (the
@@ -976,9 +980,9 @@ rule applies only to `"green"` verdicts. On re-entry
 the loop continues from the recorded iteration count:
 the budget is 3 delegated attempts total across
 sessions, never 3 more per resume. The quick gate reads
-its spent budget the same way, from the
-`quick-pre-flight` checkpoint data, and Step 6 from its
-`code-review-preflight` checkpoint data.
+its spent budget the same way, from its
+`data.fixLoopQuick` key, and Step 6 from its
+`data.fixLoopPreflight` key.
 
 **For each phase in tasks.md**:
 
@@ -1193,23 +1197,29 @@ its spent budget the same way, from the
        phase:
          number: [N]
          verdict: "green" | "failed"
-         iteration: [fix-loop iterations used so far, 0
-                     if the loop never ran]
          inventory:
            - name: [failing check]
              classification: pre-existing | environmental
                             | change-caused
+       data:
+         fixLoopPhase[N]: [fix-loop iterations used so far, 0
+                           if the loop never ran]
      ```
 
      `verdict` is `"green"` when every check passed or
      every failure was classified `pre-existing` or
      `environmental` (inventory carries those entries);
      otherwise `"failed"` (inventory carries every
-     classified failure). `iteration` is the durable
-     fix-loop budget: record it on every checkpoint,
-     increment it after each delegated fix attempt, and
-     read it back on resume so the 3-iteration budget
-     spans sessions rather than resetting per resume.
+     classified failure). The iteration count rides the
+     free-form `data` parameter as the gate-distinct
+     `fixLoopPhase[N]` key -- the checkpoint tool
+     persists only `number`, `verdict`, and `inventory`
+     from the structured `phase` object, while `data`
+     round-trips through `get_progress` -- so record it
+     on every checkpoint, increment it after each
+     delegated fix attempt, and read it back on resume
+     so the 3-iteration budget spans sessions rather
+     than resetting per resume.
 
    - If green: proceed to the next phase.
    - If failed: run the build/test fix loop (above)
@@ -1286,7 +1296,7 @@ text.
      plus soft-gate re-run with re-classification. The
      iteration count is durable: record it via the
      `checkpoint` tool (command `uf.unleash`, step
-     `code-review-preflight`, data `{"iteration": N}`)
+     `code-review-preflight`, data `{"fixLoopPreflight": N}`)
      after every delegated attempt and read it back on
      resume, so the 3-attempt budget spans sessions. If
      the failures persist after 3 iterations, STOP

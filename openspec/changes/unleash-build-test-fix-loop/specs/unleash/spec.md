@@ -57,33 +57,34 @@ remaining failures.
 ### Requirement: Durable cross-session iteration budget
 
 The fix-loop iteration count MUST be recorded in the
-calling gate's durable checkpoint data — the phase
-checkpoint's `iteration` field, the quick gate's
-`data.iteration`, or Step 6's `code-review-preflight`
-data — incremented after every delegated
+calling gate's durable checkpoint data as a gate-distinct
+free-form `data` key — the phase checkpoint's
+`data.fixLoopPhase[N]` key, the quick gate's
+`data.fixLoopQuick`, or Step 6's `data.fixLoopPreflight`
+— incremented after every delegated
 attempt, and read back on resume. The budget MUST be 3
 delegated attempts total across sessions; a resumed session
 MUST continue from the recorded count and MUST NOT receive
 a fresh budget. A phase checkpoint whose loop succeeds MUST
 re-record its verdict as `"green"`, superseding the
-`"failed"` record, with the inventory and iteration count
-carrying forward. Once the budget is exhausted, the gate
+`"failed"` record, with the inventory and the gate's data
+key carrying forward. Once the budget is exhausted, the gate
 MUST take its existing exit path unchanged.
 
 #### Scenario: Loop success supersedes the failed record
 
 - **GIVEN** a phase checkpoint recorded with verdict
-  `"failed"` and iteration count 2
+  `"failed"` and `data.fixLoopPhase2` = 2
 - **WHEN** the third delegated attempt repairs the failure
   and the pre-flight re-run passes
 - **THEN** the phase checkpoint re-records verdict `"green"`
-- **AND** the inventory and iteration count carry forward
-  into the superseding record
+- **AND** the inventory and the gate's data key carry
+  forward into the superseding record
 
 #### Scenario: Resume continues the spent budget
 
 - **GIVEN** a recorded `phases["2"]` verdict of `"failed"`
-  with iteration count 3
+  with `data.fixLoopPhase2` = 3
 - **WHEN** a resumed session re-enters the loop
 - **THEN** the budget is exhausted and the gate takes its
   exit path
