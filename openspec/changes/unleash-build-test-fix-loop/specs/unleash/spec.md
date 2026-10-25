@@ -58,8 +58,9 @@ remaining failures.
 
 The fix-loop iteration count MUST be recorded in the
 calling gate's durable checkpoint data — the phase
-checkpoint's `iteration` field or the quick gate's
-`data.iteration` — incremented after every delegated
+checkpoint's `iteration` field, the quick gate's
+`data.iteration`, or Step 6's `code-review-preflight`
+data — incremented after every delegated
 attempt, and read back on resume. The budget MUST be 3
 delegated attempts total across sessions; a resumed session
 MUST continue from the recorded count and MUST NOT receive

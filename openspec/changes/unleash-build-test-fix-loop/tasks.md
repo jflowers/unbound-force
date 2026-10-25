@@ -65,5 +65,5 @@
 
 ## 4. Verification
 
-- [x] 4.1 `go test ./internal/scaffold/ -count=1` green
+- [x] 4.1 `go test -race -count=1 ./internal/scaffold/` green
   (mirror drift + new pins).

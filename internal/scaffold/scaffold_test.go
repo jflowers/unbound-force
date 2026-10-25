@@ -487,13 +487,39 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		// delegation block so prose mentions of the
 		// `command_path` parameter elsewhere in the step
 		// cannot trip it; the Step 5 fix loop's call site
-		// carries its own dedicated pin above.
+		// carries its own dedicated pin below.
 		perTaskDelegation := between(t, command, "Sequential execution", "Parallel execution")
 		if strings.Contains(perTaskDelegation, "command_path:") {
 			t.Error("implement step per-task delegation must be prompt-only (no command_path)")
 		}
 		if strings.Contains(implementStep, "via the Task tool") {
 			t.Error("implement step still delegates via the Task tool")
+		}
+	})
+
+	// Pin: the quick tier's whole-change delegation is a
+	// third prompt-only call site (outside both the per-task
+	// and fix-loop spans), so it carries a dedicated shape
+	// pin rather than relying on span-wide negatives.
+	t.Run("quick-tier whole-change delegation is prompt-only", func(t *testing.T) {
+		quickTierDelegation := between(t, command, "an unclassified prompt-only call fails closed", "tier's only blocking build/test gate")
+		if !strings.Contains(quickTierDelegation, "uf_delegate_command") {
+			t.Error("quick-tier delegation missing uf_delegate_command")
+		}
+		if !strings.Contains(quickTierDelegation, "prompt:") {
+			t.Error("quick-tier delegation missing prompt-only call shape")
+		}
+		if !strings.Contains(quickTierDelegation, "task_classification:") {
+			t.Error("quick-tier delegation missing task_classification contract")
+		}
+		if !strings.Contains(quickTierDelegation, `checkpoint_step: "implement"`) {
+			t.Error("quick-tier delegation missing its implement checkpoint step")
+		}
+		if strings.Contains(quickTierDelegation, "command_path:") {
+			t.Error("quick-tier delegation must be prompt-only (no command_path)")
+		}
+		if strings.Contains(quickTierDelegation, "via the Task tool") {
+			t.Error("quick-tier delegation still delegates via the Task tool")
 		}
 	})
 
@@ -839,8 +865,15 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 			t.Error("phase checkpoint missing the build/test fix loop wiring")
 		}
 		for _, param := range []string{
+			// causality filter at gate entry
+			"classify every failure by causality",
+			"never enter the loop",
+			// loop cap and exhaustion phrase
 			"up to 3 total",
 			"If a check still fails after the loop's 3 iterations",
+			// deterministic re-run and green supersession
+			"re-run the exact",
+			"superseding",
 		} {
 			if !strings.Contains(implementExecution, param) {
 				t.Errorf("implement fix loop missing %s parameter", param)
@@ -852,16 +885,27 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	})
 
 	// Pin: the fix-loop iteration budget is durable -- recorded
-	// in gate checkpoint data and continued on resume, never
-	// reset per session.
+	// in each gate's checkpoint data and continued on resume,
+	// never reset per session. Each store site carries a
+	// distinct contiguous phrase so deleting any one store
+	// fails this subtest.
 	t.Run("fix loop iteration budget survives resume", func(t *testing.T) {
 		for _, param := range []string{
-			"iteration: [fix-loop iterations",
-			"total across sessions",
+			// quick-gate checkpoint data field
+			"iterations used, 0 if the",
+			// phase-checkpoint schema field
+			"iterations used so far",
+			// resume rule (loop block)
+			"never 3 more per resume",
+			// phase-checkpoint durability prose
+			"read it back on resume",
 		} {
 			if !strings.Contains(implementExecution, param) {
 				t.Errorf("implement fix loop missing durable iteration budget wiring: %s", param)
 			}
+		}
+		if !strings.Contains(codeReviewStep, "3-attempt budget spans sessions") {
+			t.Error("step 6 preflight missing durable iteration budget wiring")
 		}
 	})
 
@@ -881,6 +925,9 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		}
 		if strings.Contains(buildTestFixLoop, "command_path:") {
 			t.Error("build/test fix loop delegation must be prompt-only (no command_path)")
+		}
+		if strings.Contains(buildTestFixLoop, "checkpoint_step:") {
+			t.Error("build/test fix loop delegation must be prompt-only (no checkpoint_step)")
 		}
 		if strings.Contains(buildTestFixLoop, "via the Task tool") {
 			t.Error("build/test fix loop still delegates via the Task tool")

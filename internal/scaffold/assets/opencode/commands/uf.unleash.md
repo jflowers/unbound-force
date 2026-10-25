@@ -779,10 +779,11 @@ Run the `pre-flight` skill in `hard-gate` mode — the
 quick-tier equivalent of the phase checkpoint and the
 tier's only blocking build/test gate. If any check
 fails, classify every failure by causality before
-acting (the classification contract below): only
+acting (the causality classification contract that
+opens the fix loop below): only
 `change-caused` or unknown-origin failures enter the
-build/test fix loop (defined below the classification
-contract in this step); `pre-existing` and
+build/test fix loop (defined below the causality
+classification contract); `pre-existing` and
 `environmental` failures never enter the loop — record
 them in the checkpoint inventory and treat the gate as
 green over them, mirroring the phase checkpoint's
@@ -895,8 +896,21 @@ choice, mirroring the Step 6 code-review fix loop. When
 the quick-tier pre-flight gate or a phase checkpoint
 below reports a failing check, or Step 6's pre-flight
 soft gate reports a branch-caused (or unknown) failure,
-run this loop before that gate takes its exit path. For
-each iteration (up to 3 total):
+run this loop before that gate takes its exit path.
+
+**Causality classification contract**: classify each
+failing check as exactly one of `change-caused` (fails
+on this branch, passes at the merge-base baseline),
+`pre-existing` (fails at the baseline too), or
+`environmental` (tool, network, or sandbox
+availability, not code). Only `change-caused` and
+unknown-origin failures enter the loop;
+`pre-existing` and `environmental` failures never
+enter it -- the calling gate records them in its
+checkpoint inventory and treats itself as green over
+them (the phase checkpoint's inventory match rule).
+
+For each iteration (up to 3 total):
 
 1. Delegate the fix to the `cobalt-crush-dev` agent via
    `uf_delegate_command`, prompt-only (omit
@@ -944,8 +958,9 @@ each iteration (up to 3 total):
 
 4. If checks still fail: keep the iteration counter in
    the calling gate's durable checkpoint data — the
-   phase checkpoint's `iteration` field or the quick
-   gate's `data.iteration` — incrementing it after
+   phase checkpoint's `iteration` field, the quick
+   gate's `data.iteration`, or Step 6's
+   `code-review-preflight` data — incrementing it after
    every delegated attempt. At 3 iterations exhausted
    (total across sessions, never reset by a resume),
    the calling gate takes its exit path unchanged (the
@@ -962,7 +977,8 @@ the loop continues from the recorded iteration count:
 the budget is 3 delegated attempts total across
 sessions, never 3 more per resume. The quick gate reads
 its spent budget the same way, from the
-`quick-pre-flight` checkpoint data.
+`quick-pre-flight` checkpoint data, and Step 6 from its
+`code-review-preflight` checkpoint data.
 
 **For each phase in tasks.md**:
 
@@ -1267,7 +1283,12 @@ text.
    - **Branch-caused (or unknown) failures**: run the
      build/test fix loop (defined in Step 5) before
      stopping -- up to 3 iterations of delegated fix
-     plus soft-gate re-run with re-classification. If
+     plus soft-gate re-run with re-classification. The
+     iteration count is durable: record it via the
+     `checkpoint` tool (command `uf.unleash`, step
+     `code-review-preflight`, data `{"iteration": N}`)
+     after every delegated attempt and read it back on
+     resume, so the 3-attempt budget spans sessions. If
      the failures persist after 3 iterations, STOP
      before dispatching any reviewers. Report each
      failure as a CRITICAL finding with full output.
