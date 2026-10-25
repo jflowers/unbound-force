@@ -1750,6 +1750,24 @@ type simpleTool struct {
 	forceFlag string   // flag appended on force re-init (empty = none)
 }
 
+// simpleTools defines Group B tools. Each entry maps a tool
+// name to its sentinel path (relative to TargetDir), result
+// name, display label, optional extra args for ExecCmd, and
+// an optional forceFlag appended on force re-initialization.
+var simpleTools = []simpleTool{
+	{"replicator", ".uf/replicator", ".uf/replicator/",
+		"Replicator workspace", nil, ""},
+	{"specify", filepath.Join(".specify", "scripts"), ".specify/",
+		"Speckit framework",
+		[]string{"--here", "--integration", "opencode", "--offline", "--force"},
+		""},
+	{"openspec", filepath.Join("openspec", "config.yaml"),
+		"openspec/", "OpenSpec framework",
+		[]string{"--tools", "opencode"}, "--force"},
+	{"gaze", filepath.Join(".opencode", "agents", "gaze-reporter.md"),
+		"gaze", "Gaze integration", nil, "--force"},
+}
+
 // initSubTools initializes sub-tools after file scaffolding.
 // Errors are captured and reported as warnings in printSummary,
 // not hard failures (per Constitution Principle II — Composability First).
@@ -1841,24 +1859,9 @@ func initSubTools(opts *Options) []subToolResult {
 	}
 
 	// --- Group B: Independent tools (each in own goroutine) ---
-
-	// simpleTools defines Group B tools. Each entry maps a tool
-	// name to its sentinel path (relative to TargetDir), result
-	// name, display label, optional extra args for ExecCmd, and
-	// an optional forceFlag appended on force re-initialization.
-	simpleTools := []simpleTool{
-		{"replicator", ".uf/replicator", ".uf/replicator/",
-			"Replicator workspace", nil, ""},
-		{"specify", ".specify", ".specify/",
-			"Speckit framework",
-			[]string{"--here", "--integration", "opencode", "--offline"},
-			"--force"},
-		{"openspec", filepath.Join("openspec", "config.yaml"),
-			"openspec/", "OpenSpec framework",
-			[]string{"--tools", "opencode"}, "--force"},
-		{"gaze", filepath.Join(".opencode", "agents", "gaze-reporter.md"),
-			"gaze", "Gaze integration", nil, "--force"},
-	}
+	// The simpleTools table is package-level (declared above,
+	// after the simpleTool type) so tests can enumerate the
+	// real entries rather than pinning a hardcoded copy.
 
 	for _, tool := range simpleTools {
 		if shouldSkipTool(tool.name) {
@@ -1960,21 +1963,23 @@ func initDewey(opts *Options, logf func(string, ...interface{})) []subToolResult
 }
 
 // initSimpleTool initializes a single sub-tool by checking a
-// sentinel path and running "<name> init [args...]". Returns nil
-// if the sentinel already exists and Force is false (tool already
-// initialized). When Force is true and the sentinel exists, the
-// tool is re-initialized with its forceFlag (if declared) and the
-// result uses action "re-initialized". When Force is true but the
-// sentinel does not exist, the tool is initialized normally and
-// the result uses action "initialized" (forceFlag is not appended
-// because there is nothing to overwrite).
+// sentinel path and running "<name> init [args...]". When the
+// sentinel already exists and Force is false, no command runs and
+// the result uses action "already configured". When Force is true
+// and the sentinel exists, the tool is re-initialized with its
+// forceFlag (if declared) and the result uses action
+// "re-initialized". When Force is true but the sentinel does not
+// exist, the tool is initialized normally and the result uses
+// action "initialized" (forceFlag is not appended because there is
+// nothing to overwrite).
 func initSimpleTool(opts *Options, tool simpleTool, logf func(string, ...interface{})) *subToolResult {
 	sentinelPath := filepath.Join(opts.TargetDir, tool.sentinel)
 	_, statErr := os.Stat(sentinelPath)
 	sentinelExists := statErr == nil
 
 	if sentinelExists && !opts.Force {
-		return nil // Already initialized.
+		return &subToolResult{
+			name: tool.result, action: "already configured"}
 	}
 
 	logf("  Initializing %s...\n", tool.label)

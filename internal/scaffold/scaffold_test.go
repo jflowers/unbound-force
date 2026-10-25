@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -1921,6 +1922,71 @@ func TestRun_ConstitutionScaffolded(t *testing.T) {
 	// Must contain version marker (FR-001 Scenario 2).
 	if !strings.Contains(text, "<!-- scaffolded by uf v") {
 		t.Error("constitution missing version marker")
+	}
+}
+
+// TestRun_SpecifyDelegationOnFreshInit is the Run()-level
+// regression test for the specify sentinel bug. Run()'s embedded
+// asset walk scaffolds .specify/memory/constitution.md before
+// delegating to sub-tools; under the old bare-.specify sentinel
+// that walk created the sentinel itself, silently suppressing
+// `specify init` on every fresh non-force run. Existing TestRun_*
+// tests never stub LookPath for specify (the real exec.LookPath
+// finds no binary in CI, so the delegation no-ops there too), and
+// TestInitSubTools_SpecifyInit calls initSubTools directly,
+// bypassing Run()'s scaffolding phase — which is how CI stayed
+// green while the command was broken. This test runs the full
+// Run() with only specify resolvable on a stubbed PATH and asserts
+// the delegation fires and the constitution coexists with it.
+// (D5; FR-021, FR-007)
+func TestRun_SpecifyDelegationOnFreshInit(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	rec := &scaffoldCmdRecorder{errors: map[string]error{}}
+
+	// runScaffoldWithoutExternalTools keeps the caller-supplied
+	// LookPath and guards ExecCmdInDir against unexpected external
+	// commands, mirroring TestRun_CreatesFiles and
+	// TestRun_ConstitutionScaffolded; only specify resolves.
+	_, err := runScaffoldWithoutExternalTools(t, Options{
+		TargetDir: dir,
+		Version:   "1.0.0-test",
+		Stdout:    &buf,
+		LookPath:  stubScaffoldLookPath(map[string]string{"specify": "/usr/local/bin/specify"}),
+		ExecCmd:   rec.execCmd,
+	})
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	// (a) The delegation must fire with the fixed invocation
+	// contract: --force gives specify's non-empty-directory merge
+	// semantics for the target the asset walk just populated.
+	expected := "specify init --here --integration opencode --offline --force"
+	found := false
+	for _, call := range rec.calls {
+		if call == expected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected %q, got calls: %v", expected, rec.calls)
+	}
+
+	// (b) The starter constitution must coexist with the
+	// delegation: the asset walk scaffolds it regardless of
+	// specify's merge behavior.
+	constitution := filepath.Join(dir, ".specify", "memory", "constitution.md")
+	if _, err := os.Stat(constitution); err != nil {
+		t.Errorf("expected %s to exist after Run(): %v", constitution, err)
+	}
+
+	// (c) The sub-tool results must include .specify/ initialized.
+	// Run() renders sub-results through the summary pipeline
+	// (printSubToolResults), so the action is observable on Stdout.
+	if !strings.Contains(buf.String(), ".specify/ initialized") {
+		t.Errorf("expected '.specify/ initialized' in Run() summary output, got:\n%s", buf.String())
 	}
 }
 
@@ -6060,7 +6126,7 @@ func TestInitSubTools_ConcurrentAllResults(t *testing.T) {
 
 	expectedCmds := []string{
 		"dewey init", "dewey index --no-embeddings",
-		"replicator init", "specify init --here --integration opencode --offline",
+		"replicator init", "specify init --here --integration opencode --offline --force",
 		"openspec init --tools opencode", "gaze init",
 	}
 	for _, cmd := range expectedCmds {
@@ -6334,7 +6400,8 @@ func TestInitSubTools_ReplicatorInit(t *testing.T) {
 
 func TestInitSubTools_ReplicatorInitSkipsExisting(t *testing.T) {
 	dir := t.TempDir()
-	// Create .uf/replicator/ — should skip replicator init.
+	// Create .uf/replicator/ — should skip replicator init with a
+	// visible "already configured" result.
 	if err := os.MkdirAll(filepath.Join(dir, ".uf", "replicator"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -6348,11 +6415,15 @@ func TestInitSubTools_ReplicatorInitSkipsExisting(t *testing.T) {
 
 	results := initSubTools(opts)
 
-	// Should NOT have .uf/replicator/ result.
+	// Should have a visible .uf/replicator/ "already configured" result.
+	foundSkipped := false
 	for _, r := range results {
-		if r.name == ".uf/replicator/" {
-			t.Errorf("unexpected .uf/replicator/ result when already exists: %s %s", r.name, r.action)
+		if r.name == ".uf/replicator/" && r.action == "already configured" {
+			foundSkipped = true
 		}
+	}
+	if !foundSkipped {
+		t.Errorf("expected .uf/replicator/ already configured, got %v", results)
 	}
 
 	// Verify replicator init was NOT called.
@@ -6429,19 +6500,20 @@ func TestInitSubTools_SpecifyInit(t *testing.T) {
 
 	found := false
 	for _, call := range rec.calls {
-		if call == "specify init --here --integration opencode --offline" {
+		if call == "specify init --here --integration opencode --offline --force" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected 'specify init --here --integration opencode --offline' call, got: %v", rec.calls)
+		t.Errorf("expected 'specify init --here --integration opencode --offline --force' call, got: %v", rec.calls)
 	}
 }
 
 func TestInitSubTools_SpecifySkipped(t *testing.T) {
 	dir := t.TempDir()
-	// Create .specify/ — should skip specify init.
-	if err := os.MkdirAll(filepath.Join(dir, ".specify"), 0o755); err != nil {
+	// Create .specify/scripts sentinel — specify init should be
+	// skipped with a visible "already configured" result.
+	if err := os.MkdirAll(filepath.Join(dir, ".specify", "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	rec := &scaffoldCmdRecorder{errors: map[string]error{}}
@@ -6454,14 +6526,18 @@ func TestInitSubTools_SpecifySkipped(t *testing.T) {
 
 	results := initSubTools(opts)
 
+	foundSkipped := false
 	for _, r := range results {
-		if r.name == ".specify/" {
-			t.Errorf("unexpected .specify/ result when already exists: %s %s", r.name, r.action)
+		if r.name == ".specify/" && r.action == "already configured" {
+			foundSkipped = true
 		}
+	}
+	if !foundSkipped {
+		t.Errorf("expected .specify/ already configured, got %v", results)
 	}
 
 	for _, call := range rec.calls {
-		if call == "specify init --here --integration opencode --offline" {
+		if call == "specify init --here --integration opencode --offline --force" {
 			t.Error("specify init should NOT be called when .specify/ exists")
 		}
 	}
@@ -6490,7 +6566,7 @@ func TestInitSubTools_SpecifyFailed(t *testing.T) {
 	dir := t.TempDir()
 	rec := &scaffoldCmdRecorder{
 		errors: map[string]error{
-			"specify init --here --integration opencode --offline": fmt.Errorf("init failed"),
+			"specify init --here --integration opencode --offline --force": fmt.Errorf("init failed"),
 		},
 	}
 
@@ -6510,6 +6586,49 @@ func TestInitSubTools_SpecifyFailed(t *testing.T) {
 	}
 	if !foundFailed {
 		t.Errorf("expected .specify/ failed, got %v", results)
+	}
+}
+
+// TestSimpleToolsSentinelsNotScaffolded pins the sentinel-integrity
+// invariant between the embedded asset walk and the simpleTools
+// table: no embedded asset may map (via mapAssetPath) to a target
+// path that equals or is a descendant of any tool's sentinel. The
+// original bug was exactly such a collision — the starter
+// constitution (assets/specify/memory/constitution.md) mapped under
+// the old bare-.specify sentinel, so Run()'s asset walk created the
+// sentinel and suppressed `specify init` on every fresh run. All
+// four current sentinels are clear; this guard fails CI the moment
+// a future embedded asset recreates the bug's precondition, for any
+// table entry — including tools added later. (D4; FR-020)
+func TestSimpleToolsSentinelsNotScaffolded(t *testing.T) {
+	// Mirror Run()'s walk (fs.WalkDir over the embedded FS,
+	// skipping directories and stripping the assets/ prefix) so
+	// the guard enumerates exactly the paths Run() can scaffold.
+	err := fs.WalkDir(assets, "assets", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		relPath := strings.TrimPrefix(path, "assets/")
+		target := mapAssetPath(relPath)
+		for _, tool := range simpleTools {
+			// mapAssetPath builds targets from embedded FS paths,
+			// which are always slash-separated, while sentinels
+			// use filepath.Join; normalize the sentinel so the
+			// guard cannot silently pass on Windows-style
+			// separators.
+			sentinel := filepath.ToSlash(tool.sentinel)
+			if target == sentinel || strings.HasPrefix(target, sentinel+"/") {
+				t.Errorf("embedded asset %q maps to %q, which equals or is a descendant of the %s sentinel %q; scaffolding it would suppress %s init",
+					relPath, target, tool.name, sentinel, tool.name)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk embedded assets: %v", err)
 	}
 }
 
@@ -6555,7 +6674,8 @@ func TestInitSubTools_OpenSpecInit(t *testing.T) {
 
 func TestInitSubTools_OpenSpecSkipped(t *testing.T) {
 	dir := t.TempDir()
-	// Create openspec/config.yaml — should skip openspec init.
+	// Create openspec/config.yaml — should skip openspec init with
+	// a visible "already configured" result.
 	if err := os.MkdirAll(filepath.Join(dir, "openspec"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -6572,10 +6692,15 @@ func TestInitSubTools_OpenSpecSkipped(t *testing.T) {
 
 	results := initSubTools(opts)
 
+	// Should have a visible openspec/ "already configured" result.
+	foundSkipped := false
 	for _, r := range results {
-		if r.name == "openspec/" {
-			t.Errorf("unexpected openspec/ result when config exists: %s %s", r.name, r.action)
+		if r.name == "openspec/" && r.action == "already configured" {
+			foundSkipped = true
 		}
+	}
+	if !foundSkipped {
+		t.Errorf("expected openspec/ already configured, got %v", results)
 	}
 
 	for _, call := range rec.calls {
@@ -6653,7 +6778,8 @@ func TestInitSubTools_GazeInit(t *testing.T) {
 
 func TestInitSubTools_GazeSkipped(t *testing.T) {
 	dir := t.TempDir()
-	// Create gaze-reporter.md — should skip gaze init.
+	// Create gaze-reporter.md — should skip gaze init with a visible
+	// "already configured" result.
 	agentDir := filepath.Join(dir, ".opencode", "agents")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -6671,10 +6797,15 @@ func TestInitSubTools_GazeSkipped(t *testing.T) {
 
 	results := initSubTools(opts)
 
+	// Should have a visible gaze "already configured" result.
+	foundSkipped := false
 	for _, r := range results {
-		if r.name == "gaze" {
-			t.Errorf("unexpected gaze result when agent exists: %s %s", r.name, r.action)
+		if r.name == "gaze" && r.action == "already configured" {
+			foundSkipped = true
 		}
+	}
+	if !foundSkipped {
+		t.Errorf("expected gaze already configured, got %v", results)
 	}
 
 	for _, call := range rec.calls {
@@ -8144,10 +8275,10 @@ func TestInitSubTools_SimpleToolFails_ShowsError(t *testing.T) {
 	dir := t.TempDir()
 	rec := &scaffoldCmdRecorder{
 		errors: map[string]error{
-			"specify init --here --integration opencode --offline": fmt.Errorf("exit status 1"),
+			"specify init --here --integration opencode --offline --force": fmt.Errorf("exit status 1"),
 		},
 		outputs: map[string]string{
-			"specify init --here --integration opencode --offline": "Error: .specify already exists\nUse --force to overwrite.\n",
+			"specify init --here --integration opencode --offline --force": "Error: .specify already exists\nUse --force to overwrite.\n",
 		},
 	}
 
@@ -8973,8 +9104,14 @@ func TestInitSimpleTool_SentinelExistsNoForce(t *testing.T) {
 	logf := func(string, ...interface{}) {}
 
 	r := initSimpleTool(opts, tool, logf)
-	if r != nil {
-		t.Errorf("expected nil result when Force=false and sentinel exists, got %+v", r)
+	if r == nil {
+		t.Fatal("expected non-nil result when Force=false and sentinel exists")
+	}
+	if r.name != ".specify/" {
+		t.Errorf("expected name %q, got %q", ".specify/", r.name)
+	}
+	if r.action != "already configured" {
+		t.Errorf("expected action %q, got %q", "already configured", r.action)
 	}
 
 	// Verify ExecCmd was NOT called.
@@ -9078,8 +9215,8 @@ func TestInitSimpleTool_NoForceFlagDeclared(t *testing.T) {
 
 func TestInitSubTools_SpecifyForcePassthrough(t *testing.T) {
 	dir := t.TempDir()
-	// Create .specify/ so sentinel exists — force should re-init.
-	if err := os.MkdirAll(filepath.Join(dir, ".specify"), 0o755); err != nil {
+	// Create .specify/scripts sentinel — force should re-init.
+	if err := os.MkdirAll(filepath.Join(dir, ".specify", "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -9115,11 +9252,22 @@ func TestInitSubTools_SpecifyForcePassthrough(t *testing.T) {
 	if !found {
 		t.Errorf("expected call %q, got: %v", expected, rec.calls)
 	}
+
+	// FR-014: --force is supplied by the base args (specify's
+	// forceFlag is empty), so the recorded args must contain exactly
+	// one --force — a repopulated forceFlag would duplicate it.
+	for _, call := range rec.calls {
+		if strings.HasPrefix(call, "specify init") {
+			if n := strings.Count(call, "--force"); n != 1 {
+				t.Errorf("expected exactly one --force in specify invocation, got %d: %s", n, call)
+			}
+		}
+	}
 }
 
 func TestInitSimpleTool_ForceReinitFails(t *testing.T) {
 	dir := t.TempDir()
-	sentinel := filepath.Join(dir, ".specify")
+	sentinel := filepath.Join(dir, ".specify", "scripts")
 	if err := os.MkdirAll(sentinel, 0o755); err != nil {
 		t.Fatalf("mkdir sentinel: %v", err)
 	}
@@ -9136,13 +9284,22 @@ func TestInitSimpleTool_ForceReinitFails(t *testing.T) {
 		ExecCmd:   rec.execCmd,
 	}
 
-	tool := simpleTool{
-		name:      "specify",
-		sentinel:  ".specify",
-		result:    ".specify/",
-		label:     "Speckit framework",
-		args:      []string{"--here", "--integration", "opencode", "--offline"},
-		forceFlag: "--force",
+	// Look up the real specify entry from the package-level
+	// simpleTools table (FR-014) so the failure path is exercised
+	// against the actual table shape — sentinel .specify/scripts,
+	// --force in the base args, empty forceFlag — rather than a
+	// stale inline copy that can silently diverge from the table.
+	tool := simpleTool{}
+	found := false
+	for _, entry := range simpleTools {
+		if entry.name == "specify" {
+			tool = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("specify entry not found in simpleTools table")
 	}
 	logf := func(string, ...interface{}) {}
 

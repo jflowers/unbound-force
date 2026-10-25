@@ -549,6 +549,31 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/command-prose-pilot/)
 
 ### Fixed
+- fix-init-speckit-sentinel: `uf init` no longer silently skips
+  the Speckit delegation on a fresh run. Since the
+  starter-constitution asset landed (an embedded
+  `.specify/memory/constitution.md`), the file-walk phase
+  created `.specify/` before `initSubTools()` ran, which
+  satisfied the bare `.specify` sentinel and suppressed
+  `specify init` entirely -- every fresh non-`--force` `uf init`
+  produced a constitution-only `.specify/` with none of the
+  Speckit framework (scripts, templates, workflows, upstream
+  speckit commands). The sentinel now detects a real install
+  (`.specify/scripts`), the invocation runs
+  `specify init --here --integration opencode --offline --force`
+  (exactly one `--force`; specify 1.1.0 merges into non-empty
+  targets and preserves user-owned files such as the starter
+  constitution), and already-installed tooling renders a
+  visible "already configured" line in the sub-tool summary
+  instead of a silent skip. Users who want a constitution-only
+  `.specify/` can set `setup.tools.specify.method: skip`.
+  Regression coverage: `TestRun_SpecifyDelegationOnFreshInit`
+  (full `scaffold.Run()`, the level where the original test gap
+  hid the bug) and `TestSimpleToolsSentinelsNotScaffolded`
+  (mechanical guard that no embedded asset ever maps under a
+  sub-tool sentinel).
+  (Spec: openspec/changes/fix-init-speckit-sentinel/,
+  Docs: #827, unbound-force/website#325)
 - fix-review-dispatch-correlation-release: `dispatch_review_runs`
   now mints a fresh correlation ID per invocation instead of
   binding one correlation ID per opencode conversation for the
