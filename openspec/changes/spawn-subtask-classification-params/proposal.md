@@ -227,4 +227,71 @@ and the governance wording (DE-008, the Guard checklist, the
 determinism-first skill) is corrected to point at the parameter
 contracts as the mechanism of record.
 
+## Task 4.2 Documentation Gate Record
+
+Recorded 2026-10-25, task 4.2 (documentation gate).
+
+**CHANGELOG**: entry added under Unreleased → Changed
+(newest first) as `spawn-subtask-classification-params`,
+covering the spawn call block parameterization (with the
+fail-closed envelope behavior and the older-binary
+forward-compatibility note), the byte-identical scaffold
+mirror, DE-008's reworded Swarm-path clause with the
+1.3.0 -> 1.4.0 pack bump (MUST/CRITICAL mapping unchanged),
+the Guard checklist's spawn-parameter audit, the
+determinism-first skill update, and the scaffold test pins
+(Fixes: #830, Refs: unbound-force/replicator#143).
+
+**AGENTS.md / README.md / docs/ dispositions** (assessed, no
+edits made): AGENTS.md -- not applicable (no build-command,
+project-structure, or convention change; the Convention Packs
+listing carries no pack versions, so the 1.3.0 -> 1.4.0 bump
+needs no edit; the Determinism-gate behavioral rule's
+substance is unchanged -- the pack wording strengthened the
+rule's carrier, nothing weakened). README.md -- not
+applicable (no description-level change). docs/ -- no file
+references the changed surfaces (grep over docs/ for
+`forge_spawn_subtask`, `task_classification`,
+`determinism-first`, and `Deterministic Delegation` returns
+nothing), so no statement is now false; the residual
+usage.md/heroes.md parity decisions are tracked by the filed
+issue below, and docs/architecture.md's pre-existing
+pack-listing gap stays with #791 (not caused or widened by
+this diff, not duplicated).
+
+**Issue check (before filing)**: #791 OPEN (parent change's
+docs-gate issue -- `uf_delegate_command` contract scope; its
+usage.md/heroes.md dispositions are the parent's, not
+duplicated), #742 OPEN (epic-level blog tracker for the
+`/uf.unleash` deterministic-tools epic),
+unbound-force/website#317 OPEN (website-side user-facing
+documentation of the delegation classification contract).
+This repo's open issues searched for spawn-subtask
+classification coverage -- none found beyond #830 (the
+originating issue, not a docs issue).
+
+**Blog/tutorial reassessment at filing**: blog -- covered by
+#742 (this change's candidate story, the Swarm path's carrier
+graduating from description prose to the spawn tool's
+fail-closed parameters, falls under the epic tracker; no new
+post filed); tutorial -- no (developer-facing tooling
+contract, documented via the CHANGELOG entry and the command
+template).
+
+**Filed**: unbound-force/unbound-force#834
+(https://github.com/unbound-force/unbound-force/issues/834,
+labeled `documentation`, assigned jflowers) -- this change's
+documentation-gate record: the CHANGELOG entry, the per-file
+dispositions, the residual usage.md/heroes.md parity
+decisions, and the website-coverage note. The constitution
+Cross-Repo Documentation need is covered by
+unbound-force/website#317 (this change extends the same
+contract to the second delegation tool rather than adding a
+documentation surface; the spawn-tool parity folds into #317's
+scope, noted in #834 rather than duplicated as a new website
+issue).
+
+Task 4.3 (constitution-alignment verification) remains to be
+recorded by that task.
+
 <!-- scaffolded by uf vdev -->

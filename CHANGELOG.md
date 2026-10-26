@@ -356,6 +356,46 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- spawn-subtask-classification-params: The `/uf.unleash` Swarm
+  parallel path's spawn call now carries the delegation
+  classification contract as tool parameters. The implement
+  step's parallel-execution spawn call block passes
+  `task_classification` and, for deterministic tasks, the
+  verified `skill` reference or `skill_absent_reason` to
+  `replicator_forge_spawn_subtask` in a fenced call block
+  mirroring the `uf_delegate_command` call blocks, forwards
+  any returned `skill_directive` verbatim, and names the
+  fail-closed behavior the tool enforces before the subtask
+  spawns (input validation on a missing classification or on
+  skill fields in a judgment-classified call,
+  `SKILL_REFERENCE_REQUIRED`, `SKILL_NOT_FOUND`). The
+  description-carrier prose and the "no classification
+  parameters" sentence are deleted: both were false since
+  unbound-force/replicator#143 shipped the parameter
+  contract on the spawn tool, and the prose-only spawn calls
+  failed the deployed tool's required `task_classification`
+  input validation, breaking the Swarm parallel path; the
+  parameterized template stays forward-compatible with older
+  replicator binaries (Go's `json.Unmarshal` ignores unknown
+  fields). Scaffold mirror
+  `internal/scaffold/assets/opencode/commands/uf.unleash.md`
+  synced byte-identically. Governance wording corrected to
+  the same carrier: DE-008's Swarm-path clause in
+  `.opencode/uf/packs/determinism.md` now binds Swarm-path
+  `[P]` delegations to pass the classification and reference
+  as spawn-tool parameters (pack bumped 1.3.0 -> 1.4.0; rule
+  strengthened, MUST/CRITICAL mapping unchanged), the Guard
+  reviewer's Deterministic Delegation Discipline checklist
+  (`.opencode/agents/divisor-guard.md` + scaffold mirror)
+  audits spawn call parameters instead of subtask prompt
+  prose, and the determinism-first skill's Swarm-path
+  guidance and Related Enforcement entries name both
+  delegation tools' contracts. Pin tests in
+  `internal/scaffold/scaffold_test.go` assert the parameters
+  are present and the stale sentence absent in both the
+  canonical command and its mirror. (Spec:
+  openspec/changes/spawn-subtask-classification-params/,
+  Fixes: #830, Refs: unbound-force/replicator#143)
 - unleash-build-test-fix-loop: /uf.unleash no longer halts for a
   human when a blocking gate reports a failing check. The quick-tier
   pre-flight gate, the per-phase checkpoint, and Step 6's pre-flight
