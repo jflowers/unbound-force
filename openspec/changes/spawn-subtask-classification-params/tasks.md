@@ -40,7 +40,7 @@
 
 ## 2. Governance layers
 
-- [ ] 2.1 [P] Update DE-008 in
+- [x] 2.1 [P] Update DE-008 in
   .opencode/uf/packs/determinism.md: the Swarm-path clause
   changes from carrying the classification and reference "in
   the spawned subtask description" to passing them "as
@@ -50,7 +50,7 @@
   version 1.3.0 → 1.4.0 (MINOR: normative carrier change per
   design D3); the severity-mapping list is unchanged (DE-008
   stays in the MUST/CRITICAL list).
-- [ ] 2.2 [P] Update the Deterministic Delegation Discipline
+- [x] 2.2 [P] Update the Deterministic Delegation Discipline
   section of .opencode/agents/divisor-guard.md per design D4:
   the intro widens from "the command delegation tool's
   parameter contract" to the delegation tools' parameter
@@ -63,7 +63,7 @@
   citation). Update the scaffold mirror
   internal/scaffold/assets/opencode/agents/divisor-guard.md
   byte-identically.
-- [ ] 2.3 [P] Update the Swarm-path sentence in
+- [x] 2.3 [P] Update the Swarm-path sentence in
   .opencode/skills/determinism-first/SKILL.md (Delegated Work
   Carries Its Classification section): "Swarm-path spawn
   prompts ... carry the classification and the verified
@@ -78,7 +78,7 @@
 
 ## 3. Tests and seam verification
 
-- [ ] 3.1 Extend the scaffold pin tests in
+- [x] 3.1 Extend the scaffold pin tests in
   internal/scaffold/scaffold_test.go: the "implement parallel
   workers route through the forge worktree tools" pin asserts
   the parallel-execution guidance contains
@@ -89,13 +89,13 @@
   embedded mirror; a divisor-guard pin asserts the checklist
   names the spawn parameters and no longer contains "has no
   parameter contract of its own" (canonical and mirror).
-- [ ] 3.2 Add repo-local governance pins (findProjectRoot
+- [x] 3.2 Add repo-local governance pins (findProjectRoot
   pattern, mirroring TestNoObsoleteToolNames): the determinism
   pack frontmatter reads version 1.4.0 and DE-008's
   Swarm-path clause names spawn-tool parameters; the
   determinism-first skill names the spawn parameters in its
   delegation guidance.
-- [ ] 3.3 DE-007 seam verification naming the three layers:
+- [x] 3.3 DE-007 seam verification naming the three layers:
   registration surface (the template's spawn call parameter
   names match the deployed `replicator_forge_spawn_subtask`
   registered input schema — `task_classification`, `skill`,

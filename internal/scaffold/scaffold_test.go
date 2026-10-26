@@ -787,6 +787,40 @@ func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 		if !strings.Contains(implementExecution, "cleanup_all: true") {
 			t.Error("implement forge_worktree_cleanup invocation missing cleanup_all parameter")
 		}
+		// The spawn call block carries the delegation
+		// classification contract as tool parameters. Scoped to
+		// the parallel-execution span: the sequential
+		// uf_delegate_command block passes the same parameter
+		// names, so a step-wide Contains could not prove the
+		// spawn block itself carries them.
+		parallelExecution := between(t, command, "3. **Parallel execution**", "4. **Phase checkpoint**")
+		for _, param := range []string{
+			"task_classification:",
+			"skill: [repo skill or script reference",
+			"skill_absent_reason: [what was searched",
+		} {
+			if !strings.Contains(parallelExecution, param) {
+				t.Errorf("implement spawn call block missing %s parameter", param)
+			}
+		}
+		// The superseded description-as-carrier sentence must
+		// stay gone from both the embedded mirror and the
+		// canonical command file.
+		staleSentence := "The spawn tool has no classification parameters"
+		if strings.Contains(command, staleSentence) {
+			t.Error("embedded uf.unleash.md still carries the stale no-classification-parameters sentence")
+		}
+		root := findProjectRoot(t)
+		if root == "" {
+			t.Fatalf("project root not found; cannot verify canonical uf.unleash.md")
+		}
+		canonical, readErr := os.ReadFile(filepath.Join(root, ".opencode", "commands", "uf.unleash.md"))
+		if readErr != nil {
+			t.Fatalf("read canonical uf.unleash.md: %v", readErr)
+		}
+		if strings.Contains(string(canonical), staleSentence) {
+			t.Error("canonical uf.unleash.md still carries the stale no-classification-parameters sentence")
+		}
 	})
 
 	// Pin: worktree merges are verified through
@@ -3778,6 +3812,467 @@ func TestDivisorAgents_NoBareFRReferences(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestDivisorGuard_DelegationDisciplineSpawnParameters pins the
+// guard's Deterministic Delegation Discipline after the
+// spawn-classification parameterization: the Swarm-path checklist
+// item audits the spawn call's task_classification, skill, and
+// skill_absent_reason parameters by name instead of the subtask
+// prompt's prose, and the superseded "has no parameter contract
+// of its own" wording is gone. Both the embedded mirror and the
+// canonical agent file are checked so neither surface can
+// regress independently.
+func TestDivisorGuard_DelegationDisciplineSpawnParameters(t *testing.T) {
+	content, err := assetContent("opencode/agents/divisor-guard.md")
+	if err != nil {
+		t.Fatalf("read embedded divisor-guard.md: %v", err)
+	}
+
+	root := findProjectRoot(t)
+	if root == "" {
+		t.Fatalf("project root not found")
+	}
+	canonical, err := os.ReadFile(filepath.Join(root, ".opencode", "agents", "divisor-guard.md"))
+	if err != nil {
+		t.Fatalf("read canonical divisor-guard.md: %v", err)
+	}
+
+	assertDiscipline := func(label, text string) {
+		// The Swarm-path checklist item is bounded by the next
+		// checklist bullet so parameter names in the section
+		// intro or sibling items cannot satisfy the pin.
+		itemStart := strings.Index(text, "Does a Swarm-path spawn call")
+		if itemStart < 0 {
+			t.Errorf("%s divisor-guard.md missing the Swarm-path spawn checklist item", label)
+			return
+		}
+		item := text[itemStart:]
+		if end := strings.Index(item, "\n- "); end >= 0 {
+			item = item[:end]
+		}
+		// Backticked names keep the assertions independent:
+		// bare "skill" would match inside skill_absent_reason.
+		for _, param := range []string{"`task_classification`", "`skill`", "`skill_absent_reason`"} {
+			if !strings.Contains(item, param) {
+				t.Errorf("%s divisor-guard.md Swarm-path checklist item missing %s parameter", label, param)
+			}
+		}
+		if strings.Contains(text, "has no parameter contract of its own") {
+			t.Errorf("%s divisor-guard.md still carries the stale no-parameter-contract wording", label)
+		}
+	}
+
+	assertDiscipline("embedded mirror", string(content))
+	assertDiscipline("canonical", string(canonical))
+}
+
+// TestDeterminismPack_DE008SpawnToolParameters pins the repo-local
+// determinism pack after the spawn-classification parameterization:
+// the frontmatter carries the 1.4.0 version bump, and DE-008's
+// widened contract names the forge subtask spawn tool and carries
+// the Swarm-path delegation fields as spawn-tool parameters rather
+// than in the spawned subtask description. The pack is repo-local
+// governance, not an embedded scaffold asset (see
+// knownNonEmbeddedFiles), so it is read from the project root per
+// the findProjectRoot pattern.
+func TestDeterminismPack_DE008SpawnToolParameters(t *testing.T) {
+	root := findProjectRoot(t)
+	if root == "" {
+		t.Skip("project root not found; skipping determinism pack pin")
+	}
+	content, err := os.ReadFile(filepath.Join(root, ".opencode", "uf", "packs", "determinism.md"))
+	if err != nil {
+		t.Fatalf("read determinism.md: %v", err)
+	}
+	text := string(content)
+
+	// Frontmatter pin: 1.4.0 is the MINOR bump that carries
+	// DE-008's normative carrier change. Bounded by the first
+	// closing --- delimiter so a version string in rule prose
+	// cannot satisfy it.
+	frontmatterEnd := strings.Index(text, "\n---")
+	if frontmatterEnd < 0 {
+		t.Errorf("determinism.md frontmatter missing closing delimiter")
+	} else {
+		version := ""
+		for _, line := range strings.Split(text[:frontmatterEnd], "\n") {
+			if strings.HasPrefix(line, "version:") {
+				version = strings.TrimSpace(strings.TrimPrefix(line, "version:"))
+			}
+		}
+		if version != "1.4.0" {
+			t.Errorf("determinism.md frontmatter version = %q, want 1.4.0", version)
+		}
+	}
+
+	// DE-008 pin: the rule bullet is the structural unit, so
+	// wording in sibling rules cannot satisfy the assertions.
+	// Whitespace is normalized because the pack wraps at 72
+	// columns and the pinned carrier phrase crosses a line wrap.
+	ruleStart := strings.Index(text, "- **DE-008**")
+	if ruleStart < 0 {
+		t.Errorf("determinism.md missing DE-008 rule")
+		return
+	}
+	rule := text[ruleStart:]
+	if end := strings.Index(rule, "\n- **DE-"); end >= 0 {
+		rule = rule[:end]
+	}
+	flatRule := strings.Join(strings.Fields(rule), " ")
+	for _, fragment := range []string{
+		"as spawn-tool parameters",
+		"replicator_forge_spawn_subtask",
+	} {
+		if !strings.Contains(flatRule, fragment) {
+			t.Errorf("determinism.md DE-008 missing %q", fragment)
+		}
+	}
+}
+
+// TestDeterminismFirstSkill_SpawnToolParameters pins the repo-local
+// determinism-first skill's delegation guidance after the
+// spawn-classification parameterization: the "Delegated Work
+// Carries Its Classification" section names the three spawn
+// parameters, and its Swarm-path sentence routes deterministic [P]
+// delegations through the replicator_forge_spawn_subtask call's
+// parameters rather than the subtask description. The skill is
+// repo-local, not an embedded scaffold asset (see
+// knownNonEmbeddedFiles), so it is read from the project root per
+// the findProjectRoot pattern.
+func TestDeterminismFirstSkill_SpawnToolParameters(t *testing.T) {
+	root := findProjectRoot(t)
+	if root == "" {
+		t.Skip("project root not found; skipping determinism-first skill pin")
+	}
+	content, err := os.ReadFile(filepath.Join(root, ".opencode", "skills", "determinism-first", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read determinism-first SKILL.md: %v", err)
+	}
+	text := string(content)
+
+	// Scope to the delegation-guidance section: the Related
+	// Enforcement list also names the parameters and the spawn
+	// tool, so a file-wide contains could not prove the guidance
+	// itself carries them.
+	sectionStart := strings.Index(text, "## Delegated Work Carries Its Classification")
+	if sectionStart < 0 {
+		t.Errorf("determinism-first SKILL.md missing the delegation guidance section")
+		return
+	}
+	section := text[sectionStart:]
+	if end := strings.Index(section, "\n## "); end >= 0 {
+		section = section[:end]
+	}
+	flatSection := strings.Join(strings.Fields(section), " ")
+	// Backticked names keep the assertions independent: bare
+	// "skill" would match inside skill_absent_reason.
+	for _, param := range []string{"`task_classification`", "`skill`", "`skill_absent_reason`"} {
+		if !strings.Contains(flatSection, param) {
+			t.Errorf("determinism-first SKILL.md delegation guidance missing %s parameter", param)
+		}
+	}
+
+	// The Swarm-path sentence names the spawn call it routes
+	// through; the span from the sentence to the end of the
+	// section must carry the tool reference.
+	swarmStart := strings.Index(flatSection, "Swarm-path")
+	if swarmStart < 0 {
+		t.Errorf("determinism-first SKILL.md delegation guidance missing the Swarm-path sentence")
+		return
+	}
+	if !strings.Contains(flatSection[swarmStart:], "replicator_forge_spawn_subtask") {
+		t.Errorf("determinism-first SKILL.md Swarm-path sentence missing the replicator_forge_spawn_subtask call")
+	}
+}
+
+// spawnCallBlock extracts the fenced replicator_forge_spawn_subtask
+// call block from a command template, returning the block (opening
+// fence through closing fence) and the text that follows the closing
+// fence. The block is anchored on a line whose trimmed content is
+// exactly the tool name preceded by a bare opening fence:
+// uf_delegate_command call blocks share the fenced shape but name a
+// different tool, and prose mentions of the tool never sit alone on
+// a line, so the anchor stays scoped to the spawn call.
+func spawnCallBlock(t *testing.T, text, label string) (block, rest string) {
+	t.Helper()
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "replicator_forge_spawn_subtask" {
+			continue
+		}
+		if i == 0 || strings.TrimSpace(lines[i-1]) != "```" {
+			continue
+		}
+		for j := i + 1; j < len(lines); j++ {
+			if strings.TrimSpace(lines[j]) == "```" {
+				return strings.Join(lines[i-1:j+1], "\n"),
+					strings.Join(lines[j+1:], "\n")
+			}
+		}
+		t.Fatalf("%s: replicator_forge_spawn_subtask call block has no closing fence", label)
+		return "", ""
+	}
+	t.Fatalf("%s: no fenced replicator_forge_spawn_subtask call block", label)
+	return "", ""
+}
+
+// spawnCallParamLine matches a `name: [value]` parameter line inside
+// a fenced tool call block. Wrapped value continuations never match:
+// the colon must immediately follow the lowercase snake-case name
+// run.
+var spawnCallParamLine = regexp.MustCompile(`^[ \t]*([a-z_]+):`)
+
+// spawnCallBlockParameterNames parses the parameter names a fenced
+// tool call block passes, so tests can pin registration-surface
+// parity (the names the template passes vs. the names the deployed
+// tool's input schema registers) without re-implementing block
+// parsing per test.
+func spawnCallBlockParameterNames(block string) map[string]bool {
+	names := make(map[string]bool)
+	for _, line := range strings.Split(block, "\n") {
+		if m := spawnCallParamLine.FindStringSubmatch(line); m != nil {
+			names[m[1]] = true
+		}
+	}
+	return names
+}
+
+// recordedSpawnSignatureParams parses the parameter names from the
+// forge_spawn_subtask(...) signature the /forge coordination command
+// records -- the repo-local recording of the deployed spawn tool's
+// registered input schema (synced from Replicator with the
+// coordination surface). Alternation (`skill | skill_absent_reason`)
+// and commas both separate parameters.
+func recordedSpawnSignatureParams(t *testing.T, forgeText string) map[string]bool {
+	t.Helper()
+	const anchor = "forge_spawn_subtask("
+	start := strings.Index(forgeText, anchor)
+	if start < 0 {
+		t.Fatalf("forge.md does not record a forge_spawn_subtask signature")
+	}
+	sig := forgeText[start+len(anchor):]
+	if cut := strings.Index(sig, ")"); cut >= 0 {
+		sig = sig[:cut]
+	}
+	params := make(map[string]bool)
+	for _, part := range strings.FieldsFunc(sig, func(r rune) bool {
+		return r == ',' || r == '|'
+	}) {
+		if name := strings.TrimSpace(part); name != "" {
+			params[name] = true
+		}
+	}
+	if len(params) == 0 {
+		t.Fatalf("forge.md forge_spawn_subtask signature parsed to no parameters")
+	}
+	return params
+}
+
+// TestUnleashCommand_SpawnSubtaskSeamVerification is the DE-007 seam
+// verification for the spawn-classification parameterization: a
+// prose-to-tool migration increment must verify, in the same
+// increment, the three seams it creates (registration surface,
+// documented output shape, write-read round-trips). The layers
+// cross-check the surfaces the change writes:
+//
+//   - Registration surface: the fenced replicator_forge_spawn_subtask
+//     call block in the canonical uf.unleash.md names exactly the
+//     deployed tool's delegation parameters -- task_classification,
+//     skill, skill_absent_reason, cross-checked against the /forge
+//     coordination surface's recording of the registered signature --
+//     plus the fields the template already passes, and the mirrored
+//     call block in the embedded asset is byte-identical
+//     (call-block scope; whole-file identity is pinned separately by
+//     TestEmbeddedAssets_MatchSource).
+//   - Documented output shape: the failure codes and validation
+//     rejections the template's enforcement prose names match the
+//     spawn tool's documented contract as recorded in this repo:
+//     SKILL_REFERENCE_REQUIRED, SKILL_NOT_FOUND, and
+//     input-validation rejection of skill fields on
+//     judgment-classified calls.
+//   - Write-read round-trips: the changed surfaces are read back --
+//     the spawn call block canonical <-> mirror here; the
+//     divisor-guard checklist, the determinism pack, and the
+//     determinism-first skill via the sibling spawn-parameter pins
+//     (TestDivisorGuard_DelegationDisciplineSpawnParameters,
+//     TestDeterminismPack_DE008SpawnToolParameters,
+//     TestDeterminismFirstSkill_SpawnToolParameters) -- and the
+//     drift infrastructure keeps covering them (embedded mirrors
+//     through the TestEmbeddedAssets_MatchSource asset set,
+//     repo-local governance files through knownNonEmbeddedFiles).
+func TestUnleashCommand_SpawnSubtaskSeamVerification(t *testing.T) {
+	root := findProjectRoot(t)
+	if root == "" {
+		t.Fatalf("project root not found; cannot verify the spawn subtask seams")
+	}
+
+	canonical, err := os.ReadFile(filepath.Join(root, ".opencode", "commands", "uf.unleash.md"))
+	if err != nil {
+		t.Fatalf("read canonical uf.unleash.md: %v", err)
+	}
+	mirror, err := assetContent("opencode/commands/uf.unleash.md")
+	if err != nil {
+		t.Fatalf("read embedded uf.unleash.md: %v", err)
+	}
+	// The /forge coordination command is the repo-local recording of
+	// the deployed spawn tool's registered input schema and
+	// documented contract (synced from Replicator); both the
+	// registration-surface and output-shape layers check against it.
+	forgeCmd, err := os.ReadFile(filepath.Join(root, ".opencode", "commands", "forge.md"))
+	if err != nil {
+		t.Fatalf("read forge.md: %v", err)
+	}
+
+	canonicalBlock, canonicalRest := spawnCallBlock(t, string(canonical), "canonical uf.unleash.md")
+	mirrorBlock, _ := spawnCallBlock(t, string(mirror), "embedded mirror uf.unleash.md")
+
+	t.Run("registration surface: spawn call block matches the deployed schema", func(t *testing.T) {
+		// Call-block-level drift check: the mirrored block must be
+		// byte-identical to the canonical one. Scoped to the fenced
+		// block because whole-file identity is already pinned by
+		// TestEmbeddedAssets_MatchSource; this pin keeps drift in
+		// the block that carries the classification contract
+		// visible at the seam itself.
+		if canonicalBlock != mirrorBlock {
+			t.Error("embedded mirror's replicator_forge_spawn_subtask call block differs from the canonical one")
+		}
+
+		// Input-schema parity, template side: the block names
+		// exactly the deployed tool's delegation parameters plus
+		// the fields the template already passes -- no missing,
+		// renamed, or extra parameters. The template deliberately
+		// does not enumerate the tool's full schema (bead_id,
+		// epic_id, subtask_title, shared_context belong to the
+		// coordination tooling), so the pin covers the delegation
+		// contract, not the whole registration. The deployed tool
+		// validates required inputs fail-closed at spawn time, so
+		// a misparameterized call block must break here first.
+		got := spawnCallBlockParameterNames(canonicalBlock)
+		want := map[string]bool{
+			"subtask_description": true,
+			"task_classification": true,
+			"skill":               true,
+			"skill_absent_reason": true,
+			"files":               true,
+			"project_path":        true,
+		}
+		var missing, unexpected []string
+		for name := range want {
+			if !got[name] {
+				missing = append(missing, name)
+			}
+		}
+		for name := range got {
+			if !want[name] {
+				unexpected = append(unexpected, name)
+			}
+		}
+		if len(missing) > 0 || len(unexpected) > 0 {
+			sort.Strings(missing)
+			sort.Strings(unexpected)
+			t.Errorf("canonical spawn call block parameter drift: missing %v, unexpected %v "+
+				"(want exactly subtask_description, task_classification, skill, "+
+				"skill_absent_reason, files, project_path)", missing, unexpected)
+		}
+
+		// Input-schema parity, recorded-schema side: each
+		// classification parameter the template passes must be a
+		// name the repo-local recording of the registered
+		// signature knows. A Replicator schema rename synced into
+		// the coordination surface fails here instead of breaking
+		// the template's spawn calls at runtime.
+		sigParams := recordedSpawnSignatureParams(t, string(forgeCmd))
+		for _, param := range []string{"task_classification", "skill", "skill_absent_reason"} {
+			if !sigParams[param] {
+				t.Errorf("forge.md spawn signature does not record the %s parameter the template passes", param)
+			}
+		}
+	})
+
+	t.Run("documented output shape: enforcement prose matches the recorded contract", func(t *testing.T) {
+		// Scope to the enforcement prose that follows the spawn
+		// call block (up to the next parallel-execution item), so
+		// failure codes named elsewhere in the template cannot
+		// satisfy the pin. Whitespace is normalized because the
+		// template wraps at 72 columns and the pinned clauses
+		// cross line wraps.
+		cut := strings.Index(canonicalRest, "d. Wait for all workers")
+		if cut < 0 {
+			t.Fatalf("canonical uf.unleash.md: spawn enforcement prose is not bounded by " +
+				"the parallel-execution wait item")
+		}
+		flatProse := strings.Join(strings.Fields(canonicalRest[:cut]), " ")
+		for _, fragment := range []string{
+			"fails with `SKILL_REFERENCE_REQUIRED`",
+			"fails with `SKILL_NOT_FOUND`",
+			"a judgment-classified call supplying either skill field fails input validation",
+		} {
+			if !strings.Contains(flatProse, fragment) {
+				t.Errorf("spawn enforcement prose missing documented-contract clause %q", fragment)
+			}
+		}
+
+		// The codes and rejections the template names must be the
+		// ones the repo-local recording of the spawn tool's
+		// documented contract records -- a code renamed on either
+		// surface breaks the seam here, not in a spawned worker's
+		// error handling.
+		flatForge := strings.Join(strings.Fields(string(forgeCmd)), " ")
+		for _, fragment := range []string{
+			"`SKILL_REFERENCE_REQUIRED`",
+			"`SKILL_NOT_FOUND`",
+			"supplying either fails input validation",
+		} {
+			if !strings.Contains(flatForge, fragment) {
+				t.Errorf("forge.md spawn contract recording missing %q "+
+					"(template and recording disagree on the documented output shape)", fragment)
+			}
+		}
+	})
+
+	t.Run("round trips: changed surfaces stay under drift coverage", func(t *testing.T) {
+		// The drift test round-trips canonical -> mirror for the
+		// embedded assets this change writes: both must remain in
+		// the asset set TestEmbeddedAssets_MatchSource iterates.
+		// The call-block identity asserted above is the
+		// block-scoped slice of that round trip, not a replacement
+		// for the whole-file check.
+		paths, err := assetPaths()
+		if err != nil {
+			t.Fatalf("list embedded assets: %v", err)
+		}
+		embedded := make(map[string]bool, len(paths))
+		for _, rel := range paths {
+			embedded[rel] = true
+		}
+		for _, rel := range []string{
+			"opencode/commands/uf.unleash.md",
+			"opencode/agents/divisor-guard.md",
+		} {
+			if !embedded[rel] {
+				t.Errorf("%s is no longer an embedded asset; TestEmbeddedAssets_MatchSource "+
+					"would stop round-tripping this change's canonical -> mirror drift check", rel)
+			}
+		}
+
+		// The repo-local governance files this change writes are
+		// intentionally unmirrored; they must stay in
+		// knownNonEmbeddedFiles so TestCanonicalSources_AreEmbedded
+		// keeps treating them as covered by the repo-local pin
+		// tests rather than silently unembedded. Their content is
+		// read back by the sibling spawn-parameter pins, not
+		// duplicated here.
+		for _, rel := range []string{
+			".opencode/uf/packs/determinism.md",
+			".opencode/skills/determinism-first/SKILL.md",
+		} {
+			if !knownNonEmbeddedFiles[rel] {
+				t.Errorf("%s is not in knownNonEmbeddedFiles; TestCanonicalSources_AreEmbedded "+
+					"would demand an embedded mirror for this repo-local governance file", rel)
+			}
+		}
+	})
 }
 
 // TestRun_LegacyFileWarning verifies that uf init warns about
