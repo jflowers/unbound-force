@@ -906,8 +906,8 @@ its Local Tool Detection phase to discover additional
    checkpoint data and success envelope, so every delegation
    is auditable without reconstructing prompts. Swarm-path
    `[P]` delegations carry the same classification through
-   the spawned subtask description (see parallel execution
-   below).
+   the spawn tool's `task_classification` parameter (see
+   parallel execution below).
 
 **Build/test fix loop**: a failing check at a blocking
 gate is implement work the agent owns, not a human
@@ -1078,15 +1078,35 @@ its spent budget the same way, from its budget-only
         path, task ID, and current commit hash to create
         a dedicated worktree.
       - Call `replicator_forge_spawn_subtask` with the task
-        description, files from the task, and the
-        worktree path. The subtask description MUST carry
-        the task's classification (per the classification
-        step above) and, for a deterministic task, the
-        verified skill or script reference that performs it
-        end-to-end -- or the recorded absence reason when
-        no repo skill or script applies. The spawn tool has
-        no classification parameters, so the description is
-        the contract's carrier on this path.
+        description, files from the task, the worktree path, and
+        the delegation parameters:
+
+        ```
+        replicator_forge_spawn_subtask
+          subtask_description: [the task description exactly as
+            parsed]
+          task_classification: [the task's classification --
+            deterministic or judgment, per the step above]
+          skill: [repo skill or script reference that performs
+            the task end-to-end -- only when deterministic]
+          skill_absent_reason: [what was searched and what was
+            found -- only when deterministic and no repo skill or
+            script applies; never together with skill]
+          files: [files from the task]
+          project_path: [the worktree path]
+        ```
+
+        The spawn tool enforces the same parameter contract as
+        `uf_delegate_command`, fail-closed before the subtask
+        spawns: a call omitting `task_classification` fails input
+        validation, a deterministic call supplying neither `skill`
+        nor `skill_absent_reason` fails with
+        `SKILL_REFERENCE_REQUIRED`, an unresolvable reference fails
+        with `SKILL_NOT_FOUND`, and a judgment-classified call
+        supplying either skill field fails input validation. When
+        the spawn envelope carries a `skill_directive`, forward it
+        verbatim into the worker's prompt -- never author skill
+        instructions in prose.
 
    d. Wait for all workers in the batch to complete.
 
