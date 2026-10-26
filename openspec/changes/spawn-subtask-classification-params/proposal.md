@@ -294,4 +294,119 @@ issue).
 Task 4.3 (constitution-alignment verification) remains to be
 recorded by that task.
 
+## Task 4.3 Constitution Alignment Record
+
+Recorded 2026-10-25, task 4.3 (constitution-alignment
+verification). Re-verified against the final committed diff
+(`19ca1d6..HEAD`, HEAD `7c61149`); the working tree's tasks.md
+checkbox edits are out of scope — committed content only.
+
+**Constitution source**: verified against
+`.specify/memory/constitution.md` — v1.4.0, six principles,
+Last Amended 2026-10-14. Note: `.uf/constitution/` does not
+exist in this repository; `.specify/memory/constitution.md` is
+the location the constitution's own Hero Constitution
+Alignment section designates, and its version, principles, and
+amendment dates match the described org constitution exactly.
+
+**I. Autonomous Collaboration**: PASS — assessment holds. The
+committed uf.unleash.md diff replaces the description-carrier
+prose (the deleted "The spawn tool has no classification
+parameters, so the description is the contract's carrier on
+this path") with a fenced, parameterized spawn call block, and
+the classification step's cross-reference now names the spawn
+tool's `task_classification` parameter. The delegation
+contract travels as structured, schema-validated tool
+parameters with durable records — a well-defined artifact on
+both delegation paths — rather than prompt-coupled prose.
+
+**II. Composability First**: PASS — assessment holds. No
+dependency is introduced (the diff touches no go.mod, package
+manifest, or tool registration), the spawn tool remains
+optional (the Swarm-unavailable fallback to sequential
+`uf_delegate_command` execution is untouched by the diff), and
+the template change is forward-compatible with older
+replicator binaries (unknown JSON fields are ignored), while
+the old prose-only calls were already failing the deployed
+tool's required-`task_classification` input validation — the
+break this change fixes.
+
+**III. Observable Quality**: PASS — assessment holds. The
+template names the machine-parseable failure envelopes
+(`SKILL_REFERENCE_REQUIRED`, `SKILL_NOT_FOUND`, and the
+input-validation failures) at the point of instruction; the
+classification, resolved reference, and reason are
+tool-recorded, and that record — not prompt archaeology — is
+the audit source; the Guard checklist now audits call
+parameters instead of prompt prose.
+
+**IV. Testability**: PASS — assessment holds, re-verified by
+execution. `internal/scaffold/scaffold_test.go` is +495/-0
+(pure additions; no existing test removed or weakened): the
+three-layer seam test (registration surface, documented output
+shape, round trips) plus Guard, pack, and skill pins. `go
+test -race -count=1 ./internal/scaffold/` passes, and direct
+`cmp` confirms both scaffold mirrors are byte-identical to
+their canonicals. No external services are required; the
+replicator-side contract validation is tested in its own repo
+and referenced, not duplicated.
+
+**V. Security by Default**: PASS — assessment holds. No
+dependency, permission, CI, or supply-chain surface appears in
+the diff (no go.mod, .github/, opencode.json, or coverage
+config among the changed files). The change strengthens input
+hygiene on the Swarm path — fail-closed schema validation
+before any child session spawns. No gate, severity, or
+pinned-version change rides along (verified below).
+
+**VI. Deterministic Execution**: PASS — assessment holds. The
+change is Principle VI applied to the Swarm path's carrier:
+the delegation classification moves from re-reasoned
+description prose to fail-closed tool parameters with durable
+audit records, and DE-008, the Guard checklist, and the
+determinism-first skill now name the parameter contracts as
+the mechanism of record. Delivery follows the pack's own
+rules: DE-007 seam verification in the same increment, a
+pinnable fenced call-block shape, and design-recorded
+template sites.
+
+**Gatekeeping integrity**: PASS. DE-008 keeps its [MUST]
+classification (the diff shows `- **DE-008** [MUST]` on both
+sides), and the pack's severity-mapping paragraph is
+unchanged — DE-008 remains in the [MUST] set mapped to
+CRITICAL findings. The determinism.md diff is exactly two
+hunks (the 1.3.0 -> 1.4.0 frontmatter bump and the DE-008
+rule bullet); DE-001 through DE-007 and both severity
+paragraphs are byte-unchanged. The rule is strengthened, not
+weakened: the Swarm-path MUST obligation is identical in
+substance, its carrier moves from the unvalidated spawned
+description to fail-closed validated parameters, and
+enforcement widens to both delegation tools; the dropped "in
+checkpoint data and the success envelope" phrase generalizes
+the record location across two tools with different record
+surfaces (the Guard diff correspondingly scopes that claim to
+`uf_delegate_command`), with the audit-source requirement
+retained. The version bump is additive bookkeeping — pack
+metadata documenting the reworded carrier, not a gate value —
+and a pin test now asserts it. No gate value is touched
+anywhere in the diff: no coverage floor (coverage-gate.json,
+vitest.config.ts), CRAP score, CI flag (.github/workflows),
+review limit (review-matrix.yaml), pinned dependency (go.mod),
+or agent setting; a keyword scan of the full diff returns only
+test-pin comments and this change's own no-weakening
+assertions. scaffold_test.go adds tests only, and the
+knownNonEmbeddedFiles entries covering the repo-local
+determinism files predate this change (present at 19ca1d6),
+so no self-serving drift exemption was introduced.
+
+**Overall verdict**: all six principles PASS against the
+final committed diff, and the proposal's Constitution
+Alignment assessments (I-VI, PASS each) are confirmed accurate
+with no corrections needed. Gatekeeping integrity confirmed:
+the pack version bump is additive bookkeeping, DE-008's
+MUST/CRITICAL classification and every pre-existing rule,
+severity, and threshold are unchanged, and no gate is
+weakened, bypassed, or disabled. The change is
+constitution-compliant.
+
 <!-- scaffolded by uf vdev -->
