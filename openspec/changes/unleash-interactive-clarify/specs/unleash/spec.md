@@ -96,7 +96,11 @@ marker, insert the answer inline, and append the
 section when absent, carrying the resolution's provenance —
 `(Dewey-resolved from ...)` for silent auto-resolutions and
 `(human-answered during /uf.unleash clarify)` for ask-gate
-answers. `resolve_clarification` MUST locate the target marker
+answers. The `resolved_by` input ("dewey" | "human", default
+"dewey") MUST be validated conditionally, fail-closed at the
+schema level: `source` is required when `resolved_by` is "dewey"
+or omitted, and MUST be omitted when `resolved_by` is "human".
+`resolve_clarification` MUST locate the target marker
 by comparing its extracted question — computed by the same
 helper the scan uses — against the question exactly as scanned,
 for every grammar form. The command prose MUST retain query
@@ -105,17 +109,19 @@ judgment; for bare-marker and empty-colon questions (whose
 question text is the raw marker or its empty-colon fallback)
 query formulation MUST use the surrounding context rather than
 the raw marker text. Silent auto-resolution without human
-confirmation MUST be preserved. Questions Dewey cannot answer —
-including all questions when Dewey is unavailable — MUST flow
-into the interactive clarify ask gate; only deferred questions,
-and questions asked when the question tool is unavailable, MUST
-flow into the rendered exit template.
+confirmation MUST be preserved. The routing of questions Dewey
+cannot answer — including the Dewey-unavailable and
+question-tool-unavailable populations — is owned by the
+Interactive clarify ask gate requirement.
 
 Previously: the requirement routed every Dewey-unanswerable
 question directly into the rendered exit template, and a
 Dewey-unavailable session collected all questions as
 unanswerable and exited; the human edited spec.md by hand and
-re-ran the pipeline.
+re-ran the pipeline. This change moves that routing wholly
+into the Interactive clarify ask gate requirement — deleting
+the routing sentence and the Dewey-unavailable scenario here —
+so the merged capability states the routing once.
 
 #### Scenario: Marker scan
 
@@ -135,14 +141,36 @@ re-ran the pipeline.
 - **WHEN** `resolve_clarification` runs
 - **THEN** the marker is removed from spec.md, the answer is inserted inline, and the `Q: -> A:` entry is appended to `## Clarifications`
 
-#### Scenario: Dewey unavailable
-
-- **GIVEN** Dewey tools are not available in the session and the question tool is
-- **WHEN** Step 1 processes markers
-- **THEN** the questions are asked through the interactive clarify ask gate rather than collected as unanswerable; when the question tool is also unavailable, the questions are collected as unanswerable and the pipeline exits through the rendered clarify pause template
-
 #### Scenario: Human provenance rendering
 
 - **GIVEN** one question resolved by Dewey from page X and another answered at the ask gate
 - **WHEN** `resolve_clarification` applies both resolutions
 - **THEN** the first Clarifications entry ends `(Dewey-resolved from X)` and the second ends `(human-answered during /uf.unleash clarify)`
+
+#### Scenario: Conditional source validation
+
+- **GIVEN** a resolve_clarification call with `resolved_by` "human" and a `source` supplied
+- **WHEN** the input is validated
+- **THEN** the call is rejected (provenance honesty, fail-closed); a call with `resolved_by` "dewey" or omitted and no `source` is rejected the same way, while both valid combinations are accepted
+
+### Requirement: Guardrail consistency
+
+The `/uf.unleash` guardrails MUST name the two legitimate
+mid-pipeline human interactions, amending the "never pause between
+steps" rule: the interactive clarify ask gate in Step 1 (Speckit)
+and the spec auto-fix consent gate in Step 4. The guardrails MUST
+retain: never run on `main`, never skip the spec review exit on
+HIGH/CRITICAL findings, and actionable exit messages. Prescribed
+exit and demo output MUST be rendered by the formatter tools rather
+than reconstructed from prose; the OUTPUT FIDELITY GUARD and
+re-read instructions MUST NOT remain in the command.
+
+Previously: the guardrails named the spec auto-fix consent gate as
+the single legitimate mid-pipeline human interaction; the Step 1
+ask gate did not exist, and unanswerable clarify questions exited
+the pipeline for a manual spec edit instead of being asked.
+
+#### Scenario: Guardrails name both gates and the renderers
+- **GIVEN** the updated `uf.unleash.md` guardrails section
+- **WHEN** a reader searches for the pause prohibition and the demo-output rule
+- **THEN** both gate exceptions — the Step 1 clarify ask gate and the Step 4 consent gate — are stated explicitly and demo/exit output is prescribed as tool-rendered, with no OUTPUT FIDELITY GUARD present

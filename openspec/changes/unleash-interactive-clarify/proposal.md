@@ -29,11 +29,11 @@ step is reached).
   unavailable — the command asks the human that question
   through a single question tool call, one question at a time,
   carrying the question text and its surrounding spec context.
-- Each ask formulates 2-5 mutually exclusive options from the
-  question's own enumerated alternatives when the marker text
-  enumerates them, lists the spec's stated working default
-  (when present) first labeled "(Recommended)", and enables a
-  custom free-form answer.
+- Each ask SHOULD formulate 2-5 mutually exclusive options from
+  the question's own enumerated alternatives when the marker
+  text enumerates them, MUST list the spec's stated working
+  default (when present) first labeled "(Recommended)", and
+  MUST enable a custom free-form answer.
 - A defer option leaves the question on the unanswerable list;
   deferred questions flow into the existing clarify exit
   unchanged — the fallback for unattended runs. When the
@@ -70,7 +70,12 @@ None.
   Dewey-unanswerable questions route through the ask gate
   before the exit, Dewey-unavailable questions become
   interactive candidates instead of auto-deferred, and the
-  Clarifications log entry records who resolved each question.
+  Clarifications log entry records who resolved each question;
+  MODIFIED requirement "Guardrail consistency" — the guardrails
+  name both legitimate mid-pipeline human interactions (the
+  Step 1 clarify ask gate and the Step 4 spec auto-fix consent
+  gate), anchored to `unleash-deterministic-tools`' unarchived
+  text.
 
 ## Impact
 
@@ -111,13 +116,14 @@ docs coverage rather than duplicating); AGENTS.md unchanged
 
 **Sequencing**: the `unleash` capability has no baseline spec
 in `openspec/specs/` — its requirements exist only as deltas in
-unarchived changes. This change's MODIFIED requirement is
-anchored to `clarification-marker-superset`'s unarchived text
-(the current owner of "Clarification mechanics tools") and
-carries its body forward verbatim except the designed clauses;
-this change archives after that predecessor, and task 8.1
-re-verifies the anchor at archive time (mirroring the
-marker-superset archive-sequencing pattern).
+unarchived changes. This change's MODIFIED requirements are
+anchored to the unarchived text of their current owners:
+"Clarification mechanics tools" to `clarification-marker-superset`
+and "Guardrail consistency" to `unleash-deterministic-tools`, each
+carried forward verbatim except the designed clauses; this change
+archives after both predecessors, and task 8.1 re-verifies the
+anchors at archive time (mirroring the marker-superset
+archive-sequencing pattern).
 
 ## Constitution Alignment
 

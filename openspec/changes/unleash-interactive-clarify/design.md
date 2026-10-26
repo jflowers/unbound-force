@@ -140,9 +140,18 @@ asking it is the collaborative act, not a confirmation pause.
 The clarify exit remains a valid halt via defer, so unattended
 behavior is unchanged. The command's Guardrails first bullet is
 extended to name the Step 1 ask gate as a second exception
-alongside Step 4's, and the new ADDED requirement states the
-distinction explicitly rather than modifying the legacy
-`unleash-autonomy` capability text.
+alongside Step 4's. The new ADDED requirement states the
+distinction explicitly without modifying the legacy
+`unleash-autonomy` capability text — but the same-capability
+"Guardrail consistency" requirement (currently carried by the
+unarchived `unleash-deterministic-tools` change) mandates the
+consent gate as the single legitimate mid-pipeline human
+interaction, so leaving it unmodified would archive two
+contradictory requirements against one command. This change
+therefore carries a MODIFIED "Guardrail consistency" requirement
+anchored to that predecessor's unarchived text, replacing the
+single-gate clause with the two-gate enumeration; the command's
+Guardrails bullet and the delta move together.
 
 ### D6. Command prose delta
 
@@ -201,3 +210,11 @@ path byte-identical.
   spec and re-run — now accurate for deferred questions only.
   Rewriting it is out of scope; the guidance remains correct
   for the questions that reach the exit.
+- The counts announcement is command prose, while the Guardrail
+  consistency direction prescribes formatter-rendered exit and
+  demo output. Accepted scope distinction: the announcement is
+  a step-transition message like the command's existing
+  announcements, outside the formatter-tools clause's exit/demo
+  scope, and the counts are fixed mechanical tallies
+  (auto-resolved, human-answered, deferred) the command
+  maintains — the prose cannot drift from the artifacts.
