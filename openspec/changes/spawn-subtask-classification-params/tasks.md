@@ -117,10 +117,10 @@
 
 ## 4. Verification, documentation, and issue recording
 
-- [ ] 4.1 CI-parity pre-flight: `make check` (lint, test,
+- [x] 4.1 CI-parity pre-flight: `make check` (lint, test,
   build, coverage-gate, plugin-test); all green before any
   task in this change is marked complete.
-- [ ] 4.2 Documentation gate: add the CHANGELOG.md entry per
+- [x] 4.2 Documentation gate: add the CHANGELOG.md entry per
   the spec's change-record requirement (spawn call
   parameterization, mirror, DE-008 wording + pack 1.4.0,
   Guard checklist, determinism-first skill); assess
@@ -141,7 +141,7 @@
   Guard's review capabilities) and record the filed issue
   numbers in the change record section of proposal.md
   before PR merge.
-- [ ] 4.3 Constitution-alignment verification: re-check each
+- [x] 4.3 Constitution-alignment verification: re-check each
   principle against the final diff (proposal's assessments);
   gatekeeping integrity check — the pack version bump is
   additive bookkeeping, DE-008's MUST/CRITICAL
