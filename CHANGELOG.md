@@ -356,6 +356,37 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- update-run-pipeline-plan: `/uf.run-pipeline-plan` now executes
+  each work item through two `uf_delegate_command` delegations
+  (`/uf.unleash`, then `/uf.finale`) instead of three `general`
+  subagents running `/opsx-propose` -> `/uf.unleash` ->
+  `/uf.finale` — the child `/uf.unleash` session resolves the
+  issue, routes the tier, and runs the entry command itself.
+  The orphaned Gate Relay Protocol (`GATE:<name>` structured
+  values, `task_id` resumption, the "subagents MUST NOT invoke
+  the question tool" rule — implemented by no command) is
+  removed: human gates inside delegated commands surface
+  directly to the human through parented child sessions, and
+  the orchestrator's `question` use is limited to Phase 0
+  triage and pause-relay decisions. Paused exits are now
+  modeled: any `/uf.unleash paused at:` heading (eleven known
+  variants) is relayed verbatim, the todowrite entry is
+  annotated `[BLOCKED: <variant>]`, and a pause-relay question
+  offers re-run / skip / abort; hard delegation failures route
+  through the same protocol. The disk handoff table now checks
+  the feature branch before `/uf.finale` and the PR plus clean
+  return to `main` after. The `/uf.finale` description
+  refreshes to nine steps (including sync-with-base), the
+  explicit-staging guardrail re-anchors to verification-only
+  (staging happens inside the finale child via
+  `uf_finale_stage`), the Closes linkage becomes a
+  verification backstop (`gh pr view` / `gh pr edit`) threaded
+  natively via `originating_issue`, and tracking requires
+  `gh pr checks` green before `[x]` with a non-green-CI relay
+  protocol. Scaffold mirror under
+  `internal/scaffold/assets/opencode/commands/` synced
+  byte-identically (enforced by drift-detection tests).
+  (Spec: openspec/changes/update-run-pipeline-plan/)
 - spawn-subtask-classification-params: The `/uf.unleash` Swarm
   parallel path's spawn call now carries the delegation
   classification contract as tool parameters. The implement
