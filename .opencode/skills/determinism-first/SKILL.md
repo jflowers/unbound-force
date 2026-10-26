@@ -126,9 +126,10 @@ the child prompt as a tool-rendered directive, and records the
 classification, reference, and reason in checkpoint data and
 the success envelope — that record, not prompt archaeology, is
 the audit source. Judgment-classified delegations carry no skill
-fields, and Swarm-path spawn prompts for deterministic `[P]`
-tasks carry the classification and the verified reference (or
-recorded reason) in the subtask description. Rule DE-008
+fields, and Swarm-path spawn calls for deterministic `[P]`
+tasks pass the same fields as spawn-tool parameters
+(`task_classification`, `skill`, `skill_absent_reason` on the
+`replicator_forge_spawn_subtask` call). Rule DE-008
 (`.opencode/uf/packs/determinism.md`) is the matching review
 rule.
 
@@ -141,6 +142,8 @@ rule.
   (`.opencode/uf/packs/determinism.md`)
 - Review rule DE-008, "Delegation Skill Enforcement"
   (`.opencode/uf/packs/determinism.md`)
-- The `uf_delegate_command` parameter contract
-  (`task_classification`, `skill`, `skill_absent_reason`;
-  `.opencode/plugins/uf-workflow/index.ts`)
+- The delegation tools' parameter contracts
+  (`task_classification`, `skill`, `skill_absent_reason` on
+  `uf_delegate_command` and on `replicator_forge_spawn_subtask`;
+  `.opencode/plugins/uf-workflow/index.ts`,
+  unbound-force/replicator)
