@@ -26,10 +26,15 @@ no task classification):
    steps -- branch safety gate, check for changes and stage,
    commit message, sync with base branch, push, create or find PR,
    watch CI checks, return to main, summary. Expected outcome:
-   changes committed and pushed; a PR URL returned; the PR stays
-   open for human review; `Closes #N` threaded via
-   `originating_issue` in `.openspec.yaml`; the working tree left
-   back on `main`.
+   a designed handoff at the commit-approval gate -- the child
+   drives staging and commit preparation, then wedges at its
+   commit-approval question gate (question prompts do not surface
+   from a parented child; see Direct Human Gate Surfacing). The
+   human completes `/uf.finale` interactively on the feature
+   branch from the child's checkpoints. The orchestrator then
+   verifies the outcome on disk: a PR URL; the PR stays open for
+   human review; `Closes #N` threaded via `originating_issue` in
+   `.openspec.yaml`; the working tree left back on `main`.
 
 The orchestrator MUST NOT delegate `/opsx-propose` (or any tier
 entry command) directly -- tier routing inside `/uf.unleash` owns
@@ -40,10 +45,12 @@ orchestrator's record is the todowrite tracker plus disk state.
 
 Before delegating `/uf.finale`, the orchestrator MUST verify on
 disk that the working tree is on the item's feature branch (not
-`main`). After `/uf.finale` returns, the orchestrator MUST verify
-that a PR exists for the item's branch and that the working tree
-is on `main` with a clean working tree (`git status --short` is
-empty) before the next item starts.
+`main`) and that any untracked `internal/scaffold/AGENTS.md` has
+been removed (stray file removal). After `/uf.finale` returns,
+the orchestrator MUST verify that a PR exists for the item's
+branch and that the working tree is on `main` with a clean
+working tree (`git status --short` is empty) before the next
+item starts.
 
 Previously: the orchestrator spawned three fresh `general`
 subagents per item (`/opsx-propose`, then `/uf.unleash` in
@@ -241,7 +248,11 @@ limited to Phase 0 triage and pause-relay decisions.
 - **THEN** the orchestrator MUST either have the human clear the
   gate interactively on the feature branch before re-delegating,
   or re-anchor via `get_progress`/`parse_tasks`/git status and
-  drive the remaining steps directly
+  drive the remaining steps directly, bounded to mechanical
+  steps: any gate requiring consent — committing, pushing, or
+  opening a PR — MUST be answered by the human through a
+  pause-relay question before the orchestrator executes the
+  consented step
 - **AND** MUST NOT re-delegate without clearing the gate (the
   re-delegation wedges at the same gate)
 
@@ -257,19 +268,18 @@ limited to Phase 0 triage and pause-relay decisions.
 
 When the `/uf.unleash` delegation returns a paused exit -- output
 containing a `/uf.unleash paused at:` heading rendered by
-`format_unleash_exit` (known variants: clarify, spec-review,
-implement-worker-failed, implement-merge-conflict,
-implement-phase-checkpoint, code-review-preflight,
-code-review-no-success, code-review-iterations-exhausted,
-tier-routing-dirty-tree, tier-routing-missing-tooling,
-planner-failure) -- the orchestrator MUST:
+`format_unleash_exit`; the variant named in the heading selects
+the re-run class in step 4 below -- the orchestrator MUST:
 
 1. Relay the exit text verbatim
 2. Mark the work item blocked in `todowrite` (entry stays
    `in_progress`, annotated with the paused variant)
 3. ASK the human through a pause-relay question offering at
    least: re-run `/uf.unleash` after human action, skip the work
-   item, or abort the run
+   item, or abort the run. When the wedge is a consent gate (for
+   example the finale commit approval), the question relays the
+   pending consent decision and the orchestrator completes only
+   the consented mechanical steps
 4. On re-run, delegate `/uf.unleash` again via
    `uf_delegate_command` with the same `command_path` and no
    routing context -- that is, omitting orchestrator-side tier and

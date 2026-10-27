@@ -152,7 +152,12 @@ parented child sessions:
    demo step. Omit `task_classification` (command-path
    delegation), `checkpoint_step`, and
    `expected_artifact` — the delegated command owns its
-   durable progress state.
+   durable progress state. Set `timeout: 1800000` (the
+   `uf_delegate_command` maximum); whole-pipeline runs
+   have hit this cap (learning
+   `uf-workflow-20261026T182050`), so a timeout routes
+   through gate-timeout recovery below rather than a
+   hard failure.
 
 2. **Delegation 2** (`/uf.finale`): DELEGATE with
    `command_path: ".opencode/commands/uf.finale.md"` and a
@@ -164,7 +169,15 @@ parented child sessions:
    gate, check for changes and stage, commit message,
    sync with the base branch, push, create or find the
    PR, watch CI checks, return to `main`, and summary.
-   Expected outcome: a PR URL; the PR stays open for
+   Expected outcome: a designed handoff at the
+   commit-approval gate — the child drives staging and
+   commit preparation, then wedges at its
+   commit-approval question gate (question prompts do
+   not surface from a parented child; see Direct Human
+   Gate Surfacing). The human completes `/uf.finale`
+   interactively on the feature branch from the child's
+   checkpoints. The orchestrator then verifies the
+   outcome on disk: a PR URL; the PR stays open for
    human review; `Closes #N` threads via
    `originating_issue` in `.openspec.yaml`; the tree
    returns to `main`. Omit `task_classification`,
@@ -175,7 +188,7 @@ at each boundary:
 
 | Boundary | VERIFY on disk |
 |---|---|
-| Before `/uf.finale` | The working tree is on the item's feature branch (not `main`) |
+| Before `/uf.finale` | The working tree is on the item's feature branch (not `main`), and any untracked `internal/scaffold/AGENTS.md` has been removed (Stray file removal) |
 | After `/uf.finale` | A PR exists for the branch; the tree is back on `main` and clean |
 
 **On failure**: route the item through the blocked-item
@@ -209,13 +222,20 @@ interactively on the feature branch (re-entering the
 child command in a direct session) before re-delegating,
 or the orchestrator re-anchors via `get_progress`,
 `parse_tasks`, and `git status` and drives the remaining
-steps directly. Re-delegating without clearing the gate
-re-hangs at the same gate.
+steps. Direct-drive is bounded to mechanical steps: any
+gate requiring consent — committing, pushing, or opening
+a PR — MUST be answered by the human through a
+pause-relay question before the orchestrator executes
+the consented step; the orchestrator MUST NOT commit,
+push, or open a PR on its own authority. Re-delegating
+without clearing the gate re-hangs at the same gate.
 
 The orchestrator's own `question` tool use is limited
 to Phase 0 triage (non-mechanical item resolution and
 the work-item confirmation table) and pause-relay
-decisions (the blocked-item question below). All other
+decisions — `/uf.unleash` paused exits and delegation
+failures (the blocked-item question below) and
+non-green CI on a created PR (see Tracking). All other
 human interaction happens inside the delegated commands'
 own gate protocols — surfaced to the orchestrator as
 paused exits or timeouts, not as live questions.
@@ -224,13 +244,8 @@ paused exits or timeouts, not as live questions.
 
 `/uf.unleash` may exit paused, requiring human action
 before the item can continue. Recognize any
-`/uf.unleash paused at:` heading. Known variants:
-clarify, spec-review, implement-worker-failed,
-implement-merge-conflict, implement-phase-checkpoint,
-code-review-preflight, code-review-no-success,
-code-review-iterations-exhausted,
-tier-routing-dirty-tree, tier-routing-missing-tooling,
-planner-failure.
+`/uf.unleash paused at:` heading; the variant named in
+the heading selects the re-run class in step 4 below.
 
 On a paused exit — or a hard delegation failure (an
 error envelope carrying neither exit text nor a demo
@@ -241,7 +256,11 @@ block):
    with a `[BLOCKED: <variant>]` annotation.
 3. **Ask**: present the pause-relay question — re-run
    the item after human action, skip the item, or
-   abort the run.
+   abort the run. When the wedge is a consent gate
+   (for example the finale commit approval), the
+   question relays the pending consent decision and
+   the orchestrator completes only the consented
+   mechanical steps.
 4. **On re-run**: delegate `/uf.unleash` again with the
    same `command_path` and no routing context — that is,
    omitting orchestrator-side tier and branch directives
@@ -289,7 +308,8 @@ These rules are non-negotiable:
   delegated `/uf.finale` child via `uf_finale_stage`.
   The orchestrator-side rule is verification only; if
   it ever stages, it MUST use explicit file paths.
-  `git add -A` and `git add .` are forbidden.
+  At the orchestrator level, `git add -A` and
+  `git add .` are forbidden.
 - **Stray file removal**: Remove any untracked
   `internal/scaffold/AGENTS.md` before staging. Never
   commit it.

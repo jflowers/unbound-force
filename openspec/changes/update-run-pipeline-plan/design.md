@@ -122,8 +122,12 @@ delegation wedges at the gate until its timeout; recovery is the
 human clearing the gate interactively on the feature branch
 before re-delegation, or the orchestrator re-anchoring via
 `get_progress`/`parse_tasks`/git status and driving the remaining
-steps directly. This removes an ad-hoc inter-agent exchange
-format in favor of each command's own published exit mechanism.
+steps directly, bounded to mechanical steps — any gate requiring
+consent (committing, pushing, opening a PR) is answered by the
+human through a pause-relay question before the orchestrator
+executes the consented step. This removes an ad-hoc inter-agent
+exchange format in favor of each command's own published exit
+mechanism.
 The orchestrator's question-tool scope is contractually limited
 to Phase 0 triage and pause-relay decisions.
 
@@ -131,18 +135,18 @@ to Phase 0 triage and pause-relay decisions.
 
 `/uf.unleash` exits are tool-rendered by `format_unleash_exit`
 and always carry a `/uf.unleash paused at:` heading. The
-orchestrator recognizes any such heading (the eleven named
-variants — clarify, spec-review, implement-worker-failed,
-implement-merge-conflict, implement-phase-checkpoint,
-code-review-preflight, code-review-no-success,
-code-review-iterations-exhausted, tier-routing-dirty-tree,
-tier-routing-missing-tooling, planner-failure — plus any future
-addition), relays the text verbatim —
+orchestrator recognizes any such heading (the variant named in
+the heading selects the re-run class below), relays the text
+verbatim —
 never paraphrased or reconstructed, per the tool-rendered output
 rule — annotates the todowrite entry `[BLOCKED: <variant>]`
 (entries have no blocked state; `in_progress` plus annotation is
 the tracker's expression), and asks one pause-relay question:
-re-run after human action, skip the item, or abort the run. The
+re-run after human action, skip the item, or abort the run —
+when the wedge is a consent gate (for example the finale commit
+approval), the question relays the pending consent decision and
+the orchestrator completes only the consented mechanical steps.
+The
 re-run is a fresh `uf_delegate_command` delegation with the same
 `command_path` and no routing context — omitting orchestrator-
 side tier and branch directives while the prompt still carries
@@ -174,8 +178,13 @@ The `/uf.finale` delegation description in the command text is
 refreshed to its current nine-step shape (branch safety gate,
 check changes and stage, commit message, sync with base branch,
 push, create or find PR, watch CI, return to main, summary) with
-its expected outcome: PR URL returned, PR stays open, tree back
-on `main`. `Closes #N` linkage is automated through
+its expected outcome: a designed handoff at the commit-approval
+gate — the child drives staging and commit preparation, then
+wedges at its commit-approval question gate; the human completes
+`/uf.finale` interactively on the feature branch, and the
+orchestrator verifies the outcome on disk (PR URL returned, PR
+stays open, tree back on `main`). `Closes #N` linkage is
+automated through
 `originating_issue` (threaded from the route-decision
 checkpoint, which `/uf.unleash` re-keys under the feature branch,
 or `.openspec.yaml`). The manual guardrail remains as backstop:
@@ -189,7 +198,8 @@ human-approved content.
 
 Phase 0 (input detection, `gh issue view` resolution,
 non-mechanical flagging, work-item table confirmation), the Plan
-File Contract, clean-tree-between-items, stray file removal, no
+File Contract, clean-tree-between-items, stray file removal
+(enforced at the pre-finale disk-handoff verification), no
 force-push, PR targeting, no auto-merge, the todowrite completion
 rule (`[x]` only after PR created AND CI green, verified via
 `gh pr checks <N>`), and the session-resume guard are all kept
@@ -231,6 +241,16 @@ matching the `rebase-upstream-before-push` precedent.
   the delegated commands render are richer than the relay ever
   was. The orchestrator's pause-relay decisions remain the
   coarse control point.
+- **Whole-pipeline delegations can hit the timeout cap.** The
+  `/uf.unleash` delegation sets `timeout: 1800000` (the
+  `uf_delegate_command` maximum), and whole-pipeline runs have
+  hit this cap (learning `uf-workflow-20261026T182050`). A
+  duration overrun is not a hard failure: the timeout routes
+  through gate-timeout recovery (human clears the gate on the
+  branch, or the orchestrator re-anchors and drives the
+  remaining mechanical steps). Per-task prompt-only delegations
+  remain the prescribed granularity for implement work, which
+  bounds per-delegation duration.
 - **Recognition of completion relies on rendered shapes.** The
   orchestrator distinguishes "pipeline complete" (demo block)
   from "paused" (`paused at:` heading) by the child's final

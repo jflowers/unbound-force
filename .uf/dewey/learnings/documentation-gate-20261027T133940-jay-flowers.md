@@ -1,0 +1,10 @@
+---
+tag: documentation-gate
+author: jay-flowers
+category: gotcha
+created_at: 2026-10-27T13:39:40Z
+identity: documentation-gate-20261027T133940-jay-flowers
+tier: draft
+---
+
+Filed docs-gate issue bodies are the one claim-carrying surface of a change that lives outside the git diff, so a review-feedback fix commit can reconcile a falsified behavioral claim across every file surface — command, byte-identical scaffold mirror, spec delta, design, proposal, tasks, and CHANGELOG, with the amended doc-gate task still checked [x] — while both filed issues retain the pre-correction claim, and a diff-scoped reviewer sees none of the gap. Verified on update-run-pipeline-plan (PR #839, checked 2026-10-27 via gh issue view): fix commit 1c11f8b corrected the gate-surfacing claim in every in-repo surface, yet in-repo docs issue #838 still read "gates inside delegated commands surface directly to the human from the delegated child sessions" and unbound-force/website#332 "the question surfaces directly to the operator" — the exact claim the change's own learning (uf-workflow-20261026T182050: two whole-pipeline delegations hung at question gates until the 30-minute cap) disproved — while the amended task 3.3 requires both bodies to enumerate "(question-tool prompts inside a parented child do not surface)". Reviewer recipe: whenever a fix commit amends a doc-gate task's issue-body enumeration, or reconciles a claim the change's own learnings falsified, read the filed issues out-of-band (gh issue view <N> --repo <repo> --json body) and diff each body's behavioral claims against the corrected enumeration before approving; the repair is also out-of-band (gh issue edit <N> --body-file) and cannot ride in the fix commit, so both the correction and its verification need an explicit step. Complements uf-workflow-20261026T214955 and compiled/documentation-gate, which prescribe extending gate-issue bodies in the same commit: those state the rule; this adds the detection mechanism for the surface the diff cannot show.
