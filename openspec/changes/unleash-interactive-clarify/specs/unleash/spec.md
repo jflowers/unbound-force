@@ -171,6 +171,7 @@ ask gate did not exist, and unanswerable clarify questions exited
 the pipeline for a manual spec edit instead of being asked.
 
 #### Scenario: Guardrails name both gates and the renderers
+
 - **GIVEN** the updated `uf.unleash.md` guardrails section
 - **WHEN** a reader searches for the pause prohibition and the demo-output rule
 - **THEN** both gate exceptions — the Step 1 clarify ask gate and the Step 4 consent gate — are stated explicitly and demo/exit output is prescribed as tool-rendered, with no OUTPUT FIDELITY GUARD present

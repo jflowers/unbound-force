@@ -15,15 +15,19 @@ import {
 } from "../plugins/uf-workflow/index.js"
 
 // ---------------------------------------------------------------------------
-// Scope (tasks 4.7 unleash-deterministic-tools and 3.1
-// clarification-marker-superset)
+// Scope (tasks 4.7 unleash-deterministic-tools, 3.1
+// clarification-marker-superset, and 4.1 unleash-interactive-clarify)
 // ---------------------------------------------------------------------------
 
 // The clarify tools are the mechanics half of /uf.unleash Step 1 (D8): scan
 // extracts clarification markers, resolve applies one answer. Whether Dewey
-// is AVAILABLE — and therefore whether a question auto-resolves or exits
-// for the human — is command-prose judgment, not tool behavior, so nothing
-// here asserts it. Markers take three grammar forms, single-sourced in one
+// is AVAILABLE — and therefore whether a question auto-resolves, reaches
+// the interactive ask gate, or exits for the human — is command-prose
+// judgment, not tool behavior, so nothing here asserts it. What the ask
+// gate adds on the tool side (4.1) is the resolved_by input contract — the
+// closed enum, the fail-closed conditional source, and both provenance
+// suffix renderings — pinned in the resolved_by block below. Markers take
+// three grammar forms, single-sourced in one
 // shared pattern: the colon form `[NEEDS CLARIFICATION: <question>]`, the
 // bare-with-text form, and the completely bare form. The bare forms extract
 // as unscoped questions — the bare form's question is its own raw marker
@@ -1045,6 +1049,149 @@ describe("resolve_clarification resolution application", () => {
     })
     expect(errorEnvelope(pluralized).code).toBe("MARKER_NOT_FOUND")
     expect(markerLike.writes).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// resolve_clarification — resolved_by provenance (task 4.1
+// unleash-interactive-clarify, design D4)
+// ---------------------------------------------------------------------------
+
+// resolved_by selects who the Clarifications entry credits and drives the
+// conditional source requirement. The ask gate itself — which questions
+// reach it, option formulation, defer — is command prose, not tool
+// behavior; the tool-side contract these cases pin is the closed enum, the
+// fail-closed conditional source, and both suffix renderings. The default
+// (field omitted) MUST stay byte-identical to today's Dewey template,
+// which is also why every pre-existing resolution assertion above runs
+// with resolved_by omitted and remains valid unmodified.
+
+describe("resolve_clarification resolved_by provenance", () => {
+  it("renders the Dewey suffix identically whether resolved_by is omitted or explicitly dewey", async () => {
+    const omitted = fakeSpecDeps({ files: { [SPEC_PATH]: SPEC_SECTION_ABSENT } })
+    const explicit = fakeSpecDeps({ files: { [SPEC_PATH]: SPEC_SECTION_ABSENT } })
+
+    const omittedResult = await invokeResolve(omitted.deps, RESOLVE_ARGS)
+    const explicitResult = await invokeResolve(explicit.deps, { ...RESOLVE_ARGS, resolved_by: "dewey" })
+
+    // Same payload shape and remaining count (the second marker survives)
+    // on both calls against identical stores.
+    expect(okData(omittedResult)).toStrictEqual({
+      feature_dir: FEATURE_DIR,
+      question: "What is the default timeout?",
+      remaining: 1,
+    })
+    expect(okData(explicitResult)).toStrictEqual({
+      feature_dir: FEATURE_DIR,
+      question: "What is the default timeout?",
+      remaining: 1,
+    })
+
+    // The explicit dewey call's write is byte-identical to the omitted
+    // call's — the default IS dewey, so introducing the field leaves
+    // existing callers and assertions unaffected.
+    expect(omitted.writes).toHaveLength(1)
+    expect(explicit.writes).toHaveLength(1)
+    expect(explicit.writes[0]?.contents).toBe(omitted.writes[0]?.contents)
+
+    // The omitted call's entry carries today's exact suffix — the format
+    // the pre-existing assertions above pin — and no human suffix.
+    expect(omitted.writes[0]?.contents).toContain(
+      "- Q: What is the default timeout? -> A: The default is 30 seconds. (Dewey-resolved from specs/018-unleash-command/spec.md)",
+    )
+    expect(omitted.writes[0]?.contents).not.toContain("human-answered")
+    expectNoRealFilesystem()
+  })
+
+  it("renders the human suffix, removes the marker, splices the answer inline, and appends the entry when resolved_by is human with source omitted", async () => {
+    const { deps, writes } = fakeSpecDeps({ files: { [SPEC_PATH]: SPEC_SECTION_ABSENT } })
+
+    const result = await invokeResolve(deps, {
+      feature_dir: FEATURE_DIR,
+      question: "What is the default timeout?",
+      answer: "60 seconds, chosen at the ask gate.",
+      resolved_by: "human",
+    })
+
+    expect(okData(result)).toStrictEqual({
+      feature_dir: FEATURE_DIR,
+      question: "What is the default timeout?",
+      remaining: 1,
+    })
+
+    // Identical artifact shape to the Dewey path — marker removed, answer
+    // spliced inline with both sides kept, second marker surviving
+    // (remaining 1), section created at the bottom — with the one designed
+    // difference: the entry's provenance suffix names the ask gate and
+    // interpolates no source.
+    expect(writes).toEqual([
+      {
+        path: SPEC_PATH,
+        contents:
+          [
+            "# Spec: gateway timeouts",
+            "",
+            "The gateway enforces a timeout. 60 seconds, chosen at the ask gate. Retries are off by default.",
+            "",
+            "Failures return 504. [NEEDS CLARIFICATION: Should 504s retry?]",
+            "",
+            "## Behavior",
+            "",
+            "Timeouts are configurable.",
+            "",
+            "## Clarifications",
+            "",
+            "- Q: What is the default timeout? -> A: 60 seconds, chosen at the ask gate. (human-answered during /uf.unleash clarify)",
+          ].join("\n") + "\n",
+      },
+    ])
+    expectNoRealFilesystem()
+  })
+
+  it.each([
+    [
+      'resolved_by "dewey" without source',
+      {
+        feature_dir: FEATURE_DIR,
+        question: "What is the default timeout?",
+        answer: "The default is 30 seconds.",
+        resolved_by: "dewey",
+      },
+      "source is required when resolved_by is dewey or omitted",
+    ],
+    [
+      "an omitted resolved_by without source",
+      {
+        feature_dir: FEATURE_DIR,
+        question: "What is the default timeout?",
+        answer: "The default is 30 seconds.",
+      },
+      "source is required when resolved_by is dewey or omitted",
+    ],
+    [
+      'resolved_by "human" with a source supplied',
+      { ...RESOLVE_ARGS, resolved_by: "human" },
+      "source must be omitted when resolved_by is human -- the answer originates in the ask gate",
+    ],
+    [
+      "an invalid resolved_by value",
+      { ...RESOLVE_ARGS, resolved_by: "agent" },
+      "resolved_by",
+    ],
+  ])("resolve rejects %s with INVALID_INPUT before any read", async (_description, args, messagePart) => {
+    const { deps, readTextCalls, writes } = fakeSpecDeps({ files: { [SPEC_PATH]: SPEC_SECTION_ABSENT } })
+
+    const result = await invokeResolve(deps, args)
+
+    const failureEnvelope = errorEnvelope(result)
+    expect(failureEnvelope.code).toBe("INVALID_INPUT")
+    expect(failureEnvelope.retryable).toBe(false)
+    // The zod issue details name the offending field and, for the
+    // conditional-source rows, the exact superRefine message — the
+    // fail-closed provenance honesty design D4 pins.
+    expect(failureEnvelope.message).toContain(messagePart)
+    expect(readTextCalls).toEqual([])
+    expect(writes).toEqual([])
   })
 })
 
