@@ -391,6 +391,7 @@ Each entry follows the format: `- <change-name>: <summary>`.
   `internal/scaffold/assets/opencode/commands/` synced
   byte-identically (enforced by drift-detection tests).
   (Spec: openspec/changes/update-run-pipeline-plan/)
+  (Docs: #838, unbound-force/website#332)
 - spawn-subtask-classification-params: The `/uf.unleash` Swarm
   parallel path's spawn call now carries the delegation
   classification contract as tool parameters. The implement

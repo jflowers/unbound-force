@@ -1,0 +1,10 @@
+---
+tag: uf-workflow
+author: jay-flowers
+category: gotcha
+created_at: 2026-10-27T13:59:17Z
+identity: uf-workflow-20261027T135917-jay-flowers
+tier: draft
+---
+
+A fix-loop iteration that stores a generalized rule as a same-PR learning must apply the fix at the learning's rule scope, not the original finding's instance scope — reviewer findings name instances; the retrospective learning states the rule, and shipping both with only the instance fixed leaves the deliverable short of its own published contract. Verified on update-run-pipeline-plan iteration 2 (PR #839, 2026-10-27): iteration-1 finding (B) required the delegation timeout for the /uf.unleash delegation; the fix stated timeout: 1800000 there, and the retrospective generalized the rule ("a command that prescribes uf_delegate_command delegations must state the timeout parameter alongside every parameter it names or omits", uf-workflow-20261027T133936) — but the same command's /uf.finale delegation still named its parameter omissions with no timeout, silently shipping the 600,000 ms default on a delegation whose designed outcome is wedge-until-timeout. Same shape on the expected-outcome fix: iteration-1 finding (C) named command/spec/design, and the proposal's What Changes item 5 plus tasks.md task 1.4 retained "expected outcome is a PR URL" after the delivered description was reframed to the commit-approval-gate handoff. Reviewer check for fix-loop re-reviews: for each learning stored during the fix loop, grep the changed files for every instance the learning's rule governs (every prescribed delegation, every transcription site of the corrected clause) and verify the fix covers the rule's scope, not just the sites the original finding listed; the learning is the wider contract the change ships against. Complements uf-workflow-20261026T214950 / spec-authoring-20261026T214959, which cover enumerating transcription sites of the offending sentence, not the rule-scope-vs-instance-scope gap between a reviewer finding and the learning it spawns.

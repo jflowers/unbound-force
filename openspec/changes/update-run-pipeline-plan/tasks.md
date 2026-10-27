@@ -73,9 +73,13 @@ guard, and the Execution Checklist stay semantically unchanged.
   steps — branch safety gate, check for changes and stage,
   commit message, sync with base branch, push, create or find
   PR, watch CI checks, return to main, summary; expected outcome
-  is a PR URL, the PR stays open for human review, `Closes #N`
-  threads via `originating_issue`, and the tree returns to
-  `main`. Update the Guardrails section: keep scaffold drift
+  is a designed handoff at the commit-approval gate — the child
+  drives staging and commit preparation, wedges at its
+  commit-approval question gate, and the human completes
+  `/uf.finale` interactively; the orchestrator verifies on disk
+  that a PR URL exists, the PR stays open for human review,
+  `Closes #N` threads via `originating_issue`, and the tree
+  returns to `main`. Update the Guardrails section: keep scaffold drift
   sync, stray file removal, no force-push (`--force-with-lease`
   only), PR targeting, and no auto-merge verbatim; re-anchor the
   explicit staging guardrail (the orchestrator stages and commits

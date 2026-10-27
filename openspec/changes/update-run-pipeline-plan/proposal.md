@@ -23,7 +23,8 @@ command surfaces:
   resumption, and the "subagents MUST NOT invoke the question
   tool" rule predate parented child sessions, in which human
   gates inside delegated commands surface as tool-rendered
-  paused exits.
+  paused exits (question-tool prompts inside a parented child
+  do not surface — the delegation wedges until timeout).
 - **Paused exits are unmodeled.** `/uf.unleash` now defines
   tool-rendered paused exit paths (`format_unleash_exit` variants:
   clarify, spec-review, implement-worker-failed,
@@ -70,8 +71,12 @@ the delegation surfaces it drives.
    re-supplied. `/uf.finale` is delegated only after
    the demo completes.
 5. **/uf.finale delegation description refreshed.** Nine steps
-   including sync-with-base; expected outcome is a PR URL, the PR
-   stays open, and `Closes #N` flows via `originating_issue` in
+   including sync-with-base; expected outcome is a designed handoff
+   at the commit-approval gate — the child drives staging and commit
+   preparation, wedges at its commit-approval question gate, and the
+   human completes `/uf.finale` interactively; the orchestrator
+   verifies on disk that a PR URL exists, the PR stays open, and
+   `Closes #N` flows via `originating_issue` in
    `.openspec.yaml`; the manual `Closes #N` guardrail is kept as a
    backstop.
 6. **Kept unchanged.** Phase 0 triage (`gh issue view`,

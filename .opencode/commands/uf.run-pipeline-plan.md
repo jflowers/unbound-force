@@ -33,8 +33,10 @@ delegations:
 2. **Delegation 2** (`/uf.finale`): delegated with
    `command_path: ".opencode/commands/uf.finale.md"` and
    a prompt carrying the work item's context, only after
-   the demo completes. The child session commits, pushes,
-   and creates the PR.
+   the demo completes. The child session drives staging
+   and commit preparation, then hands off at its
+   commit-approval gate; the human completes the finale
+   interactively.
 
 `/uf.unleash` paused exits are recognized, relayed
 verbatim, and block the work item.
@@ -180,8 +182,14 @@ parented child sessions:
    outcome on disk: a PR URL; the PR stays open for
    human review; `Closes #N` threads via
    `originating_issue` in `.openspec.yaml`; the tree
-   returns to `main`. Omit `task_classification`,
-   `checkpoint_step`, and `expected_artifact` as above.
+   returns to `main`. Set `timeout: 600000` (10 minutes):
+   the child's work before the commit-approval gate is
+   bounded (branch gate, staging, commit message prep),
+   and the wedge at that gate is the designed handoff —
+   the timeout bounds the orchestrator's wait before
+   gate-timeout recovery engages. Omit
+   `task_classification`, `checkpoint_step`, and
+   `expected_artifact` as above.
 
 **Disk handoff verification**: VERIFY outcomes on disk
 at each boundary:
@@ -211,8 +219,9 @@ Paused-Exit Handling below). Question-tool prompts
 inside a delegated child do NOT surface — the parented
 child session cannot carry them to the human, and the
 delegation wedges at the gate until its timeout. The
-orchestrator MUST NOT relay gates via structured values
-and MUST NOT resume children via `task_id`.
+orchestrator MUST NOT relay gates via structured values,
+MUST NOT resume children via `task_id`, and MUST NOT
+instruct children to avoid the question tool.
 
 **Gate-timeout recovery**: when a delegation crosses a
 mandatory question gate (for example `/uf.unleash`
