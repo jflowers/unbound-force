@@ -6,6 +6,50 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- unleash-interactive-clarify: Added an interactive clarify ask
+  gate to `/uf.unleash` Step 1 (Clarify, Speckit tier): each
+  question Dewey cannot answer -- and every question when
+  Dewey is unavailable -- is now put to the human through a
+  single question tool call before any exit, instead of
+  ejecting the developer into manual spec editing and a full
+  pipeline re-run. One question per call, no batching (the
+  next ask only after the previous response), each carrying
+  the question text and its surrounding spec context; the
+  ask SHOULD present 2-5 mutually exclusive options drawn
+  from the question's own enumerated alternatives, MUST
+  list the spec's stated working default first labeled
+  "(Recommended)" when the spec states one, MUST keep a
+  custom free-form answer enabled, and MUST include a defer
+  option in every ask. Questions Dewey answered never reach
+  the gate (silent auto-resolution preserved); there is no
+  question cap -- every unanswerable question is resolved or
+  deferred before Step 1 completes. A chosen or custom
+  answer resolves through the existing `resolve_clarification`
+  tool with a new optional `resolved_by` enum ("dewey" |
+  "human", default "dewey"): `source` is now conditionally
+  required -- required for "dewey", rejected for "human"
+  (the ask gate itself is the answer's provenance), enforced
+  fail-closed at the schema level -- and the `## Clarifications`
+  log entry now records who resolved each question:
+  "(Dewey-resolved from ...)" as today versus
+  "(human-answered during /uf.unleash clarify)" for ask-gate
+  answers. Deferred questions -- and all unanswerable
+  questions when the question tool is unavailable in the
+  session -- flow to the existing clarify exit unchanged,
+  the fallback for unattended runs. After processing, Step 1
+  announces the counts of questions auto-resolved by Dewey,
+  human-answered at the ask gate, and deferred, proceeding
+  to Step 2 (Plan) when the unanswerable list is empty; the
+  Guardrails section names the ask gate as a second
+  legitimate mid-pipeline human interaction alongside the
+  Step 4 per-finding spec review decision gate. Vitest cases
+  in `.opencode/test/unleash-clarify.test.ts` pin the
+  `resolved_by` schema, the conditional `source` requirement,
+  and both provenance renderings (existing Dewey-path
+  assertions unchanged under the default); scaffold mirrors
+  under `internal/scaffold/assets/opencode/` updated
+  byte-identically (drift-detection tests).
+  (Spec: openspec/changes/unleash-interactive-clarify/)
 - rebase-upstream-before-push: Added a step 4 "Sync with Base
   Branch" to `/uf.finale`, between commit and push, so PRs
   are no longer born stale when the base branch has advanced.
