@@ -74,3 +74,4 @@ gateway.pid
 /unbound-force
 AGENTS.md
 coverage/
+opencode.json
