@@ -6,6 +6,30 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- replicator-version-floor: Added a version-floor sub-check to
+  `uf doctor`'s Replicator check group (Spec 024, FR-011): when
+  the `replicator` binary is present, the sub-check runs
+  `replicator --version` under a 5s timeout, parses the
+  semantic-version major.minor.patch core (development and
+  build suffixes ignored, so a dev build past the floor
+  satisfies it), and emits a `replicator version` CheckResult.
+  At or above v0.7.0 it Passes with the detected version;
+  below the floor it Warns -- never Fails, since an outdated
+  install is not treated more harshly than a missing one and
+  Replicator is optional under Constitution Principle II --
+  with a message like `v0.6.0 (requires >= v0.7.0)` and the
+  upgrade hint `brew upgrade unbound-force/tap/replicator`
+  (install URL: https://github.com/unbound-force/replicator).
+  Version-command errors, timeouts, and unparseable output
+  all fail open to a Warn "version could not be verified"
+  while the remaining group sub-checks still run; an absent
+  binary preserves the existing early return with no version
+  result. The floor lives in a single named constant in the
+  doctor package, and the new row serializes additively into
+  `uf doctor --format json` (no breaking changes). Doctor
+  tests cover the above-floor, below-floor, dev-suffix,
+  unparseable, and version-command-failure paths.
+  (Spec: openspec/changes/replicator-version-floor/)
 - unleash-interactive-clarify: Added an interactive clarify ask
   gate to `/uf.unleash` Step 1 (Clarify, Speckit tier): each
   question Dewey cannot answer -- and every question when
