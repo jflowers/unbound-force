@@ -829,8 +829,6 @@ func TestCheckDCPConfig_MalformedJSON(t *testing.T) {
 	}
 }
 
-
-
 func TestCheckMCPConfig(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1227,6 +1225,81 @@ func TestDoctorRun_DirFlag(t *testing.T) {
 
 // --- Replicator tests ---
 
+// Version-floor helper unit tests (task 2.1, design D4/D8): the parser
+// and three-part comparator backing the `replicator version` sub-check.
+// The checkReplicator-level scenarios are covered by the tests below.
+
+func TestParseReplicatorVersion_ExtractsCore(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{name: "verbatim git-describe output", output: "replicator version v0.6.0-7-gea86d27-dirty", want: "0.6.0"},
+		{name: "plain release", output: "replicator version v0.7.0", want: "0.7.0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseReplicatorVersion(tt.output)
+			if err != nil {
+				t.Fatalf("parseReplicatorVersion(%q) error: %v", tt.output, err)
+			}
+			if got != tt.want {
+				t.Errorf("parseReplicatorVersion(%q) = %q, want %q", tt.output, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseReplicatorVersion_RejectsMalformed(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{name: "missing v prefix", output: "replicator version 0.7.0"},
+		{name: "missing patch component", output: "replicator version v0.7"},
+		{name: "empty output", output: ""},
+		{name: "no version token", output: "replicator version"},
+		{name: "non-numeric patch component", output: "replicator version v0.7.x"},
+		{name: "signed major component", output: "replicator version v+7.0.0"},
+		{name: "empty patch component", output: "replicator version v0.7."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, err := parseReplicatorVersion(tt.output); err == nil {
+				t.Errorf("parseReplicatorVersion(%q) = %q, want error", tt.output, got)
+			}
+		})
+	}
+}
+
+func TestCheckReplicatorVersion_AtOrAboveFloor(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		min     string
+		want    bool
+	}{
+		{name: "equal cores", version: "0.7.0", min: "0.7.0", want: true},
+		{name: "higher patch", version: "0.7.1", min: "0.7.0", want: true},
+		{name: "higher minor", version: "0.8.0", min: "0.7.0", want: true},
+		{name: "lower minor", version: "0.6.9", min: "0.7.0", want: false},
+		{name: "lower patch", version: "0.7.0", min: "0.7.1", want: false},
+		{name: "higher major", version: "1.0.0", min: "0.7.0", want: true},
+		{name: "lower major", version: "0.9.9", min: "1.0.0", want: false},
+		{name: "two-component version fails closed", version: "0.7", min: "0.7.0", want: false},
+		{name: "non-numeric component fails closed", version: "0.x.7", min: "0.7.0", want: false},
+		{name: "overflowing component fails closed", version: "99999999999999999999.0.0", min: "0.7.0", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := checkReplicatorVersion(tt.version, tt.min); got != tt.want {
+				t.Errorf("checkReplicatorVersion(%q, %q) = %v, want %v", tt.version, tt.min, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCheckReplicator_NotInstalled(t *testing.T) {
 	opts := &Options{
 		TargetDir:      t.TempDir(),
@@ -1244,12 +1317,24 @@ func TestCheckReplicator_NotInstalled(t *testing.T) {
 		t.Fatal("expected at least one result")
 	}
 
+	// The Spec 024 early return must be preserved: with no binary
+	// there is nothing to interrogate, so the group carries exactly
+	// the binary-not-found result and no version-floor result.
+	if len(group.Results) != 1 {
+		t.Errorf("expected exactly 1 result for the early return, got %d", len(group.Results))
+	}
+
 	r := group.Results[0]
 	if r.Severity != Warn {
 		t.Errorf("replicator severity = %v, want Warn", r.Severity)
 	}
 	if !strings.Contains(r.InstallHint, "brew install unbound-force/tap/replicator") {
 		t.Errorf("install hint = %q, want brew install command", r.InstallHint)
+	}
+	for _, res := range group.Results {
+		if res.Name == "replicator version" {
+			t.Error("replicator version result must not be emitted when the binary is absent")
+		}
 	}
 }
 
@@ -1263,16 +1348,25 @@ func TestCheckReplicator_AllPass(t *testing.T) {
 	createFile(t, dir, "opencode.json", `{"mcp":{"replicator":{"type":"local","command":["replicator","serve"],"enabled":true}}}`)
 
 	replicatorDoctorOutput := "✓ All checks passed\n"
+	// At-floor version: the fully healthy group now includes a
+	// passing version-floor result (the exact-floor spec scenario).
+	versionOutput := "replicator version v0.7.0"
 
 	opts := &Options{
 		TargetDir: dir,
 		LookPath:  stubLookPath(map[string]string{"replicator": "/usr/local/bin/replicator"}),
 		ExecCmd: stubExecCmd(
-			map[string]string{"replicator doctor": replicatorDoctorOutput},
+			map[string]string{
+				"replicator --version": versionOutput,
+				"replicator doctor":    replicatorDoctorOutput,
+			},
 			nil,
 		),
 		ExecCmdTimeout: stubExecCmdTimeout(
-			map[string]string{"replicator doctor": replicatorDoctorOutput},
+			map[string]string{
+				"replicator --version": versionOutput,
+				"replicator doctor":    replicatorDoctorOutput,
+			},
 			nil,
 		),
 		EvalSymlinks: stubEvalSymlinks(nil),
@@ -1287,19 +1381,318 @@ func TestCheckReplicator_AllPass(t *testing.T) {
 		results[r.Name] = r
 	}
 
-	if r := results["replicator"]; r.Severity != Pass {
-		t.Errorf("replicator severity = %v, want Pass", r.Severity)
+	// Every result in the fully healthy group must pass — the test
+	// name promises it, and any future sub-check inherits the
+	// guarantee.
+	for _, r := range group.Results {
+		if r.Severity != Pass {
+			t.Errorf("%s severity = %v, want Pass", r.Name, r.Severity)
+		}
 	}
-	if r := results[".uf/replicator/"]; r.Severity != Pass {
-		t.Errorf(".uf/replicator/ severity = %v, want Pass", r.Severity)
+
+	// Pass is the Severity zero value, so a plain map lookup cannot
+	// distinguish a passing result from a missing one — presence is
+	// asserted explicitly for each expected sub-check.
+	for _, name := range []string{"replicator", "replicator version", ".uf/replicator/", "MCP config"} {
+		if _, ok := results[name]; !ok {
+			t.Errorf("%s result not found", name)
+		}
 	}
-	if r := results["MCP config"]; r.Severity != Pass {
-		t.Errorf("MCP config severity = %v, want Pass", r.Severity)
+
+	if r := results["replicator version"]; !strings.Contains(r.Message, "v0.7.0") {
+		t.Errorf("replicator version message = %q, want it to contain v0.7.0", r.Message)
 	}
 
 	// Verify embed contains replicator doctor output.
 	if !strings.Contains(group.Embed, "All checks passed") {
 		t.Error("embed should contain replicator doctor output")
+	}
+}
+
+// TestCheckReplicator_VersionFloor drives the `replicator version`
+// sub-check through checkReplicator for every scenario in the spec
+// delta (task 2.2, design D6/D8): exact floor, above floor, below
+// floor (plain and verbatim git-describe), a dev build past the
+// floor, and the three fail-open outcomes. Every case runs against
+// a fully healthy environment so the design-D7 guarantee — the
+// version outcome never suppresses the remaining sub-checks — is
+// asserted in each outcome, not just the failing ones.
+func TestCheckReplicator_VersionFloor(t *testing.T) {
+	tests := []struct {
+		name       string
+		versionOut string // stubbed `replicator --version` stdout
+		versionErr error  // stubbed `replicator --version` error; takes precedence over versionOut
+		wantSev    Severity
+		wantMsg    string // substring that MUST appear in Message
+		wantHint   string // substring that MUST appear in InstallHint; empty skips
+		wantURL    string // substring that MUST appear in InstallURL; empty skips
+	}{
+		{
+			name:       "exact floor passes with version in message",
+			versionOut: "replicator version v0.7.0",
+			wantSev:    Pass,
+			wantMsg:    "v0.7.0",
+		},
+		{
+			name:       "above floor passes",
+			versionOut: "replicator version v0.8.2",
+			wantSev:    Pass,
+			wantMsg:    "v0.8.2",
+		},
+		{
+			name:       "below floor warns with floor in message and brew upgrade hint",
+			versionOut: "replicator version v0.6.0",
+			wantSev:    Warn,
+			wantMsg:    "v0.6.0 (requires >= v0.7.0)",
+			wantHint:   "brew upgrade unbound-force/tap/replicator",
+			wantURL:    "https://github.com/unbound-force/replicator",
+		},
+		{
+			name:       "verbatim git-describe below floor warns",
+			versionOut: "replicator version v0.6.0-7-gea86d27-dirty",
+			wantSev:    Warn,
+			wantMsg:    "v0.6.0 (requires >= v0.7.0)",
+			wantHint:   "brew upgrade unbound-force/tap/replicator",
+		},
+		{
+			name:       "dev build past floor passes",
+			versionOut: "replicator version v0.7.0-3-gabcdef",
+			wantSev:    Pass,
+			wantMsg:    "v0.7.0",
+		},
+		{
+			name:       "version command error fails open",
+			versionErr: fmt.Errorf("exit status 1"),
+			wantSev:    Warn,
+			wantMsg:    "version could not be verified",
+			wantHint:   "Run: replicator --version manually",
+		},
+		{
+			name:       "version command timeout fails open",
+			versionErr: fmt.Errorf("context deadline exceeded: timed out"),
+			wantSev:    Warn,
+			wantMsg:    "version could not be verified",
+			wantHint:   "Run: replicator --version manually",
+		},
+		{
+			name:       "unparseable output fails open",
+			versionOut: "replicator version",
+			wantSev:    Warn,
+			wantMsg:    "version could not be verified",
+			wantHint:   "Run: replicator --version manually",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			// Healthy remainder of the group (.uf/replicator/ dir,
+			// opencode.json with mcp.replicator) so the surviving
+			// sub-checks can be asserted in every outcome.
+			if err := os.MkdirAll(filepath.Join(dir, ".uf", "replicator"), 0755); err != nil {
+				t.Fatalf("mkdir .uf/replicator: %v", err)
+			}
+			createFile(t, dir, "opencode.json", `{"mcp":{"replicator":{"type":"local","command":["replicator","serve"],"enabled":true}}}`)
+
+			outputs := map[string]string{
+				"replicator doctor": "✓ All checks passed\n",
+			}
+			errs := map[string]error{}
+			if tt.versionOut != "" {
+				outputs["replicator --version"] = tt.versionOut
+			}
+			if tt.versionErr != nil {
+				errs["replicator --version"] = tt.versionErr
+			}
+
+			opts := &Options{
+				TargetDir:      dir,
+				LookPath:       stubLookPath(map[string]string{"replicator": "/usr/local/bin/replicator"}),
+				ExecCmd:        stubExecCmd(outputs, errs),
+				ExecCmdTimeout: stubExecCmdTimeout(outputs, errs),
+				EvalSymlinks:   stubEvalSymlinks(nil),
+				Getenv:         stubGetenv(map[string]string{}),
+				ReadFile:       os.ReadFile,
+			}
+
+			group := checkReplicator(opts)
+
+			results := make(map[string]CheckResult)
+			for _, r := range group.Results {
+				results[r.Name] = r
+			}
+
+			ver, ok := results["replicator version"]
+			if !ok {
+				t.Fatal("replicator version result not found")
+			}
+			if ver.Severity != tt.wantSev {
+				t.Errorf("replicator version severity = %v, want %v", ver.Severity, tt.wantSev)
+			}
+			if !strings.Contains(ver.Message, tt.wantMsg) {
+				t.Errorf("replicator version message = %q, want it to contain %q", ver.Message, tt.wantMsg)
+			}
+			if tt.wantHint != "" && !strings.Contains(ver.InstallHint, tt.wantHint) {
+				t.Errorf("replicator version install hint = %q, want it to contain %q", ver.InstallHint, tt.wantHint)
+			}
+			if tt.wantURL != "" && !strings.Contains(ver.InstallURL, tt.wantURL) {
+				t.Errorf("replicator version install URL = %q, want it to contain %q", ver.InstallURL, tt.wantURL)
+			}
+
+			// Design D7: the version outcome must never suppress the
+			// remaining sub-checks. A successful doctor delegation
+			// emits no named result — its output lands in group.Embed —
+			// so its survival is asserted via the embed.
+			if !strings.Contains(group.Embed, "All checks passed") {
+				t.Error("doctor delegation output missing from embed; version outcome must not suppress it")
+			}
+			if r, ok := results[".uf/replicator/"]; !ok || r.Severity != Pass {
+				t.Errorf(".uf/replicator/ result missing or not Pass: %+v", r)
+			}
+			if r, ok := results["MCP config"]; !ok || r.Severity != Pass {
+				t.Errorf("MCP config result missing or not Pass: %+v", r)
+			}
+		})
+	}
+}
+
+// TestCheckReplicator_VersionFloorJSONVisibility asserts the spec's
+// JSON-visibility scenario (task 2.3): the serialized Replicator
+// group results include the `replicator version` result with its
+// severity and message, so `uf doctor --format json` consumers can
+// key on it (Constitution Principle III, Observable Quality; design
+// D1). Every outcome class — below-floor, at-floor, and fail-open —
+// must also serialize the applicable floor where a machine consumer
+// can read it (the result's Detail field), per the spec requirement
+// that the detected version, the applicable floor, and the severity
+// are visible to machine consumers.
+//
+// The test drives the real checkReplicator, serializes the group
+// through FormatJSON — the function behind `uf doctor --format
+// json` — and locates the result structurally in the parsed output
+// (Replicator group name, then result name), mirroring how a
+// machine consumer reads the report rather than substring matching.
+// Severity is compared via its lowercase wire string: the severity
+// round-trip (MarshalJSON/UnmarshalJSON) accepts only "pass",
+// "warn", and "fail", so the assertion pins the serialized format,
+// not just the in-memory Go value.
+func TestCheckReplicator_VersionFloorJSONVisibility(t *testing.T) {
+	tests := []struct {
+		name       string
+		versionOut string // stubbed `replicator --version` stdout
+		versionErr error  // stubbed `replicator --version` error; takes precedence over versionOut
+		wantSev    string // expected severity wire string
+		wantMsg    string // substring that MUST appear in Message
+		wantFloor  string // the floor, which MUST appear in a serialized field (Detail)
+	}{
+		{
+			name:       "below floor warn serialized with severity, message, and floor",
+			versionOut: "replicator version v0.6.0-7-gea86d27-dirty",
+			wantSev:    "warn",
+			wantMsg:    "v0.6.0 (requires >= v0.7.0)",
+			wantFloor:  "v0.7.0",
+		},
+		{
+			name:       "at floor pass serialized with severity, message, and floor",
+			versionOut: "replicator version v0.7.0",
+			wantSev:    "pass",
+			wantMsg:    "v0.7.0",
+			wantFloor:  "v0.7.0",
+		},
+		{
+			name:       "fail-open warn serialized with severity, message, and floor",
+			versionErr: fmt.Errorf("exit status 1"),
+			wantSev:    "warn",
+			wantMsg:    "version could not be verified",
+			wantFloor:  "v0.7.0",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			// Healthy remainder of the group (.uf/replicator/ dir,
+			// opencode.json with mcp.replicator) so the serialized
+			// report carries the full Replicator group, not just the
+			// version row.
+			if err := os.MkdirAll(filepath.Join(dir, ".uf", "replicator"), 0755); err != nil {
+				t.Fatalf("mkdir .uf/replicator: %v", err)
+			}
+			createFile(t, dir, "opencode.json", `{"mcp":{"replicator":{"type":"local","command":["replicator","serve"],"enabled":true}}}`)
+
+			outputs := map[string]string{
+				"replicator doctor": "✓ All checks passed\n",
+			}
+			errs := map[string]error{}
+			if tt.versionOut != "" {
+				outputs["replicator --version"] = tt.versionOut
+			}
+			if tt.versionErr != nil {
+				errs["replicator --version"] = tt.versionErr
+			}
+			opts := &Options{
+				TargetDir:      dir,
+				LookPath:       stubLookPath(map[string]string{"replicator": "/usr/local/bin/replicator"}),
+				ExecCmd:        stubExecCmd(outputs, errs),
+				ExecCmdTimeout: stubExecCmdTimeout(outputs, errs),
+				EvalSymlinks:   stubEvalSymlinks(nil),
+				Getenv:         stubGetenv(map[string]string{}),
+				ReadFile:       os.ReadFile,
+			}
+
+			group := checkReplicator(opts)
+
+			// Serialize exactly as `uf doctor --format json` does.
+			report := &Report{
+				Environment: DetectedEnvironment{Managers: []ManagerInfo{}, Platform: "test"},
+				Groups:      []CheckGroup{group},
+				Summary:     computeSummary([]CheckGroup{group}),
+			}
+			var buf bytes.Buffer
+			if err := FormatJSON(report, &buf); err != nil {
+				t.Fatalf("FormatJSON: %v", err)
+			}
+
+			// Parse the serialized output back and locate the result
+			// by walking group name then result name — the lookup
+			// path a JSON consumer keys on.
+			var parsed Report
+			if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+
+			var ver *CheckResult
+			replicatorGroupFound := false
+			for i := range parsed.Groups {
+				if parsed.Groups[i].Name != "Replicator" {
+					continue
+				}
+				replicatorGroupFound = true
+				for j := range parsed.Groups[i].Results {
+					if parsed.Groups[i].Results[j].Name == "replicator version" {
+						ver = &parsed.Groups[i].Results[j]
+					}
+				}
+			}
+			if !replicatorGroupFound {
+				t.Fatal("Replicator group not found in serialized JSON output")
+			}
+			if ver == nil {
+				t.Fatal("replicator version result not found in serialized Replicator group results")
+			}
+			if ver.Severity.String() != tt.wantSev {
+				t.Errorf("replicator version severity = %q, want %q", ver.Severity.String(), tt.wantSev)
+			}
+			if !strings.Contains(ver.Message, tt.wantMsg) {
+				t.Errorf("replicator version message = %q, want it to contain %q", ver.Message, tt.wantMsg)
+			}
+			// The floor must be machine-visible in every outcome class,
+			// not only when the below-floor message happens to carry it:
+			// it rides in Detail on all outcomes.
+			if !strings.Contains(ver.Detail, tt.wantFloor) {
+				t.Errorf("replicator version detail = %q, want it to contain the floor %q", ver.Detail, tt.wantFloor)
+			}
+		})
 	}
 }
 
@@ -2330,10 +2723,6 @@ func TestCheckDewey_OllamaNotAvailable(t *testing.T) {
 	}
 }
 
-
-
-
-
 func TestValidateAgents_NoAgents(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, ".opencode", "agents")
@@ -3094,13 +3483,13 @@ func TestFilterSkippedChecks_EmptySkipList(t *testing.T) {
 func TestToolSeverityOverride_Optional(t *testing.T) {
 	dir := t.TempDir()
 	opts := &Options{
-		TargetDir:       dir,
-		LookPath:        func(string) (string, error) { return "", fmt.Errorf("not found") },
-		ExecCmd:         func(string, ...string) ([]byte, error) { return nil, nil },
-		EvalSymlinks:    func(s string) (string, error) { return s, nil },
-		Getenv:          func(string) string { return "" },
-		ReadFile:        func(string) ([]byte, error) { return nil, os.ErrNotExist },
-		ToolSeverities:  map[string]string{"gaze": "optional"},
+		TargetDir:      dir,
+		LookPath:       func(string) (string, error) { return "", fmt.Errorf("not found") },
+		ExecCmd:        func(string, ...string) ([]byte, error) { return nil, nil },
+		EvalSymlinks:   func(s string) (string, error) { return s, nil },
+		Getenv:         func(string) string { return "" },
+		ReadFile:       func(string) ([]byte, error) { return nil, os.ErrNotExist },
+		ToolSeverities: map[string]string{"gaze": "optional"},
 	}
 
 	spec := toolSpec{name: "gaze", recommended: true}
@@ -3115,13 +3504,13 @@ func TestToolSeverityOverride_Optional(t *testing.T) {
 func TestToolSeverityOverride_Required(t *testing.T) {
 	dir := t.TempDir()
 	opts := &Options{
-		TargetDir:       dir,
-		LookPath:        func(string) (string, error) { return "", fmt.Errorf("not found") },
-		ExecCmd:         func(string, ...string) ([]byte, error) { return nil, nil },
-		EvalSymlinks:    func(s string) (string, error) { return s, nil },
-		Getenv:          func(string) string { return "" },
-		ReadFile:        func(string) ([]byte, error) { return nil, os.ErrNotExist },
-		ToolSeverities:  map[string]string{"gaze": "required"},
+		TargetDir:      dir,
+		LookPath:       func(string) (string, error) { return "", fmt.Errorf("not found") },
+		ExecCmd:        func(string, ...string) ([]byte, error) { return nil, nil },
+		EvalSymlinks:   func(s string) (string, error) { return s, nil },
+		Getenv:         func(string) string { return "" },
+		ReadFile:       func(string) ([]byte, error) { return nil, os.ErrNotExist },
+		ToolSeverities: map[string]string{"gaze": "required"},
 	}
 
 	spec := toolSpec{name: "gaze", recommended: true}
@@ -4266,14 +4655,14 @@ func TestCheckPythonTools_NotIncludedForGoProject(t *testing.T) {
 	createFile(t, dir, "opencode.json", `{"mcpServers":{}}`)
 
 	opts := Options{
-		TargetDir: dir,
-		Format:    "text",
-		Stdout:    &bytes.Buffer{},
-		LookPath:  stubLookPath(map[string]string{}),
-		ExecCmd:   stubExecCmd(nil, nil),
+		TargetDir:    dir,
+		Format:       "text",
+		Stdout:       &bytes.Buffer{},
+		LookPath:     stubLookPath(map[string]string{}),
+		ExecCmd:      stubExecCmd(nil, nil),
 		EvalSymlinks: stubEvalSymlinks(nil),
-		Getenv:    stubGetenv(map[string]string{}),
-		ReadFile:  os.ReadFile,
+		Getenv:       stubGetenv(map[string]string{}),
+		ReadFile:     os.ReadFile,
 	}
 
 	report, _ := Run(opts)

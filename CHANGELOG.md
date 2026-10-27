@@ -30,6 +30,7 @@ Each entry follows the format: `- <change-name>: <summary>`.
   tests cover the above-floor, below-floor, dev-suffix,
   unparseable, and version-command-failure paths.
   (Spec: openspec/changes/replicator-version-floor/)
+  (Docs: #844, unbound-force/website#337)
 - unleash-interactive-clarify: Added an interactive clarify ask
   gate to `/uf.unleash` Step 1 (Clarify, Speckit tier): each
   question Dewey cannot answer -- and every question when

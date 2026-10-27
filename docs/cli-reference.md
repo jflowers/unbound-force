@@ -72,6 +72,13 @@ required tools, version managers, scaffolded files, hero
 availability, Replicator status, MCP server configuration,
 and agent/skill integrity.
 
+When the `replicator` binary is present, its version is checked
+against a v0.7.0 floor: at or above the floor the check Passes
+with the detected version, while a below-floor install Warns
+(never Fails) with a `brew upgrade unbound-force/tap/replicator`
+upgrade hint. Version-command failures fail open to a "version
+could not be verified" warning.
+
 Exit code 0 when all checks pass or only warnings exist.
 Exit code 1 when any check fails.
 

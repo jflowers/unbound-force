@@ -497,8 +497,195 @@ func checkPodmanVersion(version, min string) bool {
 	return vMinor >= mMinor
 }
 
-// checkReplicator checks the Replicator installation, runs
-// `replicator doctor`, checks .uf/replicator/ and MCP config per FR-011.
+// replicatorMinVersion is the minimum Replicator version the doctor
+// accepts. Replicator v0.7.0 made `replicator init` smart-sync
+// agent-kit scaffolding by default, which uf init and scaffold
+// maintenance now rely on. Kept as a named constant for a single
+// source of truth (a future bump is one line plus tests) and
+// deliberately not configurable: the floor is a dependency
+// statement of this CLI version, not a user preference.
+// Provenance: openspec/changes/replicator-version-floor/ (design D5).
+const replicatorMinVersion = "0.7.0"
+
+// parseReplicatorVersion extracts the numeric major.minor.patch
+// core from `replicator --version` output. Expected format
+// (observed 2026-10-27): "replicator version v0.6.0-7-gea86d27-dirty".
+//
+// It locates the token immediately after the "version" keyword,
+// strips the leading "v", cuts at the first "-" (dropping
+// git-describe and semver pre-release suffixes), and validates
+// that the remainder is exactly three dot-separated numeric
+// components. The leading "v" is required rather than optional:
+// a token without it signals output-format drift, which must
+// surface as an error (a fail-open warning in the caller) rather
+// than a silent pass.
+// Provenance: openspec/changes/replicator-version-floor/ (design D4).
+func parseReplicatorVersion(output string) (string, error) {
+	parseErr := fmt.Errorf("could not parse replicator version from: %s", output)
+
+	// Locate the first "version" keyword token.
+	fields := strings.Fields(output)
+	idx := -1
+	for i, tok := range fields {
+		if tok == "version" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 || idx+1 >= len(fields) {
+		return "", parseErr
+	}
+	token := fields[idx+1]
+	// The leading "v" is part of the pinned output format.
+	if !strings.HasPrefix(token, "v") {
+		return "", parseErr
+	}
+	core := strings.TrimPrefix(token, "v")
+	// Drop git-describe and pre-release suffixes (e.g.
+	// "-7-gea86d27-dirty") before comparing against the floor.
+	if idx := strings.IndexByte(core, '-'); idx >= 0 {
+		core = core[:idx]
+	}
+	// Require a numeric major.minor.patch core.
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return "", parseErr
+	}
+	for _, part := range parts {
+		if !isAllDigits(part) {
+			return "", parseErr
+		}
+	}
+	return core, nil
+}
+
+// isAllDigits reports whether s is non-empty and contains only
+// ASCII digits. Stricter than strconv.Atoi, which also accepts
+// signed values such as "+7".
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// checkReplicatorVersion reports whether a parsed Replicator
+// version core is at or above the given floor, comparing all
+// three major.minor.patch components numerically.
+//
+// It deliberately does not reuse parseVersionParts (major.minor
+// only): a two-part compare cannot distinguish patch levels and
+// would make a future floor such as 0.7.1 indistinguishable
+// from 0.7.0. Both arguments are expected to be validated
+// major.minor.patch cores — parseReplicatorVersion produces the
+// version side and the caller passes replicatorMinVersion as
+// the floor. A value that is not exactly three numeric
+// components fails closed: it can never satisfy the floor, so
+// malformed input surfaces as a below-floor warning rather than
+// a silent pass.
+// Provenance: openspec/changes/replicator-version-floor/ (design D4).
+func checkReplicatorVersion(version, min string) bool {
+	vMajor, vMinor, vPatch, vOK := parseVersionTriple(version)
+	mMajor, mMinor, mPatch, mOK := parseVersionTriple(min)
+	if !vOK || !mOK {
+		return false
+	}
+	if vMajor != mMajor {
+		return vMajor > mMajor
+	}
+	if vMinor != mMinor {
+		return vMinor > mMinor
+	}
+	return vPatch >= mPatch
+}
+
+// parseVersionTriple splits a major.minor.patch core into its
+// three numeric components. ok is false when the input is not
+// exactly three dot-separated numeric components — unlike
+// parseVersionParts it does not silently coerce malformed parts
+// to zero, so the three-part comparison stays strict.
+func parseVersionTriple(v string) (major, minor, patch int, ok bool) {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	var nums [3]int
+	for i, part := range parts {
+		if !isAllDigits(part) {
+			return 0, 0, 0, false
+		}
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			// isAllDigits rules out signs and letters, but
+			// Atoi still fails on overflow for absurdly
+			// long digit runs.
+			return 0, 0, 0, false
+		}
+		nums[i] = n
+	}
+	return nums[0], nums[1], nums[2], true
+}
+
+// replicatorVersionResult runs `replicator --version` and shapes the
+// version-floor sub-check result (design D1, D3, D6, D7). The
+// applicable floor is serialized in Detail on every outcome — pass,
+// below-floor, and fail-open — so machine consumers of `uf doctor
+// --format json` can see which floor is enforced, per the change
+// spec's JSON-visibility requirement.
+// Provenance: openspec/changes/replicator-version-floor/.
+func replicatorVersionResult(opts *Options) CheckResult {
+	// The 5-second timeout mirrors the group's ExecCmdTimeout pattern
+	// at a tighter bound than the 10-second doctor delegation: version
+	// reporting is a fast local operation, so a hung or corrupted
+	// binary surfaces as "version could not be verified" rather than
+	// stalling doctor.
+	verOutput, verErr := opts.ExecCmdTimeout(5*time.Second, "replicator", "--version")
+	verCore := ""
+	if verErr == nil {
+		verCore, verErr = parseReplicatorVersion(string(verOutput))
+	}
+	if verErr != nil {
+		// Fail open per design D2/D6: a failed, timed-out, or
+		// unparseable version command means the version is unknown —
+		// not known-bad — so this warns rather than fails. The
+		// version outcome never suppresses the remaining sub-checks
+		// (design D7): an old binary still yields a full picture.
+		return CheckResult{
+			Name:        "replicator version",
+			Severity:    Warn,
+			Message:     "version could not be verified",
+			Detail:      "version floor: v" + replicatorMinVersion,
+			InstallHint: "Run: replicator --version manually",
+		}
+	}
+	if checkReplicatorVersion(verCore, replicatorMinVersion) {
+		return CheckResult{
+			Name:     "replicator version",
+			Severity: Pass,
+			Message:  "v" + verCore,
+			Detail:   "version floor: v" + replicatorMinVersion,
+		}
+	}
+	// Below floor: Warn, never Fail — an outdated install must not be
+	// treated more harshly than a missing one (design D2).
+	return CheckResult{
+		Name:        "replicator version",
+		Severity:    Warn,
+		Message:     "v" + verCore + " (requires >= v" + replicatorMinVersion + ")",
+		Detail:      "version floor: v" + replicatorMinVersion,
+		InstallHint: "brew upgrade unbound-force/tap/replicator",
+		InstallURL:  installURL("replicator"),
+	}
+}
+
+// checkReplicator checks the Replicator installation and version floor,
+// runs `replicator doctor`, checks .uf/replicator/ and MCP config per
+// FR-011.
 func checkReplicator(opts *Options) CheckGroup {
 	group := CheckGroup{
 		Name:    "Replicator",
@@ -525,7 +712,10 @@ func checkReplicator(opts *Options) CheckGroup {
 		Detail:   replicatorPath,
 	})
 
-	// Check 2: replicator doctor delegation with 10-second timeout.
+	// Check 2: replicator version floor (design D1, D3, D6, D7).
+	group.Results = append(group.Results, replicatorVersionResult(opts))
+
+	// Check 3: replicator doctor delegation with 10-second timeout.
 	output, repErr := opts.ExecCmdTimeout(10*time.Second, "replicator", "doctor")
 	if repErr != nil {
 		errMsg := repErr.Error()
@@ -549,7 +739,7 @@ func checkReplicator(opts *Options) CheckGroup {
 		group.Embed = string(output)
 	}
 
-	// Check 3: .uf/replicator/ existence.
+	// Check 4: .uf/replicator/ existence.
 	replicatorDirPath := filepath.Join(opts.TargetDir, ".uf", "replicator")
 	if info, statErr := os.Stat(replicatorDirPath); statErr == nil && info.IsDir() {
 		group.Results = append(group.Results, CheckResult{
@@ -566,7 +756,7 @@ func checkReplicator(opts *Options) CheckGroup {
 		})
 	}
 
-	// Check 4: MCP config — check for mcp.replicator in opencode.json.
+	// Check 5: MCP config — check for mcp.replicator in opencode.json.
 	ocPath := filepath.Join(opts.TargetDir, "opencode.json")
 	ocData, readErr := opts.ReadFile(ocPath)
 	if readErr != nil {
