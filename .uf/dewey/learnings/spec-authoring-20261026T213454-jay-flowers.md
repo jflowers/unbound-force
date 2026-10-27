@@ -1,0 +1,10 @@
+---
+tag: spec-authoring
+author: jay-flowers
+category: gotcha
+created_at: 2026-10-26T21:34:54Z
+identity: spec-authoring-20261026T213454-jay-flowers
+tier: draft
+---
+
+When spec artifacts assert runtime behavior of a delegation or interaction mechanism, verify the assertion against the tool's current state before marking tasks complete — and treat a retrospective learning shipped in the same PR that falsifies the assertion as a blocking contradiction requiring lockstep reconciliation, not an aside. Verified on update-run-pipeline-plan (PR 839, 2026-10-26): the spec delta's ADDED requirement 'Direct Human Gate Surfacing' (gates MUST surface directly through parented child sessions), the REMOVED-requirement rationale, design D3 plus Context/Goals/Risks, the proposal's Why/What-Changes/Impact, tasks.md instruction text, the CHANGELOG entry, and the command plus its scaffold mirror all repeated the claim, while same-PR learning uf-workflow-20261026T182050 recorded two 30-minute delegation timeout hangs at question gates (delegated children cannot surface question-tool prompts; corroborated by security-gate-delegation-20261014T220250 and quick-fix-push-state-catch-to-zero-20261025T195219, which shows uf_delegate_command timeout as a recurring failure mode). Reviewer recipe: for every behavioral MUST in a delta, search the change's own .uf/dewey/learnings/ and the Dewey store for observations of that behavior (grep the claim's key phrase across the change directory to enumerate every surface carrying it — the count routinely exceeds the surfaces the author listed); a falsifying observation requires rewriting the requirement to the observed behavior (explicit delegation timeouts, routing gate-hangs into the blocked/pause-relay protocol, recording the runtime gap as a named follow-up change per the determinism-20261026T153203 pattern) before merge. Reconciliation is lockstep across command, scaffold mirror (byte-identical, TestEmbeddedAssets_MatchSource), spec delta, design, proposal, tasks, and CHANGELOG — fixing one surface leaves the false claim live in the others, and an archived delta propagates it into the capability registry.

@@ -366,8 +366,12 @@ Each entry follows the format: `- <change-name>: <summary>`.
   values, `task_id` resumption, the "subagents MUST NOT invoke
   the question tool" rule — implemented by no command) is
   removed: human gates inside delegated commands surface
-  directly to the human through parented child sessions, and
-  the orchestrator's `question` use is limited to Phase 0
+  as tool-rendered paused exits relayed verbatim
+  (question-tool prompts inside a parented child do
+  not surface; the delegation wedges at the gate until
+  timeout, recovered by clearing the gate on the
+  branch or an orchestrator re-anchor), and the
+  orchestrator's `question` use is limited to Phase 0
   triage and pause-relay decisions. Paused exits are now
   modeled: any `/uf.unleash paused at:` heading (eleven known
   variants) is relayed verbatim, the todowrite entry is

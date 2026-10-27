@@ -42,8 +42,10 @@ guard, and the Execution Checklist stay semantically unchanged.
   clean-tree-between-items rule.
 - [x] 1.3 Delete the Gate Relay Protocol section. Add a Direct
   Human Gate Surfacing rule: human gates inside delegated
-  commands surface directly to the human through parented child
-  sessions; the orchestrator MUST NOT relay gates via
+  commands surface as tool-rendered paused exits relayed verbatim
+  (question-tool prompts inside a parented child do not surface —
+  the delegation wedges at the gate until timeout); the
+  orchestrator MUST NOT relay gates via
   structured values or resume children via `task_id`; the
   orchestrator's question-tool use is limited to Phase 0 triage
   and pause-relay decisions. Add the Unleash Paused-Exit
@@ -58,8 +60,13 @@ guard, and the Execution Checklist stay semantically unchanged.
   `[BLOCKED: <variant>]` annotation); present the pause-relay
   question (re-run after human action / skip the item / abort
   the run); on re-run, delegate `/uf.unleash` again with the same
-  `command_path` and no routing context (the child resumes from
-  durable state); delegate `/uf.finale` only after the demo
+  `command_path` and no routing context (omitting orchestrator-
+  side tier and branch directives while the prompt still carries
+  the work item's description and issue reference(s)), split by
+  variant class: mid-pipeline variants resume from
+  durable state; tier-routing variants restart fresh on `main`
+  with the description and issue reference(s) re-supplied;
+  delegate `/uf.finale` only after the demo
   completes. Route hard delegation failures (error envelopes,
   neither exit text nor demo) through the same blocked protocol.
 - [x] 1.4 Refresh the `/uf.finale` delegation description: nine
@@ -130,11 +137,12 @@ guard, and the Execution Checklist stay semantically unchanged.
   /uf.run-pipeline-plan two-delegation protocol"`; and (b)
   the website issue per the org constitution v1.4.0
   Cross-Repo Documentation rule, via `gh issue create
-  --repo unbound-force/website --title "docs:
+  --repo unbound-force/website --label docs --title "docs:
   /uf.run-pipeline-plan orchestrator behavior changes"`.
   Both issue bodies MUST enumerate the user-visible
-  changes: direct human-gate surfacing from parented child
-  sessions, paused-exit relay with pause-relay questions
+  changes: paused-exit relay of delegated-command gates
+  (question-tool prompts inside a parented child do not
+  surface), pause-relay questions
   and blocked-item tracking, auto-delegation of
   /uf.finale superseding the demo block's interactive
   next-step choice, and the Closes-linkage verification

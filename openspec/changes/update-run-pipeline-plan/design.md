@@ -26,8 +26,8 @@ resumption) that predates two upstream shifts:
 
 Meanwhile, repo-wide delegation moved from `general` subagent
 spawning to `uf_delegate_command`: command-path based, running
-the cobalt-crush-dev agent in parented child sessions where human
-gates surface directly to the human.
+the cobalt-crush-dev agent in parented child sessions where
+human gates surface as tool-rendered paused exits.
 
 The constitution alignment for this change is recorded in
 `proposal.md` (all six principles PASS). The decisions below
@@ -44,11 +44,15 @@ trace to those principles where relevant.
 - Route every child invocation through `uf_delegate_command`
   with `command_path`; remove all `general` subagent spawning.
 - Remove the Gate Relay Protocol; gates inside delegated
-  commands surface directly; the orchestrator's question-tool
-  use is limited to Phase 0 triage and pause-relay decisions.
+  commands surface as tool-rendered paused exits (question-tool
+  prompts inside a delegated child do not surface); the
+  orchestrator's question-tool use is limited to Phase 0 triage
+  and pause-relay decisions.
 - Handle all `/uf.unleash` paused exits: verbatim relay, blocked
   todowrite annotation, pause-relay question, re-run delegation
-  that resumes from durable state.
+  split by variant class (mid-pipeline variants resume from
+  durable state; tier-routing variants restart with the work
+  item's description re-supplied).
 - Refresh the `/uf.finale` delegation description (nine steps,
   sync-with-base, expected outcome, `Closes #N` via
   `originating_issue` with a manual backstop).
@@ -109,13 +113,19 @@ plus disk state, per its session-resume guard.
 
 The Gate Relay Protocol is removed entirely: no `GATE:<name>`
 structured values, no `task_id` resumption, no prohibition on
-children invoking the question tool. In parented child sessions,
-a delegated command's mandatory gates (commit approval, PR
-approval, spec-review decision gate) surface directly to the
-human. This removes an ad-hoc inter-agent exchange format in
-favor of each command's own published gate mechanism. The
-orchestrator's question-tool scope is contractually limited to
-Phase 0 triage and pause-relay decisions.
+children invoking the question tool. Gates inside delegated
+commands surface as tool-rendered paused exits: the child returns
+its exit text and the orchestrator relays it verbatim. A
+question-tool prompt inside a delegated child does not surface —
+a parented child session cannot carry it to the human, and the
+delegation wedges at the gate until its timeout; recovery is the
+human clearing the gate interactively on the feature branch
+before re-delegation, or the orchestrator re-anchoring via
+`get_progress`/`parse_tasks`/git status and driving the remaining
+steps directly. This removes an ad-hoc inter-agent exchange
+format in favor of each command's own published exit mechanism.
+The orchestrator's question-tool scope is contractually limited
+to Phase 0 triage and pause-relay decisions.
 
 ### D4: Paused-exit protocol (Observable Quality)
 
@@ -134,17 +144,26 @@ rule — annotates the todowrite entry `[BLOCKED: <variant>]`
 the tracker's expression), and asks one pause-relay question:
 re-run after human action, skip the item, or abort the run. The
 re-run is a fresh `uf_delegate_command` delegation with the same
-`command_path` and no routing context; the child re-anchors on
-the feature branch's durable checkpoint/dispatch state and
-resumes — the orchestrator performs no resume bookkeeping itself.
+`command_path` and no routing context — omitting orchestrator-
+side tier and branch directives while the prompt still carries
+the work item's description and issue reference(s) — split by
+variant class: mid-pipeline variants re-anchor on the feature
+branch's durable checkpoint/dispatch state and resume (the
+orchestrator performs no resume bookkeeping itself), while
+tier-routing variants (which fired inside
+`uf_unleash_route_decision` before any branch or durable state
+existed) restart fresh on `main`, the delegation prompt
+re-carrying the description and issue reference(s) — without
+them the child wedges asking what to build.
 `/uf.finale` is delegated only after a run presents the demo
 block. Orchestrated runs supersede the demo block's interactive
 next-step choice — its two options address interactive runs;
 auto-delegating finale on demo completion is the designed
 behavior for orchestrated items (the remaining human control
-points: Phase 0 work-item table confirmation, the finale child's
-commit and PR approval gates, pause-relay questions, and
-non-green CI on a created PR). Hard delegation failures (error
+points: Phase 0 work-item table confirmation, the delegated
+commands' own gates — surfaced as paused exits or gate-timeout
+wedges — pause-relay questions, and non-green CI on a created
+PR). Hard delegation failures (error
 envelopes, returns with
 neither exit text nor demo) flow through the same blocked
 protocol with the error relayed verbatim.
@@ -203,13 +222,15 @@ matching the `rebase-upstream-before-push` precedent.
   propagation is the fix, not the risk. The CHANGELOG entry and
   the documentation-gate assessment (tasks) cover the
   user-facing impact.
-- **Child gates are no longer orchestrator-visible.** With gates
-  surfacing directly from child sessions, the orchestrator
-  cannot format or batch them. Accepted: this is the designed
-  behavior of parented child sessions, and the per-finding
-  formats the delegated commands render are richer than the
-  relay ever was. The orchestrator's pause-relay decisions
-  remain the coarse control point.
+- **Child gates are no longer orchestrator-visible.** Gates
+  surface only as tool-rendered paused exits (question-tool
+  prompts inside a delegated child wedge until timeout), so the
+  orchestrator cannot format or batch them. Accepted: this is
+  the observed behavior of parented child sessions (learning
+  `uf-workflow-20261026T182050`), and the per-finding formats
+  the delegated commands render are richer than the relay ever
+  was. The orchestrator's pause-relay decisions remain the
+  coarse control point.
 - **Recognition of completion relies on rendered shapes.** The
   orchestrator distinguishes "pipeline complete" (demo block)
   from "paused" (`paused at:` heading) by the child's final

@@ -21,8 +21,9 @@ command surfaces:
 - **Gate Relay Protocol no longer matches runtime.** The
   `GATE:<name>` structured-value relay, `task_id` subagent
   resumption, and the "subagents MUST NOT invoke the question
-  tool" rule predate parented child sessions, in which human gates
-  inside delegated commands surface directly to the human.
+  tool" rule predate parented child sessions, in which human
+  gates inside delegated commands surface as tool-rendered
+  paused exits.
 - **Paused exits are unmodeled.** `/uf.unleash` now defines
   tool-rendered paused exit paths (`format_unleash_exit` variants:
   clarify, spec-review, implement-worker-failed,
@@ -54,14 +55,19 @@ the delegation surfaces it drives.
    command-path delegations to the cobalt-crush-dev agent in
    parented child sessions. No `general` subagent spawning remains.
 3. **Gate Relay Protocol removed.** Human gates inside delegated
-   commands surface directly to the human. The orchestrator's
-   question-tool use is limited to Phase 0 triage and pause-relay
-   decisions.
+   commands surface as tool-rendered paused exits relayed
+   verbatim (question-tool prompts inside a parented child do
+   not surface; the delegation wedges at the gate until timeout).
+   The orchestrator's question-tool use is limited to Phase 0
+   triage and pause-relay decisions.
 4. **Paused-exit handling added.** When the `/uf.unleash`
    delegation returns a paused exit, the orchestrator relays the
    exit text verbatim, marks the work item blocked, waits for
-   human action, then re-runs `/uf.unleash` on the feature branch
-   (resumability continues). `/uf.finale` is delegated only after
+   human action, then re-runs `/uf.unleash` split by variant
+   class: mid-pipeline variants resume from the feature branch's
+   durable state; tier-routing variants restart fresh on `main`
+   with the work item's description and issue reference(s)
+   re-supplied. `/uf.finale` is delegated only after
    the demo completes.
 5. **/uf.finale delegation description refreshed.** Nine steps
    including sync-with-base; expected outcome is a PR URL, the PR
@@ -91,8 +97,9 @@ None.
 - `run-plan-command`: Per-item pipeline protocol becomes two
   `uf_delegate_command` delegations (`/uf.unleash`, then
   `/uf.finale` after the demo completes); gate handling moves from
-  structured-value relay to direct surfacing in parented child
-  sessions; progress tracking gains a blocked annotation for
+  structured-value relay to paused-exit relay (question-tool
+  prompts inside a parented child do not surface); progress
+  tracking gains a blocked annotation for
   paused work items; the Closes linkage guardrail becomes a
   verification backstop over the automated `originating_issue`
   path.
@@ -113,8 +120,8 @@ the `run-plan-command` capability; the capability itself remains).
 - **Behavior**: The command's per-item execution model changes for
   every consumer, including repos scaffolded by `uf init` (the
   asset ships in the scaffold). Human gates during delegated
-  phases now surface from the child sessions directly rather than
-  through orchestrator relay.
+  phases now surface as paused exits relayed by the orchestrator
+  rather than through structured-value relay.
 - **No runtime code changes**: this is a command-instruction and
   documentation change; no Go or TypeScript source is modified, no
   gates or thresholds are touched.
@@ -206,4 +213,4 @@ the Go/TypeScript changes this change's Non-Goals exclude. Each
 step names its exact command (`gh issue view`, `gh pr view`,
 `gh pr checks`, `git status --short`), and extraction into
 executable tools is recorded as follow-up for a plugin-side
-change.
+change, tracked in #842.

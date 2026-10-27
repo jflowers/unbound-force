@@ -210,23 +210,40 @@ green CI with no blocked-state annotation.
 
 ### Requirement: Direct Human Gate Surfacing
 
-Human gates inside delegated commands MUST surface directly to the
-human through the parented child sessions. The orchestrator MUST
-NOT relay gates through structured values (`GATE:<name>`), MUST
-NOT resume children via `task_id` to deliver gate answers, and
-MUST NOT instruct children to avoid the question tool. The
-orchestrator's own question-tool use MUST be limited to Phase 0
-triage and pause-relay decisions.
+Human gates inside delegated commands MUST surface to the human as
+tool-rendered paused exits: the delegated child returns its exit
+text and the orchestrator relays it verbatim. Question-tool
+prompts inside a delegated child MUST NOT be assumed to surface
+-- a parented child session cannot carry them to the human, and
+the delegation wedges at the gate until its timeout. The
+orchestrator MUST NOT relay gates through structured values
+(`GATE:<name>`), MUST NOT resume children via `task_id` to
+deliver gate answers, and MUST NOT instruct children to avoid the
+question tool. The orchestrator's own question-tool use MUST be
+limited to Phase 0 triage and pause-relay decisions.
 
-#### Scenario: Child gate surfaces directly
+#### Scenario: Child gate surfaces as a paused exit
 
 - **GIVEN** the `/uf.unleash` child session reaches a mandatory
-  human gate (e.g., the spec review decision gate)
+  human gate that its command renders as a paused exit (e.g.,
+  the spec-review decision gate)
 - **WHEN** the gate fires
-- **THEN** the child's question MUST surface directly to the human
-  from the parented child session
+- **THEN** the child MUST return the paused-exit text and the
+  orchestrator MUST relay it verbatim to the human
 - **AND** the orchestrator MUST NOT receive or relay a
   `GATE:<name>` structured value
+
+#### Scenario: Gate-timeout recovery
+
+- **GIVEN** a delegated child wedges at a question gate that
+  cannot surface from the parented child session
+- **WHEN** the delegation times out
+- **THEN** the orchestrator MUST either have the human clear the
+  gate interactively on the feature branch before re-delegating,
+  or re-anchor via `get_progress`/`parse_tasks`/git status and
+  drive the remaining steps directly
+- **AND** MUST NOT re-delegate without clearing the gate (the
+  re-delegation wedges at the same gate)
 
 #### Scenario: Orchestrator question scope
 
@@ -255,8 +272,26 @@ planner-failure) -- the orchestrator MUST:
    item, or abort the run
 4. On re-run, delegate `/uf.unleash` again via
    `uf_delegate_command` with the same `command_path` and no
-   routing context -- the child re-anchors on the feature branch's
-   durable state and resumes the pipeline from where it paused
+   routing context -- that is, omitting orchestrator-side tier and
+   branch directives while the prompt still carries the work
+   item's description and issue reference(s) -- split by variant
+   class (the orchestrator holds the variant from its recorded
+   `[BLOCKED:]` annotation):
+   - Mid-pipeline variants (clarify, spec-review,
+     implement-worker-failed, implement-merge-conflict,
+     implement-phase-checkpoint, code-review-preflight,
+     code-review-no-success,
+     code-review-iterations-exhausted, planner-failure): the
+     feature branch and durable state exist; the child re-anchors
+     on the feature branch's durable state and resumes the
+     pipeline from where it paused
+   - Tier-routing variants (tier-routing-dirty-tree,
+     tier-routing-missing-tooling): the exit fired inside
+     `uf_unleash_route_decision` before any branch or durable
+     state exists; the re-run is a fresh restart on `main` whose
+     delegation prompt MUST re-carry the work item's description
+     and issue reference(s) -- without them the child wedges
+     asking what to build
 5. Delegate `/uf.finale` only after a `/uf.unleash` run completes
    and presents the demo block. Orchestrated runs supersede the
    demo block's interactive next-step choice: its two options
@@ -264,9 +299,9 @@ planner-failure) -- the orchestrator MUST:
    interactive runs, and auto-delegating `/uf.finale` on demo
    completion is the designed behavior for orchestrated items.
    The remaining human control points are the Phase 0 work-item
-   table confirmation, the `/uf.finale` child's commit and PR
-   approval gates, pause-relay questions, and non-green CI on a
-   created PR
+   table confirmation, the delegated commands' own gates
+   (surfaced as paused exits or gate-timeout wedges), pause-relay
+   questions, and non-green CI on a created PR
 
 A `/uf.unleash` delegation that fails outright (an error
 envelope, or a return with neither exit text nor a completed
@@ -297,6 +332,22 @@ error relayed verbatim.
 - **AND** the child session MUST resume the pipeline from the
   feature branch's durable state rather than restarting
 
+#### Scenario: Tier-routing re-run restarts with context
+re-supplied
+
+- **GIVEN** the `/uf.unleash` delegation paused with variant
+  `tier-routing-dirty-tree` (fired inside
+  `uf_unleash_route_decision` before any branch or durable state
+  exists) and the human has cleaned the working tree
+- **WHEN** the human chooses to re-run in the pause-relay
+  question
+- **THEN** the orchestrator MUST delegate `/uf.unleash` again via
+  `uf_delegate_command` with `command_path:
+  ".opencode/commands/uf.unleash.md"` and a prompt that
+  re-carries the work item's description and issue reference(s)
+- **AND** the child session MUST restart tier routing on `main`
+  (no durable-state resume is available)
+
 #### Scenario: Hard delegation failure blocks the work item
 
 - **GIVEN** the `/uf.unleash` delegation returns an error
@@ -309,8 +360,9 @@ error relayed verbatim.
 
 ### Requirement: Gate Relay Protocol
 
-Reason: parented child sessions surface human gates directly to
-the human, so the structured `GATE:<name>` return value, the
-orchestrator question relay, and `task_id` subagent resumption no
-longer exist as runtime mechanisms. Superseded by the "Direct
-Human Gate Surfacing" requirement (ADDED).
+Reason: gates inside delegated commands surface as tool-rendered
+paused exits relayed verbatim by the orchestrator, so the
+structured `GATE:<name>` return value, the orchestrator question
+relay, and `task_id` subagent resumption no longer exist as
+runtime mechanisms. Superseded by the "Direct Human Gate
+Surfacing" requirement (ADDED).

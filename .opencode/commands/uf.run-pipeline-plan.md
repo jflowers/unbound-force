@@ -31,9 +31,10 @@ delegations:
    tier's entry command, and executes the pipeline
    through the demo step.
 2. **Delegation 2** (`/uf.finale`): delegated with
-   `command_path: ".opencode/commands/uf.finale.md"`
-   only after the demo completes. The child session
-   commits, pushes, and creates the PR.
+   `command_path: ".opencode/commands/uf.finale.md"` and
+   a prompt carrying the work item's context, only after
+   the demo completes. The child session commits, pushes,
+   and creates the PR.
 
 `/uf.unleash` paused exits are recognized, relayed
 verbatim, and block the work item.
@@ -154,7 +155,10 @@ parented child sessions:
    durable progress state.
 
 2. **Delegation 2** (`/uf.finale`): DELEGATE with
-   `command_path: ".opencode/commands/uf.finale.md"`,
+   `command_path: ".opencode/commands/uf.finale.md"` and a
+   prompt carrying the work item's context (title,
+   description, issue reference(s), and that the PR
+   targets the parent `unbound-force/unbound-force` repo),
    only after the `/uf.unleash` run presents the demo
    block. `/uf.finale` runs nine steps: branch safety
    gate, check for changes and stage, commit message,
@@ -187,17 +191,34 @@ the next item starts.
 
 ### Direct Human Gate Surfacing
 
-Human gates inside delegated commands surface directly
-to the human through the parented child session. The
+Tool-rendered paused exits inside delegated commands
+surface to the human: the child returns its exit text
+and the orchestrator relays it verbatim (Unleash
+Paused-Exit Handling below). Question-tool prompts
+inside a delegated child do NOT surface — the parented
+child session cannot carry them to the human, and the
+delegation wedges at the gate until its timeout. The
 orchestrator MUST NOT relay gates via structured values
 and MUST NOT resume children via `task_id`.
+
+**Gate-timeout recovery**: when a delegation crosses a
+mandatory question gate (for example `/uf.unleash`
+spec-review or `/uf.finale` commit approval) and wedges
+until timeout, the human either clears the gate
+interactively on the feature branch (re-entering the
+child command in a direct session) before re-delegating,
+or the orchestrator re-anchors via `get_progress`,
+`parse_tasks`, and `git status` and drives the remaining
+steps directly. Re-delegating without clearing the gate
+re-hangs at the same gate.
 
 The orchestrator's own `question` tool use is limited
 to Phase 0 triage (non-mechanical item resolution and
 the work-item confirmation table) and pause-relay
 decisions (the blocked-item question below). All other
-human interaction happens inside the delegated commands
-under their own gate protocols.
+human interaction happens inside the delegated commands'
+own gate protocols — surfaced to the orchestrator as
+paused exits or timeouts, not as live questions.
 
 ### Unleash Paused-Exit Handling
 
@@ -222,8 +243,26 @@ block):
    the item after human action, skip the item, or
    abort the run.
 4. **On re-run**: delegate `/uf.unleash` again with the
-   same `command_path` and no routing context — the
-   child resumes from its durable state.
+   same `command_path` and no routing context — that is,
+   omitting orchestrator-side tier and branch directives
+   while the prompt still carries the work item's
+   description and issue reference(s). Split by variant
+   class (the orchestrator holds the variant from the
+   `[BLOCKED:]` annotation):
+   - **Mid-pipeline variants** (clarify, spec-review,
+     implement-worker-failed, implement-merge-conflict,
+     implement-phase-checkpoint, code-review-preflight,
+     code-review-no-success,
+     code-review-iterations-exhausted, planner-failure):
+     the feature branch and its durable state exist; the
+     child re-anchors and resumes.
+   - **Tier-routing variants** (tier-routing-dirty-tree,
+     tier-routing-missing-tooling): the exit fired inside
+     `uf_unleash_route_decision` before any branch or
+     durable state exists; the re-run is a fresh restart
+     on `main` whose delegation prompt MUST re-carry the
+     description and issue reference(s) — without them
+     the child wedges asking what to build.
 5. **Finale**: delegate `/uf.finale` only after a run
    completes and presents the demo block. Orchestrated
    runs supersede the demo block's interactive
@@ -231,7 +270,8 @@ block):
    interactive runs.
 
 The remaining human control points are the Phase 0
-work-item table, the delegated commands' own gates,
+work-item table, the delegated commands' own gates
+(surfaced as paused exits or gate-timeout wedges),
 pause-relay questions, and non-green CI on a created
 PR (see Tracking).
 
