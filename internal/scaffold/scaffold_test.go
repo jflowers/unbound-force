@@ -1914,7 +1914,7 @@ var expectedAssetPaths = []string{
 	"opencode/lib/uf-workflow-types.ts",
 	// UF finale plugin (1)
 	"opencode/plugins/uf-finale/index.ts",
-	// Shared lib modules (8)
+	// Shared lib modules (9)
 	"opencode/lib/agent-executor.ts",
 	"opencode/lib/branch-classification.ts",
 	"opencode/lib/review-dispatch-artifact.ts",
@@ -1922,6 +1922,7 @@ var expectedAssetPaths = []string{
 	"opencode/lib/review-dispatch-sibling-evidence.ts",
 	"opencode/lib/review-diff.ts",
 	"opencode/lib/reviewer-manifest.ts",
+	"opencode/lib/run-timeout.ts",
 	"opencode/lib/unleash-templates.ts",
 	// Reproducible plugin package inputs (2)
 	"opencode/package-lock.json",
@@ -1963,6 +1964,7 @@ var task42CanonicalAssets = []struct {
 	{asset: "opencode/lib/review-dispatch-sibling-evidence.ts", source: ".opencode/lib/review-dispatch-sibling-evidence.ts"},
 	{asset: "opencode/lib/review-diff.ts", source: ".opencode/lib/review-diff.ts"},
 	{asset: "opencode/lib/reviewer-manifest.ts", source: ".opencode/lib/reviewer-manifest.ts"},
+	{asset: "opencode/lib/run-timeout.ts", source: ".opencode/lib/run-timeout.ts"},
 	{asset: "opencode/lib/unleash-templates.ts", source: ".opencode/lib/unleash-templates.ts"},
 	{asset: "opencode/package-lock.json", source: ".opencode/package-lock.json"},
 	{asset: "opencode/package.json", source: ".opencode/package.json"},
@@ -2789,6 +2791,7 @@ func TestIsToolOwned(t *testing.T) {
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
 		{"opencode/lib/review-diff.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
+		{"opencode/lib/run-timeout.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
 		{"opencode/lib/unleash-templates.ts", true},
 		// Tool-owned: canonical review policy
@@ -3445,6 +3448,7 @@ func TestIsDivisorAsset(t *testing.T) {
 		{"opencode/lib/review-dispatch-sibling-evidence.ts", true},
 		{"opencode/lib/review-diff.ts", true},
 		{"opencode/lib/reviewer-manifest.ts", true},
+		{"opencode/lib/run-timeout.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
 		{"opencode/lib/unleash-templates.ts", true},
 		// Divisor review eligibility policy

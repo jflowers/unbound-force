@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto"
 import type { PluginInput, ToolContext } from "@opencode-ai/plugin"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import type { TimeoutProvenanceRecord } from "../lib/run-timeout.js"
 import { ReviewDispatchPlugin, _getSubmissionStore, _getSessionCorrelationMap, createConsolidateDispatchTool, createFinalizationDependencies } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
@@ -54,6 +55,7 @@ function runFixture(
     findings?: number
     proposals?: number
     usage?: { cost_usd: number | null; tokens: { input: number; output: number } | null } | null
+    timeout?: TimeoutProvenanceRecord
   },
 ) {
   const findingsArr = Array.from({ length: overrides?.findings ?? 0 }, (_, i) => ({
@@ -92,6 +94,9 @@ function runFixture(
     proposals: proposalsArr,
     text: "output",
     read_only: true,
+    // Run-file-only RD-FR-030 field: JSON.stringify drops the key when the
+    // override is absent, matching older run files byte-for-byte.
+    timeout: overrides?.timeout,
   }
 }
 
@@ -420,6 +425,51 @@ describe("dispatch_status", () => {
     })
   })
 
+  it("surfaces per-run effective timeouts from run files (RD-FR-030)", async () => {
+    // RD-FR-030 / design D5: run records carry timeout provenance when the
+    // dispatch tools resolved the run's timeout through derivation or an
+    // explicit argument. dispatch_status surfaces effective_ms per run,
+    // strictly observational — null for older run files that predate the
+    // field.
+    const derivedTimeout: TimeoutProvenanceRecord = {
+      effective_ms: 1_800_000,
+      source: "derived",
+      base_ms: 1_200_000,
+      prompt_bytes: 179_200,
+      prompt_term_ms: 166_500,
+      profile_term_ms: 120_000,
+      resolved_tier: "standard",
+      session_profile_tier: "standard",
+      contention_multiplier: 1.45,
+      max_parallel_runs: 4,
+      ceiling_ms: 1_800_000,
+      clamped: true,
+    }
+    await setupDispatchSession([
+      runFixture("divisor-guard", { timeout: derivedTimeout }),
+      runFixture("divisor-adversary"),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.dispatch_status.execute({}, noopContext())
+
+      const data = JSON.parse(result.output)
+      const guard = data.runs.find((r: { agent: string }) => r.agent === "divisor-guard")
+      expect(guard.status).toBe("success")
+      expect(guard.timeout_effective_ms).toBe(1_800_000)
+
+      const adversary = data.runs.find((r: { agent: string }) => r.agent === "divisor-adversary")
+      expect(adversary.timeout_effective_ms).toBeNull()
+    })
+  })
+
   it("handles unreadable run files gracefully", async () => {
     const correlationId = randomUUID()
     const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
@@ -624,5 +674,157 @@ describe("consolidate_dispatch correlation_id (design D3)", () => {
     expect(payload.run_counts.success).toBe(1)
     // No exclusions: the warnings key is omitted when empty (PR #776).
     expect(payload.warnings).toBeUndefined()
+  })
+})
+
+describe("dispatch_status operation windows (RD-FR-031)", () => {
+  it("reports an interrupted operation for a start-without-end record", async () => {
+    const correlationId = await setupDispatchSession([runFixture("divisor-guard")])
+    const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
+    const operationId = randomUUID()
+    await writeFile(
+      join(dir, `operation-${operationId}.json`),
+      JSON.stringify({ kind: "dispatch", operation_id: operationId, started_at: new Date().toISOString() }),
+      "utf8",
+    )
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.dispatch_status.execute(
+        { correlation_id: correlationId },
+        noopContext(),
+      )
+
+      const parsed = JSON.parse(result.output) as {
+        operations: Array<{ kind: string; completed_at: string | null; interrupted: boolean }>
+        total_operations: number
+      }
+      expect(parsed.operations).toHaveLength(1)
+      expect(parsed.operations[0].kind).toBe("dispatch")
+      expect(parsed.operations[0].completed_at).toBeNull()
+      expect(parsed.operations[0].interrupted).toBe(true)
+      expect(parsed.total_operations).toBe(1)
+    })
+  })
+
+  it("reports no operations for sessions older than the feature", async () => {
+    const correlationId = await setupDispatchSession([runFixture("divisor-architect")])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.dispatch_status.execute(
+        { correlation_id: correlationId },
+        noopContext(),
+      )
+
+      const parsed = JSON.parse(result.output) as {
+        operations: unknown[]
+        total_operations: number
+        status: string
+      }
+      expect(parsed.operations).toEqual([])
+      expect(parsed.total_operations).toBe(0)
+      expect(parsed.status).toBe("ok")
+    })
+  })
+
+  it("skips malformed operation records and nulls invalid run counts", async () => {
+    const correlationId = await setupDispatchSession([runFixture("divisor-guard")])
+    const dir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
+    cleanupDirs.push(dir)
+
+    const validId = randomUUID()
+    const badCountsId = randomUUID()
+    const startedAt = new Date().toISOString()
+    const write = async (name: string, contents: string) => {
+      await writeFile(join(dir, name), contents, "utf8")
+    }
+    await write(
+      `operation-${validId}.json`,
+      JSON.stringify({
+        kind: "dispatch",
+        operation_id: validId,
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        status: "ok",
+        run_counts: { total: 2, success: 1, failed: 0, skipped: 1, budget_skipped: 0, limit_skipped: 0, cancelled: 0 },
+      }),
+    )
+    // Non-object payload.
+    await write("operation-non-object.json", JSON.stringify("just a string"))
+    // Wrong record kind.
+    await write(
+      "operation-wrong-kind.json",
+      JSON.stringify({ kind: "nonsense", operation_id: randomUUID(), started_at: startedAt }),
+    )
+    // Missing operation_id.
+    await write("operation-no-id.json", JSON.stringify({ kind: "dispatch", started_at: startedAt }))
+    // Missing started_at.
+    await write("operation-no-start.json", JSON.stringify({ kind: "dispatch", operation_id: randomUUID() }))
+    // Non-numeric run_counts — the record is admitted, but its counts are
+    // nulled rather than echoed (Constitution V).
+    await write(
+      `operation-${badCountsId}.json`,
+      JSON.stringify({
+        kind: "dispatch",
+        operation_id: badCountsId,
+        started_at: startedAt,
+        run_counts: { total: "x", success: 1, failed: 0, skipped: 0, budget_skipped: 0, limit_skipped: 0, cancelled: 0 },
+      }),
+    )
+    // Unparseable JSON.
+    await write("operation-unparseable.json", "{not json")
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: { session: {} },
+        directory: project,
+        worktree: project,
+      } as unknown as PluginInput)
+
+      const result = await hooks.tool.dispatch_status.execute(
+        { correlation_id: correlationId },
+        noopContext(),
+      )
+
+      const parsed = JSON.parse(result.output) as {
+        operations: Array<{
+          operation_id: string
+          kind: string
+          run_counts: unknown
+          status: string | null
+          interrupted: boolean
+        }>
+        total_operations: number
+        status: string
+      }
+      // Five malformed shapes (non-object, wrong kind, missing id, missing
+      // start, unparseable) are skipped without failing the status call;
+      // the record with non-numeric counts is admitted but reported with
+      // run_counts nulled, never echoed.
+      expect(parsed.operations).toHaveLength(2)
+      const valid = parsed.operations.find((operation) => operation.operation_id === validId)
+      const badCounts = parsed.operations.find((operation) => operation.operation_id === badCountsId)
+      expect(valid?.kind).toBe("dispatch")
+      expect(valid?.run_counts).toMatchObject({ total: 2, success: 1 })
+      expect(valid?.status).toBe("ok")
+      expect(valid?.interrupted).toBe(false)
+      expect(badCounts?.run_counts).toBeNull()
+      expect(parsed.total_operations).toBe(2)
+      expect(parsed.status).toBe("ok")
+    })
   })
 })

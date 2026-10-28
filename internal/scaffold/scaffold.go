@@ -662,6 +662,7 @@ func isToolOwned(relPath string) bool {
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
 		relPath == "opencode/lib/review-diff.ts" ||
 		relPath == "opencode/lib/reviewer-manifest.ts" ||
+		relPath == "opencode/lib/run-timeout.ts" ||
 		relPath == "opencode/lib/uf-workflow-types.ts" ||
 		relPath == "opencode/lib/unleash-templates.ts" {
 		return true
@@ -733,6 +734,7 @@ func isDivisorAsset(relPath string) bool {
 		relPath == "opencode/lib/review-dispatch-lesson-proposal.ts" ||
 		relPath == "opencode/lib/review-diff.ts" ||
 		relPath == "opencode/lib/reviewer-manifest.ts" ||
+		relPath == "opencode/lib/run-timeout.ts" ||
 		relPath == "opencode/lib/uf-workflow-types.ts" ||
 		relPath == "opencode/lib/unleash-templates.ts" {
 		return true

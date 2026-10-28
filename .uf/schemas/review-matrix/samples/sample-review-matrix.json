@@ -54,6 +54,8 @@
     "max_total_runs": 24,
     "max_parallel_runs": 4,
     "per_run_timeout_seconds": 600,
+    "per_run_timeout_ceiling_seconds": 1500,
+    "per_run_timeout_tiers": {"lightweight": 900, "heavy": 1500},
     "max_reported_cost_usd": 25
   }
 }

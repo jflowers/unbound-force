@@ -31,6 +31,65 @@ Each entry follows the format: `- <change-name>: <summary>`.
   unparseable, and version-command-failure paths.
   (Spec: openspec/changes/replicator-version-floor/)
   (Docs: #844, unbound-force/website#337)
+- derive-per-run-timeout: Reviewer runs now derive their timeout
+  windows from the work being dispatched instead of a fixed 600s
+  default (issue #849). A pure derivation module
+  (`.opencode/lib/run-timeout.ts`) computes each run's window from
+  the review-matrix limit -- `limits.per_run_timeout_seconds` with
+  optional `per_run_timeout_tiers` overrides (RD-FR-009; the three
+  schema copies are synced) -- plus the dispatched work: prompt
+  bytes above a 64 KiB free window, the plan entry's tier, and a
+  contention multiplier when `max_parallel_runs` is greater than
+  one, clamped to the configurable ceiling and the schema's
+  1_800_000 ms bound. `dispatch_review_runs` and
+  `redispatch_failed_runs` apply the derivation when
+  `per_run_timeout_ms`/`timeout` is omitted (RD-FR-029); explicit
+  values still win, and every run file records its timeout
+  provenance (effective window, derivation inputs, source).
+  Dispatch and redispatch invocations now persist operation-window
+  records (`operation-*.json`: started/completed timestamps,
+  status, run-count buckets) that `dispatch_status` reports as an
+  `operations` array with `total_operations` and
+  interrupted-operation detection (RD-FR-031). The DR-FR-002
+  recovery path now re-runs cancelled reviewers -- a cancelled run
+  is an infrastructure failure (parent tool-call window death), not
+  a judgment call to discard -- and restores stranded superseded
+  archives (a killed recovery invocation that archived a prior run
+  but never persisted its replacement) to their active run-file
+  paths before target resolution, most recent per plan entry,
+  reporting `restored_runs`/`restored_agents` in the redispatch
+  summary; prior cancelled records stay archived with their
+  harvested submissions for audit, and consolidation excludes
+  submissions from runs that fail or are cancelled again under
+  RD-FR-025. Command prose in `/uf.review-council`,
+  `/uf.review-pr`, `/uf.triage-issue`, `/uf.address-feedback`, and
+  `/uf.unleash` now recommends omitting `per_run_timeout_ms` so
+  derivation applies. DE-007 seam verification: the
+  `per_run_timeout_ms` schema maximum aligns with the executor's
+  TimeoutSchema 1_800_000 bound, the tool descriptions document
+  the derived windows, operation reporting, and recovery
+  semantics, and the new behaviors round-trip through real
+  invocations (operation records written by dispatch/redispatch
+  are read back through `dispatch_status`; run-file provenance is
+  read through consolidation). Constitution alignment verified:
+  the derivation is a pure standalone function (II, IV);
+  provenance and window records are machine-parseable artifacts
+  with no runtime coupling (I, III); input validation is tightened,
+  not weakened (V); timeout selection is deterministic with no LLM
+  judgment (VI); every new behavior is testable in isolation
+  without external services (IV). Classified user-facing through
+  the scaffold-shipped surfaces (the `per_run_timeout_ms` input
+  contract, the `dispatch_status` and run-record output fields,
+  the RD-FR-009 matrix config, the command-prose guidance, and
+  the DR-FR-002 recovery semantics); documentation gates filed as
+  in-repo issue #859 and website issue
+  unbound-force/website#341. Vitest suites pin the derivation
+  matrix, provenance persistence, operation windows, and recovery
+  semantics (218 dispatch-suite tests; plugin coverage 95.35%
+  statements / 88.23% branches against the 94/85 floors); scaffold
+  mirrors under `internal/scaffold/assets/opencode/` updated
+  byte-identically (drift-detection tests).
+  (Spec: openspec/changes/derive-per-run-timeout/)
 - unleash-interactive-clarify: Added an interactive clarify ask
   gate to `/uf.unleash` Step 1 (Clarify, Speckit tier): each
   question Dewey cannot answer -- and every question when

@@ -16,8 +16,9 @@ fallback, and enforces cross-field planning rules.
   resolution. All other structural rules are unchanged from v2.
 - `v2.schema.json` defines the closed version 2 policy contract
   (model required). Preserved for legacy validation.
-- `samples/sample-review-matrix.json` covers ordered runs and a
-  run-level variant override.
+- `samples/sample-review-matrix.json` covers ordered runs, a
+  run-level variant override, and optional per-run timeout
+  derivation limits.
 - `samples/valid-host-fallback-absence.json` proves that advisor and
   run entries are optional, preserving planner-level host fallback.
 - `samples/invalid-*.json` exercise rejection boundaries.
@@ -41,5 +42,6 @@ base matrix.
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 3 | 2026-10-04 | Profile `model` field made optional; host model fallback when omitted. `.uf/review-matrix.override.yaml` support for per-developer model/variant customization. |
+| 3 (rev 2) | 2026-10-28 | Optional per-run timeout derivation limits: `per_run_timeout_ceiling_seconds` and `per_run_timeout_tiers` (additive, backward compatible). |
+| 3 (rev 1) | 2026-10-04 | Profile `model` field made optional; host model fallback when omitted. `.uf/review-matrix.override.yaml` support for per-developer model/variant customization. |
 | 2 | 2026-10-01 | Initial explicit-first policy contract |
