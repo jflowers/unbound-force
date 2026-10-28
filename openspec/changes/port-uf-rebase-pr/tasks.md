@@ -12,7 +12,7 @@
 
 ## 1. Port the Command
 
-- [ ] 1.1 Read the staged source of truth at
+- [x] 1.1 Read the staged source of truth at
   `.local-sources/resolve-branch-conflict.md` (git-excluded
   scratch input; never commit it) and the convention
   reference `.opencode/commands/uf.review-pr.md`. Port from
@@ -20,7 +20,7 @@
   `.opencode/commands/uf.finale.md` step 4 for the
   distinction documented in design.md D8.
 
-- [ ] 1.2 Create `.opencode/commands/uf.rebase-pr.md`: full
+- [x] 1.2 Create `.opencode/commands/uf.rebase-pr.md`: full
   port of the staged source following `uf.review-pr.md`
   conventions — YAML frontmatter with `description`,
   `<protect>` block, session-resume guard, Arguments section
