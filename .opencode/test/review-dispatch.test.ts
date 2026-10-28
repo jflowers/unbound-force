@@ -11,6 +11,7 @@ import {
 } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import matrixFixture from "./fixtures/review-dispatch/matrix.json"
+import { derivePerRunTimeoutMs, resolveBaseWindowMs } from "../lib/run-timeout.js"
 
 type JsonObject = Record<string, unknown>
 type RunFixture = { profile?: string; model?: string; variant?: string }
@@ -1110,5 +1111,150 @@ describe("planner drift check (unleash-pipeline-hardening)", () => {
 
     expect(plan.status).toBe("ready")
     expect(plan.advisories.filter((a) => a.description.includes("stale"))).toHaveLength(0)
+  })
+})
+
+describe("per-run timeout derivation matrix fields (RD-FR-009)", () => {
+  it("parses optional ceiling and per-tier override fields", () => {
+    const matrix = cloneFixture(matrixFixture) as Record<string, unknown>
+    matrix.limits = {
+      per_run_timeout_seconds: 1200,
+      per_run_timeout_ceiling_seconds: 1500,
+      per_run_timeout_tiers: { lightweight: 900, heavy: 1500 },
+    }
+
+    const parsed = parseReviewMatrix(JSON.stringify(matrix), jsonParser)
+
+    expect(parsed.limits?.per_run_timeout_seconds).toBe(1200)
+    expect(parsed.limits?.per_run_timeout_ceiling_seconds).toBe(1500)
+    expect(parsed.limits?.per_run_timeout_tiers?.lightweight).toBe(900)
+    expect(parsed.limits?.per_run_timeout_tiers?.heavy).toBe(1500)
+    expect(parsed.limits?.per_run_timeout_tiers?.standard).toBeUndefined()
+  })
+
+  it("keeps matrix-defaults fallback when derivation fields are absent", async () => {
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-adversary", "divisor-guard"],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(),
+    )
+    expect(plan.status).toBe("ready")
+
+    // Fixture limits carry no derivation fields: the base stays 600 s,
+    // the ceiling defaults to the 1800 s schema bound, and every
+    // per-tier override stays unset (design D6 / RD-FR-009).
+    expect(plan.limits.per_run_timeout_seconds).toBe(600)
+    expect(plan.limits.per_run_timeout_ceiling_seconds).toBe(1800)
+    expect(plan.limits.per_run_timeout_tiers).toEqual({
+      lightweight: undefined,
+      standard: undefined,
+      heavy: undefined,
+    })
+  })
+
+  it("falls back when the matrix carries no limits block at all", async () => {
+    const noLimits = cloneFixture(matrixFixture) as Record<string, unknown>
+    delete noLimits.limits
+
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-adversary", "divisor-guard"],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(noLimits),
+    )
+    expect(plan.status).toBe("ready")
+    expect(plan.limits.per_run_timeout_seconds).toBe(600)
+    expect(plan.limits.per_run_timeout_ceiling_seconds).toBe(1800)
+  })
+
+  it("rejects out-of-range ceiling and tier override values", () => {
+    const tooSmall = cloneFixture(matrixFixture) as Record<string, unknown>
+    tooSmall.limits = { per_run_timeout_ceiling_seconds: 29 }
+    expect(() => parseReviewMatrix(JSON.stringify(tooSmall), jsonParser)).toThrow("Too small")
+
+    const tooBig = cloneFixture(matrixFixture) as Record<string, unknown>
+    tooBig.limits = { per_run_timeout_ceiling_seconds: 1801 }
+    expect(() => parseReviewMatrix(JSON.stringify(tooBig), jsonParser)).toThrow("Too big")
+
+    const tierTooSmall = cloneFixture(matrixFixture) as Record<string, unknown>
+    tierTooSmall.limits = { per_run_timeout_tiers: { heavy: 29 } }
+    expect(() => parseReviewMatrix(JSON.stringify(tierTooSmall), jsonParser)).toThrow("Too small")
+
+    const unknownTier = cloneFixture(matrixFixture) as Record<string, unknown>
+    unknownTier.limits = { per_run_timeout_tiers: { medium: 1200 } }
+    expect(() => parseReviewMatrix(JSON.stringify(unknownTier), jsonParser)).toThrow(
+      "Unrecognized key",
+    )
+  })
+
+  it("resolves per-tier overrides alongside the scalar base window (RD-FR-029)", async () => {
+    const customMatrix = cloneFixture(matrixFixture) as Record<string, unknown>
+    customMatrix.limits = {
+      per_run_timeout_seconds: 1200,
+      per_run_timeout_tiers: { heavy: 1500 },
+    }
+
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-adversary", "divisor-guard"],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(customMatrix),
+    )
+    expect(plan.status).toBe("ready")
+    expect(plan.limits.per_run_timeout_seconds).toBe(1200)
+    expect(plan.limits.per_run_timeout_tiers.heavy).toBe(1500)
+
+    const config = {
+      per_run_timeout_seconds: plan.limits.per_run_timeout_seconds,
+      per_run_timeout_tiers: plan.limits.per_run_timeout_tiers,
+    }
+    // The heavy override wins for heavy; standard and tier-less runs
+    // fall back to the scalar limit.
+    expect(resolveBaseWindowMs("heavy", config)).toBe(1_500_000)
+    expect(resolveBaseWindowMs("standard", config)).toBe(1_200_000)
+    expect(resolveBaseWindowMs(null, config)).toBe(1_200_000)
+  })
+
+  it("resolves a ceiling below the base window to the base window (floor precedence)", async () => {
+    const customMatrix = cloneFixture(matrixFixture) as Record<string, unknown>
+    customMatrix.limits = {
+      per_run_timeout_seconds: 1200,
+      per_run_timeout_ceiling_seconds: 600,
+    }
+
+    const plan = await planReviewDispatch(
+      {
+        mode: "code",
+        discovered_agents: ["divisor-adversary", "divisor-guard"],
+        changed_files: [changedFile("src/feature.ts", 5)],
+      },
+      dependencies(customMatrix),
+    )
+    expect(plan.status).toBe("ready")
+    expect(plan.limits.per_run_timeout_seconds).toBe(1200)
+    expect(plan.limits.per_run_timeout_ceiling_seconds).toBe(600)
+
+    // The derivation raises a configured ceiling below the resolved
+    // base window back to the base (RD-FR-028 floor precedence).
+    const baseMs = resolveBaseWindowMs("standard", {
+      per_run_timeout_seconds: plan.limits.per_run_timeout_seconds,
+    })
+    const result = derivePerRunTimeoutMs({
+      baseMs,
+      promptBytes: 65_536,
+      resolvedTier: "standard",
+      sessionProfileTier: "standard",
+      maxParallelRuns: 1,
+      configuredCeilingMs: plan.limits.per_run_timeout_ceiling_seconds * 1000,
+    })
+    expect(result.effectiveMs).toBe(baseMs)
+    expect(result.provenance.ceiling_ms).toBe(baseMs)
   })
 })
