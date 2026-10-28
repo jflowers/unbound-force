@@ -6,6 +6,34 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- port-uf-rebase-pr: Ported the verified personal global command
+  `resolve-branch-conflict.md` into the UF command set as
+  `.opencode/commands/uf.rebase-pr.md`, invoked as
+  `/uf.rebase-pr <PR_NUMBER>`: rebases a conflicted PR's head
+  branch onto its base branch, resolves conflicts, and
+  force-pushes with lease so the PR can be merged with rebase
+  once approved. The port follows `uf.review-pr.md` conventions
+  (YAML frontmatter, `<protect>` block, session-resume guard,
+  `^[1-9][0-9]*$` argument pre-validation) across six phases —
+  prerequisites, PR fetch/gating, checkout and rebase, conflict
+  resolution, push, verify — under nine guardrails: no
+  merge/approve/close, never push the base branch, remotes
+  resolved never assumed, `--force-with-lease` never `--force`,
+  conflicts-only edits, no guessing, clean backout, gh
+  verification before API calls, and determinism. Prefers the
+  existing git plugin tools (`git_fetch`, `git_rebase`,
+  `git_rebase_abort`, `git_push_force_with_lease`) per
+  determinism pack DE-001, with fork-aware remote resolution
+  that verifies the branch upstream is
+  `<HEAD_REMOTE>/<HEAD_BRANCH>` before using the plugin push,
+  falling back to `git push --force-with-lease <remote>
+  <branch>`. The scaffold mirror
+  `internal/scaffold/assets/opencode/commands/uf.rebase-pr.md`
+  is byte-identical and registered in `expectedAssetPaths`
+  (commands count 11 → 12) so scaffold drift detection stays
+  green; `TestRunInit_FreshDir`'s count range shifts
+  [70-74] → [71-75] for the 76th embedded asset.
+  (Spec: openspec/changes/port-uf-rebase-pr/, Fixes: #851)
 - replicator-version-floor: Added a version-floor sub-check to
   `uf doctor`'s Replicator check group (Spec 024, FR-011): when
   the `replicator` binary is present, the sub-check runs

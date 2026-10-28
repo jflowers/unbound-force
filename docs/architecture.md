@@ -533,6 +533,7 @@ enforce. Rules are tagged by severity:
 | `/uf.review-council` | Pre-PR (local) | Discovers available personas, runs them in parallel, produces APPROVE or REQUEST CHANGES |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent reviews a specific PR, analyzes CI results |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
+| `/uf.rebase-pr [N]` | Post-PR (GitHub) | Rebases a conflicted PR's head branch onto its base and force-pushes with lease |
 
 ### Addressing Feedback
 

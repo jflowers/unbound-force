@@ -75,7 +75,7 @@ unbound-force/
 ├── .uf/                              # Review config (review matrix, reviewer manifest, sibling repos)
 ├── .opencode/
 │   ├── agents/                       # Hero persona agents (16 active)
-│   ├── commands/                     # Slash commands (32 files)
+│   ├── commands/                     # Slash commands (33 files)
 │   ├── plugins/                      # Plugins registered in opencode.json (invoke-agent, review-dispatch, uf-workflow, uf-finale)
 │   ├── lib/                          # Shared TypeScript plugin library
 │   ├── test/                         # TypeScript plugin unit/integration/smoke tests
@@ -249,6 +249,7 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 | `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 6, Code Review) | 5+ Divisor agents |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent, CI analysis |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
+| `/uf.rebase-pr [N]` | Post-PR (GitHub) | Rebase a conflicted PR's head branch onto its base |
 
 ### Issue Triage Commands
 

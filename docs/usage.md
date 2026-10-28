@@ -259,6 +259,7 @@ command documentation with flags and examples.
 | `/uf.review-council` | Run the 9-persona review council |
 | `/uf.review-pr` | Review a GitHub PR (post-PR) |
 | `/uf.address-feedback` | Triage and address PR review feedback |
+| `/uf.rebase-pr` | Rebase a conflicted PR onto its base |
 | `/opsx-propose` | Create a change proposal with plan and tasks |
 | `/opsx-apply` | Implement tasks from an OpenSpec change |
 | `/opsx-explore` | Think through ideas (read-only) |

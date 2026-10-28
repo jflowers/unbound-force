@@ -57,7 +57,7 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 [P] Add a row to the PR Review Commands table in
+- [x] 3.1 [P] Add a row to the PR Review Commands table in
   `AGENTS.md`:
   `| /uf.rebase-pr [N] | Post-PR (GitHub) | Rebase a
   conflicted PR's head branch onto its base |`
@@ -66,18 +66,18 @@
   files)" to "Slash commands (33 files)" — the new command
   is the 33rd file under `.opencode/commands/`.
 
-- [ ] 3.2 [P] Add a row to the Quick Reference table in
+- [x] 3.2 [P] Add a row to the Quick Reference table in
   `docs/usage.md`:
   `| /uf.rebase-pr | Rebase a conflicted PR onto its base |`
   (match the existing row format and placement).
 
-- [ ] 3.3 [P] Add a row to the Review Commands table in
+- [x] 3.3 [P] Add a row to the Review Commands table in
   `docs/architecture.md` (design.md D6 — consistency
   extension): `| /uf.rebase-pr [N] | Post-PR (GitHub) |
   Rebases a conflicted PR's head branch onto its base and
   force-pushes with lease |` (match the existing row format).
 
-- [ ] 3.4 [P] Add a `port-uf-rebase-pr` entry to
+- [x] 3.4 [P] Add a `port-uf-rebase-pr` entry to
   `CHANGELOG.md` under "## Unreleased" → "### Added",
   matching the existing entry format (see the
   `replicator-version-floor` entry): a
