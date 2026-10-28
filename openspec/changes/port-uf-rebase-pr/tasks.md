@@ -36,20 +36,20 @@
 
 ## 2. Scaffold Mirror
 
-- [ ] 2.1 [P] Copy the canonical command to the scaffold
+- [x] 2.1 [P] Copy the canonical command to the scaffold
   location (tool-owned asset):
   ```bash
   cp .opencode/commands/uf.rebase-pr.md \
      internal/scaffold/assets/opencode/commands/uf.rebase-pr.md
   ```
 
-- [ ] 2.2 [P] Update `expectedAssetPaths` in
+- [x] 2.2 [P] Update `expectedAssetPaths` in
   `internal/scaffold/scaffold_test.go`: add
   `opencode/commands/uf.rebase-pr.md` in alphabetical
   position and update the commands count comment from
   `// OpenCode commands (11)` to `// OpenCode commands (12)`.
 
-- [ ] 2.3 Run scaffold drift detection to verify mirror
+- [x] 2.3 Run scaffold drift detection to verify mirror
   parity and asset-list correctness:
   ```bash
   go test -race -count=1 ./internal/scaffold/...
