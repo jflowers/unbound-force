@@ -425,6 +425,23 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- question-tool-presentation-contract: Applied the question-tool
+  presentation contract to all 22 human-facing decision gates in
+  `/uf.triage-issue` (8), `/uf.address-feedback` (6), and
+  `/uf.review-pr` (8): each gate prints its decision content as
+  plain session text above the question tool (visibility
+  directive — the same details and options), adds per-option
+  reasoning (what each choice does and when it fits) and an
+  advisory recommendation grounded in the command's own
+  assessment data, and presents the recommended option first,
+  labeled "(Recommended)". Option sets, MANDATORY GATE markers,
+  session-resume guards, and CRITICAL RULEs are unchanged; the
+  scaffold mirrors are synced byte-identical, and a new structural
+  pin test (TestQuestionToolPresentationContractGates) enforces
+  the shared contract fragments, the per-gate option inventories,
+  and the per-command gate counts (8/6/8).
+  (Spec: openspec/changes/question-tool-presentation-contract/)
+  (Docs: #853, unbound-force/website#339)
 - update-run-pipeline-plan: `/uf.run-pipeline-plan` now executes
   each work item through two `uf_delegate_command` delegations
   (`/uf.unleash`, then `/uf.finale`) instead of three `general`

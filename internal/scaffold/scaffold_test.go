@@ -322,6 +322,287 @@ func TestSpecReviewPerFindingGateContracts(t *testing.T) {
 	})
 }
 
+// TestQuestionToolPresentationContractGates pins the question-tool
+// presentation contract across the three mutation-command assets:
+// the shared wrap-safe contract fragments (each once per gate), the
+// per-gate option inventories (FR-007/FR-008/FR-009), the per-gate
+// fragment and gate counts, the backtick-bracket option-array
+// literal counts, the per-label occurrence totals of every
+// FR-007/FR-008/FR-009 inventory label, and the absence of the
+// legacy bare-options phrasing asserted both raw and
+// whitespace-normalized (so line-wrapped occurrences fail).
+func TestQuestionToolPresentationContractGates(t *testing.T) {
+	readAsset := func(name string) string {
+		t.Helper()
+		content, err := assetContent("opencode/commands/" + name)
+		if err != nil {
+			t.Fatalf("read embedded %s command: %v", name, err)
+		}
+		return string(content)
+	}
+
+	triage := readAsset("uf.triage-issue.md")
+	feedback := readAsset("uf.address-feedback.md")
+	review := readAsset("uf.review-pr.md")
+
+	// normalize collapses markdown line wrapping so option labels
+	// split across lines in the source still match their inventory
+	// spelling. Contract fragments are checked raw on purpose:
+	// each fragment MUST sit on a single line (wrap-safe pin).
+	normalize := func(s string) string {
+		return strings.Join(strings.Fields(s), " ")
+	}
+
+	contractFragments := []string{
+		"the question tool MUST present the",
+		"same details and options",
+		"Per-option reasoning: what each choice does and",
+		"when it fits",
+		"advisory only",
+		"the human decides",
+		"recommended option FIRST",
+		`labeled "(Recommended)"`,
+	}
+
+	t.Run("shared contract fragments present in all three command assets", func(t *testing.T) {
+		for _, tc := range []struct {
+			assetName string
+			asset     string
+		}{
+			{"uf.triage-issue", triage},
+			{"uf.address-feedback", feedback},
+			{"uf.review-pr", review},
+		} {
+			for _, fragment := range contractFragments {
+				if !strings.Contains(tc.asset, fragment) {
+					t.Errorf("%s command missing contract fragment %q", tc.assetName, fragment)
+				}
+			}
+		}
+	})
+
+	triageOptions := []string{
+		`"Proceed -- execute triage actions"`,
+		`"Skip -- write artifact only"`,
+		`"Yes -- create and apply label '<label>'"`,
+		`"Yes -- apply label '<label>'"`,
+		`"Yes -- apply duplicate label"`,
+		`"Yes -- post another comment"`,
+		`"No -- skip comment"`,
+		`"Approve -- post as-is"`,
+		`"Modify -- adjust comment text"`,
+		`"Abort -- do not post"`,
+		`"Yes -- create this child issue"`,
+		`"Yes -- create anyway"`,
+		`"No -- skip this child issue"`,
+		`"No -- skip"`,
+	}
+
+	feedbackOptions := []string{
+		`"Accept"`,
+		`"Modify"`,
+		`"Reject"`,
+		`"Ask"`,
+		`"Confirm -- proceed with execution"`,
+		`"Revise -- change decisions"`,
+		`"Proceed with Phase 4 execution"`,
+		`"Review plan again"`,
+		`"Abort -- stop here"`,
+		`"Rebase onto remote and push"`,
+		`"Abort -- preserve local commits"`,
+		`"Yes -- post reply comments"`,
+		`"No -- skip posting"`,
+		`"Yes -- resolve accepted threads"`,
+		`"No -- leave threads open"`,
+	}
+
+	reviewOptions := []string{
+		`"Wait for checks to complete"`,
+		`"Proceed with available results"`,
+		`"Review all files"`,
+		`"Focus on specific files"`,
+		`"Yes -- create fix branch"`,
+		`"No -- skip"`,
+		`"Commit -- apply fix"`,
+		`"Edit commit message"`,
+		`"Abort -- discard changes"`,
+		`"Yes -- post as GitHub review"`,
+		`"No -- terminal summary is sufficient"`,
+		`"Yes -- post new review"`,
+		`"No -- skip posting"`,
+		`"Yes -- override with <new_verdict>"`,
+		`"No -- keep existing <old_verdict>"`,
+		`"Approve -- post review"`,
+		`"Yes -- post review"`,
+		`"Edit comments first"`,
+		`"Change verdict"`,
+	}
+
+	// Per-label occurrence totals, computed empirically against
+	// the embedded assets. The quoted-label form anchors each
+	// count so prefix labels cannot collide with longer labels.
+	triageLabelCounts := map[string]int{
+		`"Proceed -- execute triage actions"`:       2,
+		`"Skip -- write artifact only"`:             2,
+		`"Yes -- create and apply label '<label>'"`: 2,
+		`"Yes -- apply label '<label>'"`:            2,
+		`"Yes -- apply duplicate label"`:            2,
+		`"Yes -- post another comment"`:             2,
+		`"No -- skip comment"`:                      4,
+		`"Approve -- post as-is"`:                   3,
+		`"Modify -- adjust comment text"`:           2,
+		`"Abort -- do not post"`:                    2,
+		`"Yes -- create this child issue"`:          2,
+		`"Yes -- create anyway"`:                    2,
+		`"No -- skip this child issue"`:             2,
+		`"No -- skip"`:                              10,
+	}
+
+	feedbackLabelCounts := map[string]int{
+		`"Accept"`:                            3,
+		`"Modify"`:                            2,
+		`"Reject"`:                            2,
+		`"Ask"`:                               2,
+		`"Confirm -- proceed with execution"`: 2,
+		`"Revise -- change decisions"`:        2,
+		`"Proceed with Phase 4 execution"`:    3,
+		`"Review plan again"`:                 3,
+		`"Abort -- stop here"`:                2,
+		`"Rebase onto remote and push"`:       2,
+		`"Abort -- preserve local commits"`:   2,
+		`"Yes -- post reply comments"`:        2,
+		`"No -- skip posting"`:                2,
+		`"Yes -- resolve accepted threads"`:   2,
+		`"No -- leave threads open"`:          2,
+	}
+
+	reviewLabelCounts := map[string]int{
+		`"Wait for checks to complete"`:          2,
+		`"Proceed with available results"`:       2,
+		`"Review all files"`:                     3,
+		`"Focus on specific files"`:              3,
+		`"Yes -- create fix branch"`:             3,
+		`"No -- skip"`:                           2,
+		`"Commit -- apply fix"`:                  3,
+		`"Edit commit message"`:                  2,
+		`"Abort -- discard changes"`:             2,
+		`"Yes -- post as GitHub review"`:         3,
+		`"No -- terminal summary is sufficient"`: 2,
+		`"Yes -- post new review"`:               2,
+		`"No -- skip posting"`:                   6,
+		`"Yes -- override with <new_verdict>"`:   2,
+		`"No -- keep existing <old_verdict>"`:    2,
+		`"Approve -- post review"`:               2,
+		`"Yes -- post review"`:                   2,
+		`"Edit comments first"`:                  3,
+		`"Change verdict"`:                       3,
+	}
+
+	t.Run("gate option inventories present in their command assets", func(t *testing.T) {
+		for _, tc := range []struct {
+			assetName string
+			asset     string
+			labels    []string
+		}{
+			{"uf.triage-issue", triage, triageOptions},
+			{"uf.address-feedback", feedback, feedbackOptions},
+			{"uf.review-pr", review, reviewOptions},
+		} {
+			normalized := normalize(tc.asset)
+			for _, label := range tc.labels {
+				if !strings.Contains(normalized, normalize(label)) {
+					t.Errorf("%s command missing option label %s", tc.assetName, label)
+				}
+			}
+		}
+	})
+
+	t.Run("per-gate contract fragment counts", func(t *testing.T) {
+		for _, tc := range []struct {
+			assetName string
+			asset     string
+			want      int
+		}{
+			{"uf.triage-issue", triage, 8},
+			{"uf.address-feedback", feedback, 6},
+			{"uf.review-pr", review, 8},
+		} {
+			for _, fragment := range contractFragments {
+				if got := strings.Count(tc.asset, fragment); got != tc.want {
+					t.Errorf("%s command carries %d occurrences of contract fragment %q, want %d (one per gate)", tc.assetName, got, fragment, tc.want)
+				}
+			}
+		}
+	})
+
+	t.Run("option-array literal counts", func(t *testing.T) {
+		// The backtick-bracket opener counts one per house-style
+		// option array; embedded JSON examples (no backtick) are
+		// excluded. review-pr records 9, not 8, because Step 8c
+		// carries two verdict-specific option sets.
+		for _, tc := range []struct {
+			assetName string
+			asset     string
+			want      int
+		}{
+			{"uf.triage-issue", triage, 8},
+			{"uf.address-feedback", feedback, 6},
+			{"uf.review-pr", review, 9},
+		} {
+			if got := strings.Count(tc.asset, "`[\""); got != tc.want {
+				t.Errorf("%s command carries %d backtick-bracket option arrays, want %d", tc.assetName, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("legacy bare-options phrasing absent", func(t *testing.T) {
+		legacy := "Use the **question tool** with options"
+		for _, tc := range []struct {
+			assetName string
+			asset     string
+		}{
+			{"uf.triage-issue", triage},
+			{"uf.address-feedback", feedback},
+			{"uf.review-pr", review},
+		} {
+			if strings.Contains(tc.asset, legacy) {
+				t.Errorf("%s command retains legacy bare-options phrasing %q", tc.assetName, legacy)
+			}
+			if strings.Contains(normalize(tc.asset), normalize(legacy)) {
+				t.Errorf("%s command retains legacy bare-options phrasing %q across wrapped lines", tc.assetName, legacy)
+			}
+		}
+	})
+
+	t.Run("per-label occurrence totals", func(t *testing.T) {
+		// Every inventory label's quoted form is counted in the
+		// whitespace-normalized asset; the closing quote anchors
+		// the match so a prefix label ("No -- skip") cannot
+		// collide with a longer label ("No -- skip posting").
+		// Totals were computed empirically against the assets;
+		// each occurrence is an option-array entry, a per-option
+		// reasoning bullet, a recommendation, or follow-up prose,
+		// so removing a label from any array fails the pin.
+		for _, tc := range []struct {
+			assetName string
+			asset     string
+			labels    []string
+			wants     map[string]int
+		}{
+			{"uf.triage-issue", triage, triageOptions, triageLabelCounts},
+			{"uf.address-feedback", feedback, feedbackOptions, feedbackLabelCounts},
+			{"uf.review-pr", review, reviewOptions, reviewLabelCounts},
+		} {
+			normalized := normalize(tc.asset)
+			for _, label := range tc.labels {
+				if got := strings.Count(normalized, normalize(label)); got != tc.wants[label] {
+					t.Errorf("%s command carries %d occurrences of option label %s, want %d", tc.assetName, got, label, tc.wants[label])
+				}
+			}
+		}
+	})
+}
+
 func TestUnleashCommand_ToolRoutingContracts(t *testing.T) {
 	content, err := assetContent("opencode/commands/uf.unleash.md")
 	if err != nil {
