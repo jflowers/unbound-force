@@ -89,7 +89,7 @@
 
 ## 4. Verification and Gates
 
-- [ ] 4.1 Constitution alignment verification (proposal
+- [x] 4.1 Constitution alignment verification (proposal
   principles I–VI): confirm the ported command carries all
   nine source guardrails verbatim in intent — no
   merge/approve/close, never push the base branch,
@@ -101,7 +101,7 @@
   coverage threshold, or CI flag was modified (gatekeeping
   rule).
 
-- [ ] 4.2 Run the full local CI parity gate:
+- [x] 4.2 Run the full local CI parity gate:
   ```bash
   make check
   ```
@@ -109,11 +109,11 @@
   (`-race -count=1`), build, the scope-based coverage gate,
   and the TypeScript plugin suite. All must pass.
 
-- [ ] 4.3 Confirm `.local-sources/` is absent from
+- [x] 4.3 Confirm `.local-sources/` is absent from
   `git status` (git-excluded) and appears in no commit,
   artifact, or scaffold mirror, per design.md D9.
 
-- [ ] 4.4 File the documentation-gate issues before the
+- [x] 4.4 File the documentation-gate issues before the
   implementing PR merges (AGENTS.md documentation gate +
   constitution v1.4.0 Cross-Repo Documentation), following
   the `rebase-upstream-before-push` task 4.3 precedent:
@@ -146,3 +146,6 @@
   under this task (precedent style), in the CHANGELOG.md
   entry's `(Docs: ...)` line (task 3.4), and in
   proposal.md's Impact section.
+  Filed: unbound-force/unbound-force#856 (dispositions),
+  unbound-force/website#340 (website sync); tutorial
+  unbound-force/unbound-force#855.

@@ -33,7 +33,8 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (commands count 11 → 12) so scaffold drift detection stays
   green; `TestRunInit_FreshDir`'s count range shifts
   [70-74] → [71-75] for the 76th embedded asset.
-  (Spec: openspec/changes/port-uf-rebase-pr/, Fixes: #851)
+  (Spec: openspec/changes/port-uf-rebase-pr/, Fixes: #851,
+  Docs: #856, unbound-force/website#340)
 - replicator-version-floor: Added a version-floor sub-check to
   `uf doctor`'s Replicator check group (Spec 024, FR-011): when
   the `replicator` binary is present, the sub-check runs

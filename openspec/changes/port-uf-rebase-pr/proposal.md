@@ -127,7 +127,9 @@ Command behavior (from the verified source):
   `README.md`, plus tutorial and blog judgments) and the
   `unbound-force/website` sync issue before the PR merges;
   both issue numbers are recorded here and in the
-  CHANGELOG entry.
+  CHANGELOG entry. Filed:
+  unbound-force/unbound-force#856 (dispositions; tutorial
+  #855), unbound-force/website#340 (website sync).
 - **Coordination**: distinct from `/uf.finale` step 4, which
   syncs the current branch before creating its own PR and
   aborts on conflict. This command operates on any open PR by
