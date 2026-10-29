@@ -1,29 +1,22 @@
-import { chmod, mkdtemp, rm, stat } from "node:fs/promises"
+import { mkdtemp, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import type { PluginInput } from "@opencode-ai/plugin"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import ReviewDispatchPlugin, { _getSessionCorrelationMap, parseReviewerManifest } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
-import matrixFixture from "./fixtures/review-dispatch/matrix.json"
-
-// ── Types ────────────────────────────────────────────────────
-
-/** Mimics the subset of Bun.spawn result used by fetchPrReviewContext. */
-interface MockSpawnProcess {
-  readonly stdout: ReadableStream<Uint8Array>
-  readonly stderr: ReadableStream<Uint8Array>
-  readonly exited: Promise<number>
-}
-
-/** Map from a command key to its mock response. */
-interface MockResponse {
-  readonly stdout: string
-  readonly stderr: string
-  readonly exitCode: number
-}
+import {
+  mockProcess,
+  patchBunSpawn,
+  setupGhMockedPlugin,
+  textStream,
+  writeReviewPolicyFiles,
+  type MockSpawnFn,
+  type MockSpawnProcess,
+  type MockSpawnResponses,
+} from "./helpers/gh-spawn-mock.js"
 
 // ── Fixtures ─────────────────────────────────────────────────
 
@@ -60,129 +53,39 @@ const MOCK_DIFF = "diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\
 
 const DIFF_THRESHOLD = 1500
 
-// ── Mock helpers ─────────────────────────────────────────────
+// ── Mock fixture responses (harness: ./helpers/gh-spawn-mock.ts) ──
 
-function textStream(text: string): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder()
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(encoder.encode(text))
-      controller.close()
-    },
-  })
-}
-
-function mockProcess(response: MockResponse): MockSpawnProcess {
-  return {
-    stdout: textStream(response.stdout),
-    stderr: textStream(response.stderr),
-    exited: Promise.resolve(response.exitCode),
-  }
-}
-
-/**
- * Builds a Bun.spawn mock that routes based on the command args.
- * The `which` check uses args[0]="which", gh commands use args[0]="gh".
- */
-function createMockSpawn(overrides: Partial<Record<string, MockResponse>> = {}) {
-  const defaults: Record<string, MockResponse> = {
-    which: { stdout: "/usr/local/bin/gh\n", stderr: "", exitCode: 0 },
-    "auth status": { stdout: "Logged in\n", stderr: "", exitCode: 0 },
-    "pr view": { stdout: JSON.stringify(MOCK_PR_META), stderr: "", exitCode: 0 },
-    "pr checks": { stdout: JSON.stringify(MOCK_CI_CHECKS), stderr: "", exitCode: 0 },
-    "pr diff": { stdout: MOCK_DIFF, stderr: "", exitCode: 0 },
-    "repo view": { stdout: JSON.stringify(MOCK_REPO), stderr: "", exitCode: 0 },
-    "api reviews": { stdout: JSON.stringify(MOCK_REVIEWS), stderr: "", exitCode: 0 },
-    "api comments": { stdout: JSON.stringify(MOCK_COMMENTS), stderr: "", exitCode: 0 },
-  }
-
-  const responses = { ...defaults, ...overrides }
-
-  return vi.fn((args: string[], _options?: unknown): MockSpawnProcess => {
-    // which gh
-    if (args[0] === "which") {
-      return mockProcess(responses.which!)
-    }
-
-    // gh commands — first two args after "gh" determine the route
-    const sub = args.slice(1, 3).join(" ")
-
-    if (sub === "auth status") return mockProcess(responses["auth status"]!)
-    if (sub === "pr view") return mockProcess(responses["pr view"]!)
-    if (sub === "pr checks") return mockProcess(responses["pr checks"]!)
-    if (sub === "pr diff") return mockProcess(responses["pr diff"]!)
-    if (sub === "repo view") return mockProcess(responses["repo view"]!)
-
-    // API calls for reviews and comments
-    if (args[1] === "api") {
-      const endpoint = args[2] ?? ""
-      if (endpoint.endsWith("/reviews")) return mockProcess(responses["api reviews"]!)
-      if (endpoint.endsWith("/comments")) return mockProcess(responses["api comments"]!)
-    }
-
-    // Fallback — unknown command
-    return mockProcess({ stdout: "", stderr: "unknown command", exitCode: 1 })
-  })
+/** Suite fixture responses for every gh route fetch_pr_review_context fetches; the which/auth prologue defaults live in the harness. */
+const SPAWN_FIXTURES: MockSpawnResponses = {
+  "pr view": { stdout: JSON.stringify(MOCK_PR_META), stderr: "", exitCode: 0 },
+  "pr checks": { stdout: JSON.stringify(MOCK_CI_CHECKS), stderr: "", exitCode: 0 },
+  "pr diff": { stdout: MOCK_DIFF, stderr: "", exitCode: 0 },
+  "repo view": { stdout: JSON.stringify(MOCK_REPO), stderr: "", exitCode: 0 },
+  "api reviews": { stdout: JSON.stringify(MOCK_REVIEWS), stderr: "", exitCode: 0 },
+  "api comments": { stdout: JSON.stringify(MOCK_COMMENTS), stderr: "", exitCode: 0 },
 }
 
 // ── Test infrastructure ──────────────────────────────────────
 
-type BunRuntime = {
-  readonly YAML: { readonly parse: (text: string) => unknown }
-  spawn: typeof Bun.spawn
-}
-
 const scratchDirectories: string[] = []
-let originalBunSpawn: typeof Bun.spawn
 
 /**
- * Sets up the plugin hooks with Bun.spawn mocked.
- * Returns a function to invoke the fetch_pr_review_context tool.
+ * Sets up the plugin hooks with Bun.spawn mocked through the shared
+ * gh-spawn-mock harness, selecting the fetch_pr_review_context tool.
  */
-async function setupTool(spawnOverrides: Partial<Record<string, MockResponse>> = {}) {
-  const tmpDir = await mkdtemp(join(tmpdir(), "uf-fetch-ctx-"))
-  scratchDirectories.push(tmpDir)
-
-  // Write policy files needed by ReviewDispatchPlugin.server()
-  const { mkdir, writeFile } = await import("node:fs/promises")
-  await mkdir(join(tmpDir, ".uf"), { recursive: true })
-  await writeFile(join(tmpDir, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
-  await writeFile(join(tmpDir, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
-  await writeFile(join(tmpDir, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
-
-  const mockSpawn = createMockSpawn(spawnOverrides)
-  const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-  const originalBun = runtime.Bun
-
-  // Patch Bun.spawn while preserving Bun.YAML
-  runtime.Bun = {
-    ...originalBun,
-    YAML: originalBun?.YAML ?? { parse: (text: string): unknown => JSON.parse(text) as unknown },
-    spawn: mockSpawn as unknown as typeof Bun.spawn,
-  } as unknown as BunRuntime
-
-  const hooks = await ReviewDispatchPlugin.server({
-    client: { session: {} },
-    directory: tmpDir,
-    worktree: tmpDir,
-  } as unknown as PluginInput)
-
-  const tool = hooks.tool.fetch_pr_review_context
-
-  return {
-    tool,
-    mockSpawn,
-    tmpDir,
-    restore: () => {
-      runtime.Bun = originalBun as unknown as BunRuntime
-    },
-  }
+async function setupTool(spawnOverrides: MockSpawnResponses = {}) {
+  const { hooks, mockSpawn, tmpDir, restore } = await setupGhMockedPlugin({
+    spawnDefaults: SPAWN_FIXTURES,
+    spawnOverrides,
+    cleanupRegistry: scratchDirectories,
+  })
+  return { tool: hooks.tool.fetch_pr_review_context, mockSpawn, tmpDir, restore }
 }
 
 async function callTool(
-  overrides: Partial<Record<string, MockResponse>> = {},
+  overrides: MockSpawnResponses = {},
   prNumber = 42,
-): Promise<{ parsed: Record<string, unknown>; mockSpawn: ReturnType<typeof createMockSpawn>; tmpDir: string; restore: () => void }> {
+): Promise<{ parsed: Record<string, unknown>; mockSpawn: MockSpawnFn; tmpDir: string; restore: () => void }> {
   const { tool, mockSpawn, tmpDir, restore } = await setupTool(overrides)
   const result = await tool.execute({ pr_number: prNumber }, {} as never)
   const parsed = JSON.parse(result.output) as Record<string, unknown>
@@ -782,12 +685,7 @@ describe("fetch_pr_review_context", () => {
     it("returns api_error with fallback message when a non-Error is thrown", async () => {
       const tmpDir = await mkdtemp(join(tmpdir(), "uf-fetch-ctx-"))
       scratchDirectories.push(tmpDir)
-
-      const { mkdir: mkdirFs, writeFile: writeFileFs } = await import("node:fs/promises")
-      await mkdirFs(join(tmpDir, ".uf"), { recursive: true })
-      await writeFileFs(join(tmpDir, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
-      await writeFileFs(join(tmpDir, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
-      await writeFileFs(join(tmpDir, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
+      await writeReviewPolicyFiles(tmpDir)
 
       // Create a mock where the diff command returns a stream that errors with a non-Error value
       const nonErrorSpawn = vi.fn((args: string[], _options?: unknown): MockSpawnProcess => {
@@ -814,13 +712,7 @@ describe("fetch_pr_review_context", () => {
         return mockProcess({ stdout: "", stderr: "", exitCode: 0 })
       })
 
-      const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-      const originalBun = runtime.Bun
-      runtime.Bun = {
-        ...originalBun,
-        YAML: originalBun?.YAML ?? { parse: (text: string): unknown => JSON.parse(text) as unknown },
-        spawn: nonErrorSpawn as unknown as typeof Bun.spawn,
-      } as unknown as BunRuntime
+      const restore = patchBunSpawn(nonErrorSpawn)
 
       try {
         const hooks = await ReviewDispatchPlugin.server({
@@ -836,7 +728,7 @@ describe("fetch_pr_review_context", () => {
         expect(parsed.code).toBe("api_error")
         expect(parsed.retryable).toBe(false)
       } finally {
-        runtime.Bun = originalBun as unknown as BunRuntime
+        restore()
       }
     })
   })
@@ -845,12 +737,7 @@ describe("fetch_pr_review_context", () => {
     it("returns timeout for DOMException AbortError during diff fetch", async () => {
       const tmpDir = await mkdtemp(join(tmpdir(), "uf-fetch-ctx-"))
       scratchDirectories.push(tmpDir)
-
-      const { mkdir: mkdirFs, writeFile: writeFileFs } = await import("node:fs/promises")
-      await mkdirFs(join(tmpDir, ".uf"), { recursive: true })
-      await writeFileFs(join(tmpDir, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
-      await writeFileFs(join(tmpDir, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
-      await writeFileFs(join(tmpDir, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
+      await writeReviewPolicyFiles(tmpDir)
 
       // Create a mock where pr diff throws a DOMException AbortError
       const abortSpawn = vi.fn((args: string[], _options?: unknown): MockSpawnProcess => {
@@ -868,13 +755,7 @@ describe("fetch_pr_review_context", () => {
         return mockProcess({ stdout: "", stderr: "", exitCode: 0 })
       })
 
-      const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-      const originalBun = runtime.Bun
-      runtime.Bun = {
-        ...originalBun,
-        YAML: originalBun?.YAML ?? { parse: (text: string): unknown => JSON.parse(text) as unknown },
-        spawn: abortSpawn as unknown as typeof Bun.spawn,
-      } as unknown as BunRuntime
+      const restore = patchBunSpawn(abortSpawn)
 
       try {
         const hooks = await ReviewDispatchPlugin.server({
@@ -890,7 +771,7 @@ describe("fetch_pr_review_context", () => {
         expect(parsed.code).toBe("timeout")
         expect(parsed.retryable).toBe(true)
       } finally {
-        runtime.Bun = originalBun as unknown as BunRuntime
+        restore()
       }
     })
   })
@@ -899,12 +780,7 @@ describe("fetch_pr_review_context", () => {
     it("returns gh_not_found when Bun.spawn throws (not exit code)", async () => {
       const tmpDir = await mkdtemp(join(tmpdir(), "uf-fetch-ctx-"))
       scratchDirectories.push(tmpDir)
-
-      const { mkdir: mkdirFs, writeFile: writeFileFs } = await import("node:fs/promises")
-      await mkdirFs(join(tmpDir, ".uf"), { recursive: true })
-      await writeFileFs(join(tmpDir, ".uf", "review-matrix.yaml"), JSON.stringify(matrixFixture))
-      await writeFileFs(join(tmpDir, ".uf", "reviewer-capabilities.yaml"), JSON.stringify(manifestFixture))
-      await writeFileFs(join(tmpDir, ".uf", "sibling-repos.yaml"), JSON.stringify({ version: 1, siblings: [] }))
+      await writeReviewPolicyFiles(tmpDir)
 
       // Create a mock that THROWS when args[0] === "which"
       const throwingSpawn = vi.fn((args: string[], _options?: unknown): MockSpawnProcess => {
@@ -914,13 +790,7 @@ describe("fetch_pr_review_context", () => {
         return mockProcess({ stdout: "", stderr: "", exitCode: 0 })
       })
 
-      const runtime = globalThis as typeof globalThis & { Bun?: BunRuntime }
-      const originalBun = runtime.Bun
-      runtime.Bun = {
-        ...originalBun,
-        YAML: originalBun?.YAML ?? { parse: (text: string): unknown => JSON.parse(text) as unknown },
-        spawn: throwingSpawn as unknown as typeof Bun.spawn,
-      } as unknown as BunRuntime
+      const restore = patchBunSpawn(throwingSpawn)
 
       try {
         const hooks = await ReviewDispatchPlugin.server({
@@ -936,7 +806,7 @@ describe("fetch_pr_review_context", () => {
         expect(parsed.code).toBe("gh_not_found")
         expect(parsed.retryable).toBe(false)
       } finally {
-        runtime.Bun = originalBun as unknown as BunRuntime
+        restore()
       }
     })
   })
