@@ -152,12 +152,15 @@ force-with-lease, protected branches untouched).
 
 ### D3: Fork-aware remote resolution from the PR JSON
 
-`gh pr view` returns `headRepository` and `baseRepository`.
-The command resolves:
+`gh pr view` returns `headRepository` but exposes no
+`baseRepository` field, so `BASE_REPOSITORY` is derived from
+the PR `url` (always rooted at the base repository). The
+command resolves:
 
 - `BASE_REMOTE`: the configured remote whose repository matches
-  `baseRepository` — prefer `upstream`, fall back to `origin`.
-  If no configured remote matches, STOP with guidance.
+  the url-derived `BASE_REPOSITORY` — prefer `upstream`, then
+  `origin`, then any other matching remote. If no configured
+  remote matches, STOP with guidance.
 - `HEAD_REMOTE`: the configured remote matching
   `headRepository`. If absent (PR head is a fork the user
   cannot push to), STOP — the command cannot push someone
@@ -224,10 +227,17 @@ commits as it does to feedback fixes.
 
 One durable iteration counter per invocation covers both CI
 fixes and council findings, recorded in checkpoint data
-(`{"iteration": N}`). Three is the cap, matching `/uf.unleash`
-step 6's review-loop budget. On exhaustion or an unfixable
-classification, STOP with the remaining red checks and their
-diagnoses.
+(`{"iteration": N, "budget_exhausted": false}`). Three is the
+cap, matching `/uf.unleash` step 6's review-loop budget. On
+exhaustion or an unfixable classification, STOP with the
+remaining red checks and their diagnoses. An exhaustion STOP
+records the marker `{"iteration": 3, "budget_exhausted":
+true}`; the next invocation's recovery consumes the marker
+atomically (`{"iteration": 0, "budget_exhausted": false}`) and
+starts a fresh budget, while a mid-invocation resume — no
+marker present — inherits the count unchanged. Increments
+record the full two-field shape because the checkpoint
+shallow-merges its data.
 
 ### D9: Untrusted-text hygiene
 
@@ -291,7 +301,10 @@ Council findings consume the same 3-iteration budget as CI
 fixes, so a noisy council can starve CI repair. Accepted
 trade-off: a single budget bounds total autonomous effort and
 the STOP report names what remains; the human can re-invoke
-the command to continue with a fresh budget.
+the command to continue with a fresh budget — the exhaustion
+STOP records a `budget_exhausted` marker (D8) that the
+re-invocation's recovery consumes, starting the new budget at
+0 without disturbing mid-invocation resumes.
 
 ### R5: Log volume costs tokens
 
