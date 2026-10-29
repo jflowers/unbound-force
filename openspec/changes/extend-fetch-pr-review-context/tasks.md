@@ -232,7 +232,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   (lint, test with `-race -count=1`, build, scope-based coverage
   gate, TypeScript plugin suite) and confirm green, including the
   scaffold drift, manifest, and command-contract tests.
-- [ ] 6.3 Verify constitution alignment against the proposal's six
+- [x] 6.3 Verify constitution alignment against the proposal's six
   PASS assessments: I — the tools exchange self-describing JSON
   artifacts with no runtime hero coupling; II — each tool
   independently invocable, no new mandatory dependency; III —
