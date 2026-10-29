@@ -83,6 +83,7 @@ func TestCommandContracts_FixCiCommandStructure(t *testing.T) {
 		{name: "git plugin tools", all: []string{"git_fetch", "git_rebase", "git_rebase_abort", "git_push", "git_push_force_with_lease", "git_conflict_files", "scan_conflict_markers"}},
 		{name: "eligibility bucket routing", all: []string{"Categorize each check by its `bucket`", "Any check `fail`", "every check `pass` or `skipping`", "some check `pending` or `cancel`"}},
 		{name: "d1 choreography pins", all: []string{"which gh", "gh auth status", "https://github.com/owner/repo.git", "git@github.com:owner/repo.git", "prefer `upstream`, then `origin`", "the numeric path segment immediately following `/actions/runs/`", "^[0-9]+$", "git diff --cached --stat", "never `git add .`, never `git add -A`"}},
+		{name: "fr-002 pinned fetch invocations", all: []string{"gh pr view <PR_NUMBER> --json number,state,headRefName,baseRefName,mergeable,mergeStateStatus,headRepository,isCrossRepository,url", "gh pr checks <PR_NUMBER> --json name,state,bucket,link", "gh run view <RUN_ID> --repo <BASE_REPOSITORY> --log-failed"}},
 		{name: "review-council gate", all: []string{"/uf.review-council", "REQUEST CHANGES", "Exhaustion MUST NOT push"}},
 		{name: "three-iteration cap", all: []string{"capped at 3", "iteration counter", "**STOP** without pushing"}},
 		{name: "flaky-infra rerun path", all: []string{"gh run rerun <RUN_ID> --failed --repo <BASE_REPOSITORY>", "Rerun the failed jobs", "No code change is ever proposed for a flaky/infra-classified check"}},
@@ -120,6 +121,12 @@ func TestCommandContracts_FixCiCommandStructure(t *testing.T) {
 	// The never-merge and FR-008 terminal-state rules are structural:
 	// the command must not even name the merge tool or the PR-mutating
 	// gh verbs, so no option or push path can reintroduce them.
+	// Raw `git merge` (with a space) is a merge vector the plain
+	// list cannot hold: a Contains check would also match
+	// hyphenated non-merge subcommands such as `git merge-base`,
+	// so the raw form is matched with a boundary that rejects a
+	// following hyphen.
+	rawGitMerge := regexp.MustCompile(`git merge($|[^-])`)
 	for _, copy := range loadCommandCopies(t, "uf.fix-ci.md", true) {
 		normalized := normalizeCommandText(copy.text)
 		for _, forbidden := range []string{
@@ -128,10 +135,14 @@ func TestCommandContracts_FixCiCommandStructure(t *testing.T) {
 			"gh pr approve",
 			"gh pr close",
 			"gh pr review",
+			"gh pr update-branch",
 		} {
 			if strings.Contains(normalized, forbidden) {
 				t.Errorf("%s: never-merge command must not reference %q", copy.name, forbidden)
 			}
+		}
+		if rawGitMerge.MatchString(normalized) {
+			t.Errorf("%s: never-merge command must not reference %q", copy.name, "git merge")
 		}
 	}
 }
