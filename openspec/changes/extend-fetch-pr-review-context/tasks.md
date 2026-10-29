@@ -67,7 +67,7 @@ in order (design D1–D5).
 
 ## 3. Tests
 
-- [ ] 3.1 Extract the Bun.spawn mock harness (text streams, mock
+- [x] 3.1 Extract the Bun.spawn mock harness (text streams, mock
   response routing, `setupTool`) from
   `.opencode/test/fetch-pr-review-context.test.ts` into
   `.opencode/test/helpers/gh-spawn-mock.ts` for the new suites
