@@ -210,7 +210,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   and the consolidated website trackers (the uf-fix-ci
   dual-footer format; depends on 5.1 — the footer cannot be
   finalized until the issue number exists).
-- [ ] 5.3 Documentation-impact assessment: verify no `AGENTS.md`,
+- [x] 5.3 Documentation-impact assessment: verify no `AGENTS.md`,
   `docs/usage.md`, `docs/architecture.md`, `README.md`, or
   `QUICKSTART.md` changes are required — no new command ships, no
   scaffold manifest changes (both assets already listed), and the
