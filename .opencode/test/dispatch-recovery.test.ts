@@ -1439,6 +1439,7 @@ describe("redispatch_failed_runs", () => {
       ).toBe(true)
       expect(data.runs[0].outcome).toBe("early_exit")
       expect(data.redispatched_runs).toBe(0)
+      expect(data.restored_runs).toBe(1)
 
       // The prior failed run is back at its active path, consolidatable
       // via RD-FR-025 exclusion.
@@ -1447,7 +1448,8 @@ describe("redispatch_failed_runs", () => {
 
       // RD-FR-031 + RD-FR-029: the settled operation record carries the
       // warning alongside the recovery counts, so the degradation is
-      // auditable from the session directory alone.
+      // auditable from the session directory alone. The in-loop restore
+      // of the archived prior run is counted in run_counts.restored.
       const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
       expect(opFiles).toHaveLength(1)
       const record = JSON.parse(
@@ -1457,6 +1459,66 @@ describe("redispatch_failed_runs", () => {
       expect(
         (recordWarnings ?? []).some((w: string) => w.includes("review matrix limits unavailable")),
       ).toBe(true)
+      expect(record.run_counts).toMatchObject({ redispatched: 0, restored: 1 })
+    })
+  })
+
+  it("derives redispatch windows from the session's matrix limits, not schema defaults (RD-FR-029)", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const adversaryRun = makeRun("divisor-adversary", { status: "failed", sequence: 2 })
+    const { correlationId, dir } = await setupSession(
+      [guardRun, adversaryRun],
+      [
+        planEntry("divisor-guard", { model: null, tier: "standard", sequence: 1 }),
+        planEntry("divisor-adversary", { model: null, tier: "heavy", sequence: 2 }),
+      ],
+    )
+
+    await withBun(async () => {
+      // Non-default matrix: the scalar limit is raised to 1200 s and the
+      // heavy tier carries a 1500 s override. The recovery path assembles
+      // its timeout signals from the session directory rather than the
+      // dispatch input, so only this test can prove the redispatch wiring
+      // reads these limits — under schema defaults both windows would
+      // collapse to the 600 s base with no tier override.
+      const matrix = JSON.parse(JSON.stringify(matrixFixture)) as {
+        limits: Record<string, unknown>
+      }
+      matrix.limits.per_run_timeout_seconds = 1200
+      matrix.limits.per_run_timeout_tiers = { lightweight: 300, heavy: 1500 }
+      const project = await scratchProject(matrix)
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.redispatched_runs).toBe(2)
+
+      // Standard entry: 1200 s matrix base + 120 s profile term, prompt
+      // below the free-byte allowance, sequential multiplier 1.0.
+      const standard = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(standard.timeout).toMatchObject({
+        source: "derived",
+        base_ms: 1_200_000,
+        resolved_tier: "standard",
+        effective_ms: 1_320_000,
+        clamped: false,
+      })
+
+      // Heavy entry: the 1500 s tier override + 300 s heavy profile term
+      // lands exactly on the 1,800,000 ms ceiling under the sequential
+      // 1.0 multiplier — derived equals effective, so clamped is false
+      // (contrast the dispatch path, whose 1.45x contention multiplier
+      // pushes the same base over the ceiling and clamps).
+      const heavy = JSON.parse(await readFile(join(dir, "run-divisor-adversary.json"), "utf8"))
+      expect(heavy.timeout).toMatchObject({
+        source: "derived",
+        base_ms: 1_500_000,
+        resolved_tier: "heavy",
+        ceiling_ms: 1_800_000,
+        effective_ms: 1_800_000,
+        clamped: false,
+      })
     })
   })
 
@@ -1472,10 +1534,9 @@ describe("redispatch_failed_runs", () => {
         noopContext(),
       )
 
-      const data = JSON.parse(result.output) as {
-        redispatched_runs: number
-        refused_runs: number
-      }
+      const data = JSON.parse(result.output)
+      expect(data.redispatched_runs).toBe(1)
+      expect(data.refused_runs).toBe(0)
 
       const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
       expect(opFiles).toHaveLength(1)
@@ -1488,8 +1549,12 @@ describe("redispatch_failed_runs", () => {
       expect(typeof record.completed_at).toBe("string")
       expect(record.status).toBe("ok")
       expect(record.run_counts).toMatchObject({
-        redispatched: data.redispatched_runs,
-        refused: data.refused_runs,
+        // Pinned as literals rather than sourced from the tool's own
+        // output: the record's run_counts mapping is an independent
+        // contract, and self-sourcing it here could not fail unless
+        // the output key itself went missing.
+        redispatched: 1,
+        refused: 0,
         restored: 0,
       })
     })
