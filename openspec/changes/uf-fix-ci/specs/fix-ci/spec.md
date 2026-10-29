@@ -5,10 +5,11 @@
 `/uf.fix-ci` MUST accept an optional PR number argument. When
 the argument is omitted, the command MUST auto-detect the open
 PR for the current branch. An invalid or unresolvable PR number
-MUST STOP before any state is read or mutated. Before any
-other step, the command MUST verify the `gh` CLI is installed
-and authenticated, stopping with a remediation message when
-either check fails.
+MUST STOP before any state is read or mutated. The Phase 1
+fetch tools validate `gh` CLI availability and authentication
+themselves; when a tool call returns `gh_not_found` or
+`gh_auth_failed`, the command MUST STOP with the remediation
+message before fetching any PR state.
 
 #### Scenario: Explicit PR number
 
@@ -36,20 +37,22 @@ either check fails.
 #### Scenario: Missing gh authentication stops the command
 
 - **GIVEN** the `gh` CLI is not installed or not authenticated
-- **WHEN** the command runs its prerequisite checks
+- **WHEN** a Phase 1 tool call returns `gh_not_found` or
+  `gh_auth_failed`
 - **THEN** it STOPs with the remediation message before
   fetching any PR state
 
 ### Requirement: FR-002 PR state fetch and eligibility
 
-The command MUST fetch PR state via `gh pr view <N> --json
-number,state,headRefName,baseRefName,mergeable,mergeStateStatus,
-headRepository,isCrossRepository,url` (the base repository
-derives from the PR `url`; `gh pr view --json` exposes no
-`baseRepository` field) and check status via the pinned
-invocation `gh pr checks <N> --json name,state,bucket,link` —
-the `bucket` field (`pass`, `fail`, `pending`, `skipping`,
-`cancel`) categorizes each check for the eligibility gate,
+The command MUST fetch PR state through the
+`fetch_pr_review_context` plugin tool (with the PR number when
+supplied; the auto-detect path calls it with no `pr_number`)
+and check status through the `fetch_pr_checks` plugin tool.
+The state fetch carries the refs, mergeable state, and
+repository orientation (the tool derives `base_repository`
+from the PR `url`); the check fetch returns each check's
+`name`, `state`, `bucket`, and `link` plus the derived
+`eligibility` classification that keys the eligibility gate,
 with `state` and `link` recorded alongside. It MUST STOP when
 the PR is CLOSED or MERGED, and MUST STOP with a green report
 when all checks already pass.
@@ -88,11 +91,15 @@ when all checks already pass.
 
 ### Requirement: FR-003 Failure diagnosis with log evidence
 
-For each failed check, the command MUST fetch failure logs via
-`gh run view <run-id> --log-failed` and classify the root cause
-as exactly one of: code failure (build/test/lint), stale branch
-(base moved), conflict, or flaky/infra. Classification MUST be
-grounded in the fetched log evidence, not assumed.
+For each failed check, the command MUST fetch failure logs
+through the `fetch_failed_run_logs` plugin tool (called with
+the check's validated run-id and anchored to the PR's base
+repository; the tool persists the logs to a temp file and
+returns `log_path`, never the log text inline) and classify
+the root cause as exactly one of: code failure
+(build/test/lint), stale branch (base moved), conflict, or
+flaky/infra. Classification MUST be grounded in the fetched
+log evidence, not assumed.
 
 #### Scenario: Code failure classification
 
@@ -332,7 +339,7 @@ wherever one exists: `uf_finale_ci_poll` for CI polling,
 `git_push`, `git_push_force_with_lease` for git operations,
 and `git_conflict_files` plus `scan_conflict_markers` for
 conflict detection. Raw bash is reserved for operations with
-no plugin tool (`gh` commands, remote/branch/status
+no plugin tool (`gh run rerun --failed`, remote/branch/status
 verification, staging, the conventional fix commit, rebase
 continuation).
 

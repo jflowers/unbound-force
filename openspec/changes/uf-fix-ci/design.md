@@ -83,11 +83,24 @@ its mirror, and docs). The inventory:
   failure-log fetches through the same intent-level path,
   re-routing this command's fetches and retiring this entry
   when it lands.
+  **Closed with reference** — retired by
+  `openspec/changes/extend-fetch-pr-review-context/`
+  (issue #861): the three fetch classes now execute as the
+  tested plugin tools `fetch_pr_review_context`,
+  `fetch_pr_checks`, and `fetch_failed_run_logs`, and this
+  command's fetches are re-routed through them.
 - **Phase 1.0 gh availability checks** (`which gh`,
   `gh auth status`) — existence checks with no session
   plugin tool; the `uf.review-pr` step 0 precedent runs the
   identical prose. Accepted as prose, pinned by the
   structural contract test.
+  **Closed with reference** — retired by
+  `openspec/changes/extend-fetch-pr-review-context/`
+  (issue #861): the fetch tools validate `gh` availability
+  and authentication themselves, and the re-routed command
+  maps their `gh_not_found` / `gh_auth_failed` structured
+  errors to the same STOP messages — the availability prose
+  no longer ships.
 - **Phase 1.2 bucket-keyed eligibility routing** — the
   three-rule gate branching on each check's `bucket` (any
   `fail` proceeds; all `pass`/`skipping` reports green;
@@ -96,6 +109,12 @@ its mirror, and docs). The inventory:
   check-suite fetch above, so its collapse rides #861's
   intent-level path; until then the fixed table is pinned by
   the structural contract test.
+  **Closed with reference** — retired by
+  `openspec/changes/extend-fetch-pr-review-context/`
+  (issue #861): `fetch_pr_checks` derives the `eligibility`
+  classification and the re-routed gate keys on it with
+  identical STOP outcomes — the fixed bucket table no longer
+  ships.
 - **Phase 1.3 fork-aware remote resolution** — parsing each
   remote's `owner/repo` from its HTTPS and SSH fetch URLs
   with the fixed upstream→origin→other preference.
