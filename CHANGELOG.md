@@ -6,6 +6,61 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- extend-fetch-pr-review-context: Extended the review-dispatch
+  plugin tool `fetch_pr_review_context` with five PR-repair
+  output fields — `state`, `mergeable`, `merge_state_status`,
+  `head_repository`, `base_repository` (the last derived from
+  the PR `url`; `gh pr view --json` rejects `baseRepository`
+  as an unknown field, verified 2026-10-28 and re-verified
+  2026-10-29 against PR #868) — and made `pr_number` optional,
+  resolving the current branch's open PR when omitted
+  (`pr_not_found` when none exists); every existing caller
+  passes `pr_number` explicitly and is unaffected;
+  `.strict()` schema validation retained. Added two tools on
+  the same intent-level path: `fetch_pr_checks` (`gh pr checks
+  <N> --json name,state,bucket,link` with exit-code-tolerant
+  parsing — stdout JSON is check-status data on any exit code;
+  a zero-checks PR reports passing eligibility with an empty
+  array, the verified gh shape being empty stdout plus the
+  "no checks reported" stderr marker at exit 1 — and a derived
+  `eligibility` classification `failing`/`pending`/`passing`,
+  unknown buckets fail-closed to `pending` plus a warning) and
+  `fetch_failed_run_logs` (`gh run view <run-id> [--repo
+  owner/repo] --log-failed`, persisted to
+  `$TMPDIR/opencode/run-<run_id>-failed-logs.txt` with `0o600`
+  permissions and `O_EXCL` semantics under a `0o700` parent,
+  returning `log_path` plus byte/line counts — never the log
+  text inline; `run_not_found` for missing/expired runs;
+  zero-line fetch succeeds with a warning). Re-routed
+  `/uf.fix-ci` (canonical `.opencode/commands/uf.fix-ci.md`
+  plus a byte-identical scaffold mirror) Phase 1.0/1.1/1.2 and
+  Phase 2.1 fetch mechanics through the three tools with
+  observable behavior preserved (STOP messages, gates,
+  eligibility outcomes, never-merge rule unchanged); the
+  uf-fix-ci change's raw-gh deviation records (design D1
+  inventory entries, spec FR-001/FR-002/FR-003/FR-010) retired
+  with closed-with-reference notes; and
+  `TestCommandContracts_FixCiCommandStructure` re-pinned from
+  raw-gh fetch assertions to tool-routed ones (the `gh run
+  rerun --failed` pin kept — rerun stays prose). Measured
+  instruction-text delta (design D8): across tasks 4.1-4.2 the
+  re-route replaced 106 lines of raw-gh fetch prose with 100
+  lines of tool-call instructions in `uf.fix-ci.md` (net -6;
+  the command file measured 1262 → 1256 lines), collapsing
+  the Phase 1.0 availability blocks, the Phase 1.1
+  auto-detect invocation, the Phase 1.2 bash blocks with
+  the non-zero-exit caveat and bucket-categorization
+  table, and the Phase 2.1 `mktemp` + fetch block.
+  Plugin suite extended: new suites `fetch-pr-checks.test.ts`,
+  `fetch-failed-run-logs.test.ts`, and the shared
+  `test/helpers/gh-spawn-mock.ts` Bun.spawn mock harness;
+  review-dispatch tool lists pinned in `scratch-smoke.test.ts`
+  and `plugin-integration.test.ts`; 1263 tests passing under
+  the unchanged 94 percent statements / 85 percent branches
+  coverage floors (no threshold edits per the gatekeeping
+  rule). Originating issue #861.
+  (Spec: openspec/changes/extend-fetch-pr-review-context/)
+  (Docs: #873, unbound-force/website#342, unbound-force/website#310)
 - uf-fix-ci: Added a new post-PR command `/uf.fix-ci
   [PR_NUMBER]` (canonical `.opencode/commands/uf.fix-ci.md`
   plus a byte-identical scaffold mirror under
