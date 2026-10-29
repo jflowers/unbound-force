@@ -102,7 +102,7 @@ in order (design D1–D5).
   `run_not_found`; zero-line fetch succeeds with warning; input
   validation (`run_id` pattern including injection payloads, `repo`
   pattern, extra fields).
-- [ ] 3.5 [P] Add `fetch_pr_checks` and `fetch_failed_run_logs` to
+- [x] 3.5 [P] Add `fetch_pr_checks` and `fetch_failed_run_logs` to
   the review-dispatch tool lists in
   `.opencode/test/scratch-smoke.test.ts` and
   `.opencode/test/plugin-integration.test.ts` (one enumerated site
