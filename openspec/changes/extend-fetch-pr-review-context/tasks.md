@@ -219,7 +219,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
 
 ## 6. Verification and governance
 
-- [ ] 6.1 Run `openspec validate extend-fetch-pr-review-context
+- [x] 6.1 Run `openspec validate extend-fetch-pr-review-context
   --type change --strict` and confirm the benign profile: zero
   ERROR items, with only the `originating_issue` unrecognized-key
   WARNING, long-requirement text WARNINGs, and the archive-refusal
