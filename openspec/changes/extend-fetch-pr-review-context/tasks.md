@@ -84,7 +84,7 @@ in order (design D1–D5).
   current-branch PR; omitted `pr_number` with no open PR →
   `pr_not_found`; explicit `pr_number` path unchanged; schema
   still rejects extra fields.
-- [ ] 3.3 [P] Create `.opencode/test/fetch-pr-checks.test.ts`
+- [x] 3.3 [P] Create `.opencode/test/fetch-pr-checks.test.ts`
   (FR-013) using the shared harness: happy path with the four
   fields; exit-code-tolerant matrix (exit 0 green, exit 8 pending,
   non-zero failing, each returning data); eligibility derivation
@@ -94,7 +94,7 @@ in order (design D1–D5).
   `gh_auth_failed`, `pr_not_found`, `api_error`, `timeout`,
   `rate_limited`); input validation (non-integer, zero, negative,
   above 999999, string, extra fields).
-- [ ] 3.4 [P] Create `.opencode/test/fetch-failed-run-logs.test.ts`
+- [x] 3.4 [P] Create `.opencode/test/fetch-failed-run-logs.test.ts`
   (FR-014) using the shared harness: happy path with `log_path`,
   `log_bytes`, `log_lines`; temp file created `0o600` with `O_EXCL`
   semantics under a `0o700` parent; `--repo` passed as a discrete
