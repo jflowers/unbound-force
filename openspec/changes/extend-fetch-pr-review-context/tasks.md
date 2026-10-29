@@ -150,7 +150,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   wording; retarget the untrusted-text hygiene and the
   remove-on-completion-and-STOP cleanup rules to `log_path`; keep
   Phase 2.0's run-id derivation prose (design D6 non-goal).
-- [ ] 4.3 Sync the command mirror byte-identical to
+- [x] 4.3 Sync the command mirror byte-identical to
   `internal/scaffold/assets/opencode/commands/uf.fix-ci.md`
   (FR-016; verify with `cmp`), update
   `TestCommandContracts_FixCiCommandStructure` in
