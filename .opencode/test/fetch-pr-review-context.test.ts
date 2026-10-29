@@ -28,10 +28,33 @@ const MOCK_PR_META = {
   baseRefOid: "abc123def456abc123def456abc123def456abc1",
   headRefName: "feature/x",
   headRefOid: "def456abc123def456abc123def456abc123def4",
+  // PR-repair fields (modified FR-003, design D2): state, mergeable,
+  // mergeStateStatus, and headRepository pass through as gh returns
+  // them; base_repository is derived from the base-rooted url.
+  state: "OPEN",
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+  headRepository: { nameWithOwner: "unbound-force/unbound-force" },
+  url: "https://github.com/unbound-force/unbound-force/pull/42",
   files: [
     { path: "src/index.ts", additions: 10, deletions: 5 },
     { path: "test/index.test.ts", additions: 20, deletions: 0 },
   ],
+}
+
+/**
+ * Fork-PR fixture (modified FR-003 fork-orientation scenario): the
+ * head repository is a fork of the base while the PR url stays rooted
+ * at the base repository, so head_repository differs from
+ * base_repository (design D2).
+ */
+const MOCK_PR_META_FORK = {
+  ...MOCK_PR_META,
+  // A conflicted fork PR: gh's mergeable enum carries CONFLICTING and
+  // mergeStateStatus DIRTY, and headRepository names the fork.
+  mergeable: "CONFLICTING",
+  mergeStateStatus: "DIRTY",
+  headRepository: { nameWithOwner: "jflowers/unbound-force" },
 }
 
 const MOCK_CI_CHECKS = [
@@ -90,6 +113,32 @@ async function callTool(
   const result = await tool.execute({ pr_number: prNumber }, {} as never)
   const parsed = JSON.parse(result.output) as Record<string, unknown>
   return { parsed, mockSpawn, tmpDir, restore }
+}
+
+/**
+ * Calls the tool with NO input arguments — pr_number omitted, the
+ * current-branch resolution path (modified FR-002, design D3) — and
+ * returns the parsed output with the spawn mock for argv pinning.
+ */
+async function callToolWithoutPrNumber(
+  overrides: MockSpawnResponses = {},
+): Promise<{ parsed: Record<string, unknown>; mockSpawn: MockSpawnFn; tmpDir: string; restore: () => void }> {
+  const { tool, mockSpawn, tmpDir, restore } = await setupTool(overrides)
+  const result = await tool.execute({}, {} as never)
+  const parsed = JSON.parse(result.output) as Record<string, unknown>
+  return { parsed, mockSpawn, tmpDir, restore }
+}
+
+/**
+ * Return the argv of the first recorded `gh <group> <verb>` spawn call
+ * (e.g. group "pr", verb "view"), or undefined when the tool never
+ * issued that call.
+ */
+function findGhArgv(mockSpawn: MockSpawnFn, group: string, verb: string): string[] | undefined {
+  const call = mockSpawn.mock.calls.find(
+    (c: unknown[]) => (c[0] as string[])[1] === group && (c[0] as string[])[2] === verb,
+  )
+  return call === undefined ? undefined : (call[0] as string[])
 }
 
 afterEach(async () => {
@@ -256,6 +305,161 @@ describe("fetch_pr_review_context", () => {
         expect(comments[0].path).toBe("src/index.ts")
         expect(comments[0].line).toBe(5)
         expect(comments[0].body).toBe("nit: rename this")
+      } finally {
+        restore()
+      }
+    })
+  })
+
+  describe("PR-repair fields and optional pr_number (modified FR-002/FR-003)", () => {
+    it("passes the five new fields through as gh returns them", async () => {
+      const { parsed, mockSpawn, restore } = await callTool()
+      try {
+        expect(parsed.error).toBeUndefined()
+        expect(parsed.state).toBe("OPEN")
+        expect(parsed.mergeable).toBe("MERGEABLE")
+        expect(parsed.merge_state_status).toBe("CLEAN")
+        expect(parsed.head_repository).toBe("unbound-force/unbound-force")
+        expect(parsed.base_repository).toBe("unbound-force/unbound-force")
+
+        // Design D2: the gh pr view --json field list grows the five
+        // PR-repair sources and must not request baseRepository, which
+        // gh rejects as an unknown field.
+        const viewArgs = findGhArgv(mockSpawn, "pr", "view")
+        expect(viewArgs).toBeDefined()
+        const jsonFields = viewArgs![viewArgs!.indexOf("--json") + 1].split(",")
+        expect(jsonFields).toEqual(
+          expect.arrayContaining(["state", "mergeable", "mergeStateStatus", "headRepository", "url"]),
+        )
+        expect(jsonFields).not.toContain("baseRepository")
+      } finally {
+        restore()
+      }
+    })
+
+    it("reports fork orientation: head_repository differs from base_repository", async () => {
+      const { parsed, restore } = await callTool({
+        "pr view": { stdout: JSON.stringify(MOCK_PR_META_FORK), stderr: "", exitCode: 0 },
+      })
+      try {
+        expect(parsed.error).toBeUndefined()
+        expect(parsed.state).toBe("OPEN")
+        expect(parsed.mergeable).toBe("CONFLICTING")
+        expect(parsed.merge_state_status).toBe("DIRTY")
+        // Fork orientation: head_repository names the fork while
+        // base_repository is parsed from the base-rooted url.
+        expect(parsed.head_repository).toBe("jflowers/unbound-force")
+        expect(parsed.base_repository).toBe("unbound-force/unbound-force")
+        expect(parsed.head_repository).not.toBe(parsed.base_repository)
+      } finally {
+        restore()
+      }
+    })
+
+    it("derives base_repository from the PR url", async () => {
+      // Only the url varies from the default fixture: base_repository
+      // must track it even when it names a repository different from
+      // both headRepository and the gh repo view slug (which the
+      // fixture keeps at unbound-force/unbound-force).
+      const urlVariant = {
+        ...MOCK_PR_META,
+        url: "https://github.com/octocat/other-repo/pull/42",
+      }
+      const { parsed, restore } = await callTool({
+        "pr view": { stdout: JSON.stringify(urlVariant), stderr: "", exitCode: 0 },
+      })
+      try {
+        expect(parsed.error).toBeUndefined()
+        expect(parsed.base_repository).toBe("octocat/other-repo")
+        expect(parsed.head_repository).toBe("unbound-force/unbound-force")
+      } finally {
+        restore()
+      }
+    })
+
+    it("degrades base_repository to empty string with a warning when the url is unparseable", async () => {
+      const unparseableUrl = {
+        ...MOCK_PR_META,
+        url: "https://gitlab.com/unbound-force/unbound-force/-/merge_requests/42",
+      }
+      const { parsed, restore } = await callTool({
+        "pr view": { stdout: JSON.stringify(unparseableUrl), stderr: "", exitCode: 0 },
+      })
+      try {
+        expect(parsed.error).toBeUndefined()
+        expect(parsed.base_repository).toBe("")
+        const warnings = parsed.warnings as string[]
+        expect(
+          warnings.some((w: string) => w.includes("base_repository degraded") && w.includes("unparseable PR url")),
+        ).toBe(true)
+      } finally {
+        restore()
+      }
+    })
+
+    it("resolves the current branch's open PR when pr_number is omitted", async () => {
+      const { parsed, mockSpawn, restore } = await callToolWithoutPrNumber()
+      try {
+        expect(parsed.error).toBeUndefined()
+        // gh resolved the current branch's PR; the resolved number is
+        // reported in the output (design D3).
+        expect(parsed.pr_number).toBe(42)
+
+        // The gh pr view invocation carried no positional number: the
+        // argument after "view" is "--json", not a PR number.
+        const viewArgs = findGhArgv(mockSpawn, "pr", "view")
+        expect(viewArgs).toBeDefined()
+        expect(viewArgs![3]).toBe("--json")
+
+        // Subsequent fetches anchor on the resolved number.
+        const checksArgs = findGhArgv(mockSpawn, "pr", "checks")
+        expect(checksArgs).toBeDefined()
+        expect(checksArgs![3]).toBe("42")
+      } finally {
+        restore()
+      }
+    })
+
+    it("returns pr_not_found when the current branch has no open PR", async () => {
+      const { parsed, restore } = await callToolWithoutPrNumber({
+        "pr view": { stdout: "", stderr: 'no pull requests found for branch "feature/x"', exitCode: 1 },
+      })
+      try {
+        expect(parsed.error).toBe(true)
+        expect(parsed.code).toBe("pr_not_found")
+        expect(parsed.retryable).toBe(false)
+        expect(parsed.message).toBe("No open pull request found for the current branch")
+      } finally {
+        restore()
+      }
+    })
+
+    it("keeps the explicit pr_number path unchanged", async () => {
+      const { parsed, mockSpawn, restore } = await callTool({}, 42)
+      try {
+        expect(parsed.error).toBeUndefined()
+        expect(parsed.pr_number).toBe(42)
+
+        // The explicit number still anchors the fetch as a discrete
+        // positional argument.
+        const viewArgs = findGhArgv(mockSpawn, "pr", "view")
+        expect(viewArgs).toBeDefined()
+        expect(viewArgs![3]).toBe("42")
+
+        // The extended surface is present on the explicit path too.
+        expect(parsed.state).toBe("OPEN")
+      } finally {
+        restore()
+      }
+    })
+
+    it("still rejects extra fields via .strict() when pr_number is omitted", async () => {
+      const { tool, restore } = await setupTool()
+      try {
+        const result = await tool.execute({ evil: "payload" } as never, {} as never)
+        const parsed = JSON.parse(result.output) as Record<string, unknown>
+        expect(parsed.error).toBe(true)
+        expect(parsed.code).toBe("api_error")
       } finally {
         restore()
       }
