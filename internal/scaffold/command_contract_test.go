@@ -81,9 +81,9 @@ func TestCommandContracts_FixCiCommandStructure(t *testing.T) {
 		{name: "todowrite tracking", all: []string{"TodoWrite Progress Tracking", "initialize TodoWrite with all six phases", "both MUST be maintained", "re-initialize the TodoWrite list"}},
 		{name: "ci polling through plugin tool", all: []string{"uf_finale_ci_poll", "never a bash"}},
 		{name: "git plugin tools", all: []string{"git_fetch", "git_rebase", "git_rebase_abort", "git_push", "git_push_force_with_lease", "git_conflict_files", "scan_conflict_markers"}},
-		{name: "eligibility bucket routing", all: []string{"Categorize each check by its `bucket`", "Any check `fail`", "every check `pass` or `skipping`", "some check `pending` or `cancel`"}},
-		{name: "d1 choreography pins", all: []string{"which gh", "gh auth status", "https://github.com/owner/repo.git", "git@github.com:owner/repo.git", "prefer `upstream`, then `origin`", "the numeric path segment immediately following `/actions/runs/`", "^[0-9]+$", "git diff --cached --stat", "never `git add .`, never `git add -A`"}},
-		{name: "fr-002 pinned fetch invocations", all: []string{"gh pr view <PR_NUMBER> --json number,state,headRefName,baseRefName,mergeable,mergeStateStatus,headRepository,isCrossRepository,url", "gh pr checks <PR_NUMBER> --json name,state,bucket,link", "gh run view <RUN_ID> --repo <BASE_REPOSITORY> --log-failed"}},
+		{name: "derived eligibility routing", all: []string{"keyed on the derived `eligibility`", "any check buckets as `fail`", "every check `pass` or `skipping`", "unknown buckets classify fail-closed as `pending`"}},
+		{name: "d1 choreography pins", all: []string{"https://github.com/owner/repo.git", "git@github.com:owner/repo.git", "prefer `upstream`, then `origin`", "the numeric path segment immediately following `/actions/runs/`", "^[0-9]+$", "git diff --cached --stat", "never `git add .`, never `git add -A`"}},
+		{name: "fr-015 tool-routed fetch invocations", all: []string{"fetch_pr_review_context", "fetch_pr_checks", "fetch_failed_run_logs", "calling `fetch_pr_review_context` with no `pr_number`", "call `fetch_pr_checks` with `pr_number: <PR_NUMBER>`", "`fetch_failed_run_logs` once per unique run-id", "run_id: <RUN_ID>` and `repo: <BASE_REPOSITORY>`", "gh_not_found", "gh_auth_failed"}},
 		{name: "review-council gate", all: []string{"/uf.review-council", "REQUEST CHANGES", "Exhaustion MUST NOT push"}},
 		{name: "three-iteration cap", all: []string{"capped at 3", "iteration counter", "**STOP** without pushing"}},
 		{name: "flaky-infra rerun path", all: []string{"gh run rerun <RUN_ID> --failed --repo <BASE_REPOSITORY>", "Rerun the failed jobs", "No code change is ever proposed for a flaky/infra-classified check"}},
@@ -143,6 +143,29 @@ func TestCommandContracts_FixCiCommandStructure(t *testing.T) {
 		}
 		if rawGitMerge.MatchString(normalized) {
 			t.Errorf("%s: never-merge command must not reference %q", copy.name, "git merge")
+		}
+	}
+
+	// FR-015 (extend-fetch-pr-review-context): the three mechanical
+	// fetch classes route through the plugin tools, so the raw gh
+	// fetch invocations must not return. The pins match the exact
+	// invocation forms rather than the bare command names because
+	// the bare names legitimately survive in prose: `gh run view`
+	// remains in Phase 2.0's run-id derivation (a design D6
+	// non-goal), and `gh pr checks` appears in the never-a-bash
+	// `--watch` guard. The `gh run rerun --failed` clause above
+	// stays positive on purpose — rerun is a mutation, not a fetch,
+	// and remains command prose.
+	for _, copy := range loadCommandCopies(t, "uf.fix-ci.md", true) {
+		normalized := normalizeCommandText(copy.text)
+		for _, forbidden := range []string{
+			"gh pr view <PR_NUMBER> --json number,state,headRefName,baseRefName,mergeable,mergeStateStatus,headRepository,isCrossRepository,url",
+			"gh pr checks <PR_NUMBER> --json name,state,bucket,link",
+			"gh run view <RUN_ID> --repo <BASE_REPOSITORY> --log-failed",
+		} {
+			if strings.Contains(normalized, normalizeCommandText(forbidden)) {
+				t.Errorf("%s: tool-routed command must not contain the raw fetch invocation %q", copy.name, forbidden)
+			}
 		}
 	}
 }
