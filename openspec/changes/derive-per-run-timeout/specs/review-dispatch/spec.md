@@ -225,14 +225,23 @@ present.
 **ID: RD-FR-031** This requirement MUST be satisfied.
 
 Every `dispatch_review_runs` and `redispatch_failed_runs`
-invocation MUST persist a machine-readable operation record
-in the dispatch session directory. The record MUST be written
+invocation that owns a dispatch session (creating it, or
+loading an existing one for recovery) MUST persist a
+machine-readable operation record in the dispatch session
+directory. Session-less invocations — input validation
+failures and all-skip plans that exit before session
+creation, and recovery invocations that resolve to
+`not_found` — record nothing by design, because there is no
+session directory to own. The record MUST be written
 with its operation kind (dispatch or redispatch) and
 `started_at` timestamp at invocation start, and MUST be
 completed with `completed_at` and the invocation's terminal
 state when the invocation settles. Run counts (completed,
 failed, skipped for dispatches; redispatched, refused,
 restored for recoveries) MUST be recorded on completion.
+Recovery operations that observed non-fatal degradation
+(review matrix load failure, stranded-archive restore
+failure) MUST record those warnings on completion.
 
 An operation record carrying `started_at` without
 `completed_at` denotes an interrupted operation (for example,

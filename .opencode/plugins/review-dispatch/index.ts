@@ -30,7 +30,9 @@ import {
   MAX_TIMEOUT_MS,
   derivePerRunTimeoutMs,
   resolveBaseWindowMs,
+  type DerivedTimeout,
   type TimeoutProvenanceRecord,
+  type TimeoutTier,
 } from "../../lib/run-timeout.js"
 import {
   DISPATCH_ARTIFACT_DIRECTORY,
@@ -3020,6 +3022,46 @@ function resolvePlanEntryRuntime(
 }
 
 /**
+ * Shared per-run timeout-derivation input assembly (RD-FR-029, design D2):
+ * resolves the base window (per-tier override when configured) from the
+ * resolved limits and feeds the entry's runtime plus the
+ * invocation-specific signals to derivePerRunTimeoutMs.
+ *
+ * dispatch_review_runs and redispatch_failed_runs MUST derive identical
+ * work signals identically (DR-FR-002 reuses the original entry's runtime
+ * intent), so the assembly MUST NOT be duplicated at the call sites —
+ * callers supply only what genuinely differs: prompt bytes, session-profile
+ * tier, concurrency cap, and the explicit override.
+ *
+ * @param inputs Entry runtime, resolved limits, and the invocation's
+ *   varying derivation signals.
+ * @returns The effective window plus its provenance record.
+ */
+function deriveRunTimeoutMs(
+  inputs: {
+    readonly runtime: PlanEntryRuntime
+    readonly limits: Limits
+    readonly promptBytes: number
+    readonly sessionProfileTier: TimeoutTier | null
+    readonly maxParallelRuns: number
+    readonly explicitTimeoutMs?: number
+  },
+): DerivedTimeout {
+  return derivePerRunTimeoutMs({
+    baseMs: resolveBaseWindowMs(inputs.runtime.tier ?? null, {
+      per_run_timeout_seconds: inputs.limits.per_run_timeout_seconds,
+      per_run_timeout_tiers: inputs.limits.per_run_timeout_tiers,
+    }),
+    promptBytes: inputs.promptBytes,
+    resolvedTier: inputs.runtime.tier ?? null,
+    sessionProfileTier: inputs.sessionProfileTier,
+    maxParallelRuns: inputs.maxParallelRuns,
+    configuredCeilingMs: inputs.limits.per_run_timeout_ceiling_seconds * 1000,
+    explicitTimeoutMs: inputs.explicitTimeoutMs,
+  })
+}
+
+/**
  * Structured outcome of the shared dispatch core.
  *
  * `result` is the raw executor result and keeps the raw terminal status and
@@ -4891,17 +4933,15 @@ async function dispatchReviewRuns(
       // prompt bytes, the entry's resolved tier (zero for tier-less
       // direct-model runs), and the configured concurrency cap. An
       // explicit per_run_timeout_ms argument wins and is recorded
-      // with source "explicit" in the run's timeout provenance.
-      const derivedTimeout = derivePerRunTimeoutMs({
-        baseMs: resolveBaseWindowMs(runtime.tier ?? null, {
-          per_run_timeout_seconds: timeoutLimits.per_run_timeout_seconds,
-          per_run_timeout_tiers: timeoutLimits.per_run_timeout_tiers,
-        }),
+      // with source "explicit" in the run's timeout provenance. The
+      // signal assembly is shared with redispatch_failed_runs
+      // (deriveRunTimeoutMs) so both paths derive identically.
+      const derivedTimeout = deriveRunTimeoutMs({
+        runtime,
+        limits: timeoutLimits,
         promptBytes: promptSizeMap.get(entry.agent) ?? 0,
-        resolvedTier: runtime.tier ?? null,
         sessionProfileTier: input.session_metadata.change_profile.tier,
         maxParallelRuns: input.max_parallel_runs,
-        configuredCeilingMs: timeoutLimits.per_run_timeout_ceiling_seconds * 1000,
         explicitTimeoutMs: input.per_run_timeout_ms,
       })
       runInput.timeout = derivedTimeout.effectiveMs
@@ -5077,6 +5117,13 @@ interface OperationRecord {
   readonly completed_at?: string
   readonly status?: string
   readonly run_counts?: OperationRunCounts
+  /**
+   * Non-fatal operational warnings observed during the operation —
+   * matrix-load degradation (RD-FR-029) and stranded-archive restore
+   * failures (DR-FR-002). Settled records carry what was known at
+   * settle time; absent when the operation observed none.
+   */
+  readonly warnings?: readonly string[]
 }
 
 /**
@@ -5104,19 +5151,23 @@ async function writeOperationRecord(correlationId: string, record: OperationReco
 /**
  * Settle an operation window record: atomically replace the start
  * record with its terminal form, adding completed_at, the
- * invocation's terminal status, and its run counts.
+ * invocation's terminal status, its run counts, and — for recovery
+ * operations that observed non-fatal degradation (RD-FR-029,
+ * DR-FR-002) — the warnings collected along the way.
  */
 async function settleOperationRecord(
   correlationId: string,
   operation: OperationRecord,
   status: string,
   runCounts: OperationRunCounts,
+  warnings?: readonly string[],
 ): Promise<void> {
   await writeOperationRecord(correlationId, {
     ...operation,
     completed_at: new Date().toISOString(),
     status,
     run_counts: runCounts,
+    ...(warnings !== undefined && warnings.length > 0 ? { warnings } : {}),
   })
 }
 
@@ -6040,6 +6091,13 @@ interface RedispatchFailedRunsSummary {
    * run-file paths before target resolution (DR-FR-002).
    */
   readonly restored_agents: readonly string[]
+  /**
+   * Non-fatal recovery warnings: per-run timeout derivation degraded to
+   * schema defaults because the review matrix could not be loaded
+   * (RD-FR-029), and stranded-archive restores that failed before target
+   * resolution (DR-FR-002). Always present, possibly empty.
+   */
+  readonly warnings: readonly string[]
 }
 
 /**
@@ -6137,6 +6195,11 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       // Agents whose stranded superseded archives were restored to their
       // active run-file paths before target resolution (DR-FR-002).
       const restoredAgents: string[] = []
+      // Non-fatal recovery warnings (RD-FR-029 matrix degradation,
+      // DR-FR-002 restore failures): collected here, surfaced in the
+      // summary and the settled operation record so silent degradation
+      // is visible to the operator.
+      const redispatchWarnings: string[] = []
 
       const notFound = (): { readonly output: string } =>
         recoveryNotFoundOutput({
@@ -6148,6 +6211,7 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           refused_runs: 0,
           restored_runs: restoredAgents.length,
           restored_agents: [...restoredAgents],
+          warnings: [...redispatchWarnings],
         } satisfies RedispatchFailedRunsSummary)
 
       // Stranded-archive restoration (DR-FR-002, design D8 of
@@ -6201,6 +6265,17 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           )
           if (restore.restored) {
             restoredAgents.push(agent)
+          } else {
+            // DR-FR-002: the stranded archive could not be restored, so
+            // the agent still has no active run file. The restore loop is
+            // best-effort by design — one agent's failed restore must not
+            // abort recovery of the remaining agents — but silence here
+            // would hide the stranding, so surface it as a warning: the
+            // archive itself is preserved in superseded/ and the operator
+            // must intervene.
+            redispatchWarnings.push(
+              `stranded-archive restore failed for ${agent}: ${errorText(restore.error)}; the prior run remains archived at superseded/${mostRecent.name} and the agent has no active run file (operator intervention required)`,
+            )
           }
         }
       } catch {
@@ -6248,7 +6323,7 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
             redispatched: 0,
             refused: 0,
             restored: restoredAgents.length,
-          })
+          }, redispatchWarnings)
           return { output: `redispatch_failed_runs error: invalid session metadata: ${parsedMetadata.error.message}` }
         }
         sessionMetadata = parsedMetadata.data
@@ -6257,7 +6332,7 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           redispatched: 0,
           refused: 0,
           restored: restoredAgents.length,
-        })
+        }, redispatchWarnings)
         return {
           output:
             "redispatch_failed_runs error: no session metadata found; the dispatch plan is required to re-run failed reviewers (pass session_metadata on a dispatch_agent_run call)",
@@ -6295,7 +6370,17 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       // `timeout` argument overrides every re-run and is recorded with
       // source "explicit". Matrix-load failure degrades to schema defaults
       // rather than failing the recovery wholesale.
-      const { limits: timeoutLimits } = await resolveTimeoutLimits(deps)
+      const { limits: timeoutLimits, degraded: limitsDegraded } = await resolveTimeoutLimits(deps)
+      if (limitsDegraded) {
+        // RD-FR-029: mirror the dispatch path's degradation warning — a
+        // matrix-load failure silently shrinking every recovery window to
+        // the schema defaults (a 1200 s matrix limit degrades to the
+        // 600 s default) must be visible to the operator, not just in the
+        // derived provenance.
+        redispatchWarnings.push(
+          "review matrix limits unavailable; per-run timeout derivation degraded to schema defaults",
+        )
+      }
 
       const results: RedispatchRunResult[] = []
       // Prior run files restored from superseded/: the stranded archives
@@ -6401,17 +6486,15 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         // (zero profile term for tier-less direct-model entries). Recovery
         // executes sequentially, so maxParallelRuns 1 holds the contention
         // multiplier at 1.0 (design D2). The session's change-profile tier
-        // is recorded as a provenance signal only.
-        const derivedTimeout = derivePerRunTimeoutMs({
-          baseMs: resolveBaseWindowMs(runtime.tier ?? null, {
-            per_run_timeout_seconds: timeoutLimits.per_run_timeout_seconds,
-            per_run_timeout_tiers: timeoutLimits.per_run_timeout_tiers,
-          }),
+        // is recorded as a provenance signal only. The signal assembly is
+        // shared with dispatch_review_runs (deriveRunTimeoutMs) so both
+        // paths derive identically.
+        const derivedTimeout = deriveRunTimeoutMs({
+          runtime,
+          limits: timeoutLimits,
           promptBytes: Buffer.byteLength(promptText, "utf8"),
-          resolvedTier: runtime.tier ?? null,
           sessionProfileTier: sessionMetadata.change_profile.tier,
           maxParallelRuns: 1,
-          configuredCeilingMs: timeoutLimits.per_run_timeout_ceiling_seconds * 1000,
           explicitTimeoutMs: input.timeout,
         })
 
@@ -6540,14 +6623,16 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         refused_runs: results.filter((result) => result.outcome === "refused").length,
         restored_runs: restoredCount,
         restored_agents: [...restoredAgents],
+        warnings: [...redispatchWarnings],
       }
       // RD-FR-031 (design D7): settle the recovery operation's window
-      // record with the terminal summary counts.
+      // record with the terminal summary counts and any non-fatal
+      // warnings observed along the way.
       await settleOperationRecord(correlationId, operation, "ok", {
         redispatched: summary.redispatched_runs,
         refused: summary.refused_runs,
         restored: restoredCount,
-      })
+      }, redispatchWarnings)
       return { output: JSON.stringify(summary, null, 2) }
     },
   })
