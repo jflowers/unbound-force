@@ -117,6 +117,10 @@ modifies `uf.rebase-pr`.
   in design D1's inventory. This change does not block on
   it: the raw-gh fetch steps are a documented deviation
   (design D1), and #861 retires the deviation when it lands.
+  Disposition: further command surface built on the raw-gh
+  fetch pattern should wait for #861 to land — the deviation
+  is adjudicated for this change only, not a template for
+  new commands (PR #868 review, round 1).
 - **Cross-spec coordination — question-tool presentation
   contract (originating issue #850)**: the pending
   `question-tool-presentation-contract` change owns the shared
@@ -165,6 +169,8 @@ modifies `uf.rebase-pr`.
     file — its dispatch-specific `TestCommandContracts_*`
     members pre-date the change and are not extended, per
     design D10)
+  - `cmd/unbound-force/main_test.go` (embedded command asset
+    count 75→76 and asset-count validity range [70,74]→[71,75])
   - `AGENTS.md` (PR Review Commands table row +
     project-structure commands count comment)
   - `docs/usage.md` (command section + Quick Reference row)
@@ -194,10 +200,14 @@ modifies `uf.rebase-pr`.
   recorded rationale, not carried open: blog — declined
   (complements the existing post-PR command set rather than
   debuting a new capability; below the significance
-  threshold); tutorial — declined (bounded single-command
-  repair workflow; the human-decision gates are documented
-  in the command reference and the `docs/usage.md` section).
-  Both dispositions are recorded in the documentation issue
+  threshold); tutorial — declined as a bundled deliverable
+  (bounded single-command repair workflow; the human-decision
+  gates are documented in the command reference and the
+  `docs/usage.md` section), then re-disposed on review: the
+  command meets the tutorial significance threshold and
+  mirrors the `/uf.rebase-pr` precedent (#855), so tutorial
+  issue #870 was filed for it. Both dispositions are recorded
+  in the documentation issue
   #862; the website tracking issue
   (unbound-force/website#342) carries the command-reference
   sync, and neither issue carries an open content follow-up.
