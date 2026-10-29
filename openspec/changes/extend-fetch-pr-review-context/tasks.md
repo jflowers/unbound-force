@@ -108,10 +108,10 @@ in order (design D1–D5).
   `.opencode/test/plugin-integration.test.ts` (one enumerated site
   each). Registration-surface tests enumerate dynamically and need
   no edits.
-- [ ] 3.6 Run `make plugin-test` and confirm all suites pass with
+- [x] 3.6 Run `make plugin-test` and confirm all suites pass with
   the coverage floors (94 percent statements, 85 percent branches)
   holding unchanged — no threshold edits (gatekeeping rule).
-- [ ] 3.7 DE-007 seam verification naming the three layers:
+- [x] 3.7 DE-007 seam verification naming the three layers:
   registration surface (the 3.5 tool-list pins and the
   registration-surface tests enumerate `fetch_pr_review_context`,
   `fetch_pr_checks`, and `fetch_failed_run_logs` in
