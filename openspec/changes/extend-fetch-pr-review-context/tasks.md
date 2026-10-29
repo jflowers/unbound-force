@@ -16,7 +16,7 @@ All tasks in this group edit the same file,
 `.opencode/plugins/review-dispatch/index.ts`, and run sequentially
 in order (design D1–D5).
 
-- [ ] 1.1 Extend `fetch_pr_review_context` (modified FR-002/FR-003,
+- [x] 1.1 Extend `fetch_pr_review_context` (modified FR-002/FR-003,
   design D2/D3): make `pr_number` optional in
   `FetchPrReviewContextInputSchema` (`.strict()` retained); extend
   the `gh pr view --json` field list with
@@ -30,7 +30,7 @@ in order (design D1–D5).
   number, resolved value reported in `pr_number`, `pr_not_found`
   when no open PR exists); keep `input_context` unchanged; update
   the tool description.
-- [ ] 1.2 Implement `fetch_pr_checks` (FR-013, design D4): input
+- [x] 1.2 Implement `fetch_pr_checks` (FR-013, design D4): input
   schema `pr_number` (required, positive integer 1–999999,
   `.strict()`); fetch `gh pr checks <N> --json
   name,state,bucket,link` through an exit-code-tolerant execution
@@ -45,7 +45,7 @@ in order (design D1–D5).
   errors `gh_not_found`, `gh_auth_failed`, `pr_not_found`,
   `api_error`, `timeout`, `rate_limited`; tool factory and
   registration in `ReviewDispatchPlugin.server()`.
-- [ ] 1.3 Implement `fetch_failed_run_logs` (FR-014, design D5):
+- [x] 1.3 Implement `fetch_failed_run_logs` (FR-014, design D5):
   input schema `run_id` (string, `^[0-9]+$`, required) and `repo`
   (optional, `owner/repo` pattern), `.strict()`; fetch
   `gh run view <run_id> [--repo <repo>] --log-failed`; persist
@@ -60,7 +60,7 @@ in order (design D1–D5).
 
 ## 2. Dual-copy sync
 
-- [ ] 2.1 Copy the canonical plugin file byte-identical to
+- [x] 2.1 Copy the canonical plugin file byte-identical to
   `internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`
   (FR-016; verify with `cmp`). No `expectedAssetPaths` or count
   changes — the asset already ships.
