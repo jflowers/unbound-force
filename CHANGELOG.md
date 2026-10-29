@@ -152,8 +152,8 @@ Each entry follows the format: `- <change-name>: <summary>`.
   in-repo issue #859 and website issue
   unbound-force/website#341. Vitest suites pin the derivation
   matrix, provenance persistence, operation windows, and recovery
-  semantics (218 dispatch-suite tests; plugin coverage 95.35%
-  statements / 88.23% branches against the 94/85 floors); scaffold
+  semantics (258 dispatch-suite tests; plugin coverage 95.41%
+  statements / 88.41% branches against the 94/85 floors); scaffold
   mirrors under `internal/scaffold/assets/opencode/` updated
   byte-identically (drift-detection tests).
   (Spec: openspec/changes/derive-per-run-timeout/)
