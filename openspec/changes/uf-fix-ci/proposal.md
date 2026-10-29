@@ -41,26 +41,40 @@ executes and an absolute never-merge rule.
      pattern as `uf.review-pr` step 0).
   3. **Fetch PR state**: `gh pr view <N> --json number,state,
      headRefName,baseRefName,mergeable,mergeStateStatus,
-     headRepository,baseRepository` plus `gh pr checks <N>`.
-     STOP if CLOSED/MERGED or all checks pass.
+     headRepository,isCrossRepository,url` (the base
+     repository derives from the PR `url`; `gh pr view --json`
+     exposes no `baseRepository` field) plus the pinned
+     check-suite invocation `gh pr checks <N> --json
+     name,state,link`. STOP if CLOSED/MERGED or all checks
+     pass.
   4. **Diagnose**: for each failed check, fetch failure logs
      (`gh run view <run-id> --log-failed`); classify root cause:
      code failure (build/test/lint), stale branch (base moved),
      conflict, or flaky/infra.
-  5. **Rebase when conflicted or behind**: `git_fetch
-     <BASE_REMOTE>` → `git_rebase <BASE_REMOTE>/<BASE_BRANCH>`;
-     resolve flagged files preserving author intent; on
-     ambiguity STOP and offer `git_rebase_abort`. MUST NEVER
-     merge base into head — rebase only. This rule is absolute.
-  6. **Gated fix loop**: present diagnosis + proposed fix plan;
-     human confirms via question tool. Then fix → conventional
-     commit → push (`git_push`, or `git_push_force_with_lease`
-     after a rebase since history was rewritten) → re-poll CI.
-     Iteration cap of 3; STOP on cap or unfixable failure.
-  7. **Flaky/infra path**: when logs indicate flakiness or infra
+  5. **Human gate before any mutation**: after diagnosis, the
+     command presents the full diagnosis and proposed plan
+     (the rebase, rerun, or fix path each classification
+     selects) and obtains human confirmation via the question
+     tool (FR-005, FR-013, design D6). No rebase, fix,
+     commit, or push executes before the human chooses.
+  6. **Rebase when conflicted or behind** (gated by step 5):
+     `git_fetch <BASE_REMOTE>` → `git_rebase
+     <BASE_REMOTE>/<BASE_BRANCH>`; resolve flagged files
+     preserving author intent; on ambiguity STOP and offer
+     `git_rebase_abort`. MUST NEVER merge base into head —
+     rebase only. This rule is absolute.
+  7. **Gated fix loop**: with the step 5 confirmation in
+     hand, each iteration runs fix → conventional commit
+     (`type: description`) → `/uf.review-council` gate
+     (FR-006, once per iteration after all fixes for that
+     iteration are committed) → push (`git_push`, or
+     `git_push_force_with_lease` after a rebase since history
+     was rewritten) → re-poll CI. Iteration cap of 3; STOP on
+     cap or unfixable failure.
+  8. **Flaky/infra path**: when logs indicate flakiness or infra
      failure, offer `gh run rerun --failed` instead of a code
      change.
-  8. **Final verification**: `uf_finale_ci_poll` until green or
+  9. **Final verification**: `uf_finale_ci_poll` until green or
      timeout; report final status. MUST NOT merge, approve, or
      close the PR.
 - Fix commits MUST pass `/uf.review-council` before push
@@ -75,17 +89,41 @@ executes and an absolute never-merge rule.
   the `expectedAssetPaths` manifest entry and asset-count
   comment update in `internal/scaffold/scaffold_test.go`.
 - `AGENTS.md` PR Review Commands table gains
-  `/uf.fix-ci [N]` — Post-PR — diagnose + fix failing checks.
+  `/uf.fix-ci [N]` — Post-PR — diagnose + fix failing checks —
+  plus a project-structure commands-count bump.
 - `docs/usage.md` gains a `/uf.fix-ci` section and Quick
   Reference row.
 - `docs/architecture.md` Review Commands table gains a
-  `/uf.fix-ci [N]` row.
+  `/uf.fix-ci [N]` row and a Scaffolded Files entry;
+  `QUICKSTART.md` bumps its scaffolded-commands count.
 
 The command complements `/uf.rebase-pr` (#851): it shares that
 issue's rebase conventions (fork-aware remote resolution,
 force-with-lease after history rewrite, never touch protected
 branches) but stays self-contained — it neither depends on nor
 modifies `uf.rebase-pr`.
+
+## Dependencies
+
+- **Plugin-tool extraction follow-up (named)**: issue #861
+  tracks extending `fetch_pr_review_context` with the
+  PR-repair fields (`state`, `mergeable`, `mergeStateStatus`,
+  `headRepository`, `baseRepository` — the last derived from
+  the PR `url`) and routing this command's Phase 1 fetches
+  through an intent-level tool. This change does not block on
+  it: the raw-gh fetch steps are a documented deviation
+  (design D1), and #861 retires the deviation when it lands.
+- **Cross-spec coordination — question-tool presentation
+  contract (originating issue #850)**: the pending
+  `question-tool-presentation-contract` change owns the shared
+  gate-presentation contract this command's gates follow. The
+  two changes touch overlapping contract fragments, so
+  whichever lands second rebases its contract fragments onto
+  the other's final wording; no contract text is shared by
+  copy without that rebase.
+- **`/uf.rebase-pr` (#851)**: complementary, not blocking —
+  rebase conventions are followed by reference only (see
+  above).
 
 ## Capabilities
 
@@ -111,16 +149,26 @@ modifies `uf.rebase-pr`.
 
 ## Impact
 
-- **Files added**:
+- **Files created**:
   - `.opencode/commands/uf.fix-ci.md` (canonical command)
   - `internal/scaffold/assets/opencode/commands/uf.fix-ci.md`
     (byte-identical mirror)
 - **Files modified**:
   - `internal/scaffold/scaffold_test.go`
     (`expectedAssetPaths` + command-count comment)
-  - `AGENTS.md` (PR Review Commands table)
+  - `internal/scaffold/command_contract_test.go` (the new
+    structural pin test, task 2.3, is added to this existing
+    file — its dispatch-specific `TestCommandContracts_*`
+    members pre-date the change and are not extended, per
+    design D10)
+  - `AGENTS.md` (PR Review Commands table row +
+    project-structure commands count comment)
   - `docs/usage.md` (command section + Quick Reference row)
-  - `docs/architecture.md` (Review Commands table row)
+  - `docs/architecture.md` (Review Commands table row +
+    Scaffolded Files slash-commands entry)
+  - `QUICKSTART.md` (scaffolded-commands count bump)
+  - `CHANGELOG.md` (Unreleased/Added entry with spec and
+    documentation footers)
 - **Behavior**: No existing command changes behavior. `/uf.finale`
   step 7's failure branch remains as-is; `/uf.fix-ci` is a
   separate post-PR entry point the human invokes.
@@ -138,6 +186,13 @@ modifies `uf.rebase-pr`.
   (rebase, fix commits, push, rerun) sit behind human
   question-tool gates; untrusted log/PR text is never
   interpolated into shell arguments.
+- **Content pipeline**: blog and tutorial opportunities are
+  acknowledged, not filed by this change: a blog post on the
+  post-PR repair workflow, and a tutorial-style decision
+  guide for a red PR — `/uf.fix-ci` vs `/uf.rebase-pr`
+  (#851) vs `/uf.address-feedback`. Task 3.4's documentation
+  filings may fold these in as labeled follow-ups when the
+  website issue is filed.
 
 ## Constitution Alignment
 
@@ -204,13 +259,25 @@ merge, approve, or close the PR. No new dependencies are added.
 
 ### VI. Deterministic Execution
 
-**Assessment**: PASS
+**Assessment**: PASS (with one documented deviation, below)
 
-Mechanical steps (PR-state fetch, check polling, log fetch,
-rebase, push) execute through existing tools (`uf_finale_ci_poll`,
-`git_fetch`, `git_rebase`, `git_push`, `git_push_force_with_lease`)
-rather than re-reasoned bash prose; only judgment (root-cause
+Mechanical steps (rebase, push, CI verification) execute
+through existing tools (`git_fetch`, `git_rebase`, `git_push`,
+`git_push_force_with_lease`, `uf_finale_ci_poll`) rather than
+re-reasoned bash prose; only judgment (root-cause
 classification, fix authoring, option recommendation) remains
 in instruction prose. The command reuses the tested
 `uf_finale_ci_poll` for CI polling instead of inventing a
 bash watch loop.
+
+Documented deviation, stated rather than claimed away: the
+PR-state fetch (`gh pr view`), the check-suite fetch
+(`gh pr checks`), and the failure-log fetch (`gh run view
+--log-failed`) are mechanical steps with no existing plugin
+tool that covers them — `fetch_pr_review_context` returns
+review-dispatch fields only, and no tool wraps the run-log
+fetch. They execute as command prose with pinned JSON field
+lists and untrusted-text hygiene (design D1, D9) instead of
+through an intent-level tool. This is a named deviation from
+the principle's ideal, recorded in design D1, and companion
+issue #861 tracks the extraction that retires it.

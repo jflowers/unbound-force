@@ -44,9 +44,12 @@ either check fails.
 
 The command MUST fetch PR state via `gh pr view <N> --json
 number,state,headRefName,baseRefName,mergeable,mergeStateStatus,
-headRepository,baseRepository` and check status via `gh pr
-checks <N>`. It MUST STOP when the PR is CLOSED or MERGED, and
-MUST STOP with a green report when all checks already pass.
+headRepository,isCrossRepository,url` (the base repository
+derives from the PR `url`; `gh pr view --json` exposes no
+`baseRepository` field) and check status via the pinned
+invocation `gh pr checks <N> --json name,state,link`. It MUST
+STOP when the PR is CLOSED or MERGED, and MUST STOP with a
+green report when all checks already pass.
 
 #### Scenario: Closed or merged PR stops the command
 
@@ -121,9 +124,21 @@ grounded in the fetched log evidence, not assumed.
 When the PR is conflicted or behind its base, the command MUST
 synchronize by rebasing the head branch onto base: `git_fetch
 <BASE_REMOTE>` then `git_rebase <BASE_REMOTE>/<BASE_BRANCH>`.
-It MUST NEVER merge the base branch into the head branch; this
-rule is absolute. After a successful rebase, pushes MUST use
-`git_push_force_with_lease` because history was rewritten.
+The rebase MUST NOT run before the human confirms the
+diagnosis and plan via the question-tool gate (FR-005,
+FR-013). It MUST NEVER merge the base branch into the head
+branch; this rule is absolute. After a successful rebase,
+pushes MUST use `git_push_force_with_lease` because history
+was rewritten.
+
+#### Scenario: Human gate precedes the rebase
+
+- **GIVEN** PR 42 is conflicted or behind its base
+- **WHEN** the command prepares to synchronize
+- **THEN** it presents the diagnosis and proposed
+  synchronization plan via the question tool
+- **AND** no `git_fetch` or `git_rebase` executes before the
+  human confirms
 
 #### Scenario: Rebase onto base
 
@@ -158,23 +173,26 @@ rule is absolute. After a successful rebase, pushes MUST use
 
 ### Requirement: FR-005 Gated fix loop with human confirmation
 
-Before any fix executes, the command MUST present the full
-diagnosis and proposed fix plan and obtain human confirmation
-via the question tool. Each iteration MUST follow fix →
-conventional commit (`type: description`) → push → re-poll CI.
-The loop MUST stop after 3 iterations or on an unfixable
-failure, reporting what remains red.
+Before any fix executes — and before the rebase that may
+precede fixes (FR-004) — the command MUST present the full
+diagnosis and proposed plan and obtain human confirmation via
+the question tool. Each iteration MUST follow fix →
+conventional commit (`type: description`) → the FR-006
+review-council gate → push → re-poll CI. The loop MUST stop
+after 3 iterations or on an unfixable failure, reporting what
+remains red.
 
-#### Scenario: Human gate before fixing
+#### Scenario: Human gate before any mutation
 
 - **GIVEN** diagnosis classified one or more checks as code
   failures
-- **WHEN** the command prepares to fix
-- **THEN** it prints the diagnosis and proposed fix plan
+- **WHEN** the command prepares to fix (or to rebase first,
+  per FR-004)
+- **THEN** it prints the diagnosis and proposed plan
 - **AND** presents a question tool gate whose options include
-  proceeding with the fix and declining it
-- **AND** no fix, commit, or push executes before the human
-  chooses
+  proceeding with the plan and declining it
+- **AND** no rebase, fix, commit, or push executes before the
+  human chooses
 
 #### Scenario: Push mode follows rebase state
 
@@ -347,11 +365,13 @@ Drift and manifest tests MUST pass with the mirror in place.
 ### Requirement: FR-012 Documentation updates
 
 `AGENTS.md` MUST add `/uf.fix-ci [N]` to the PR Review
-Commands table (Post-PR, diagnose + fix failing checks),
-`docs/usage.md` MUST document the command with a usage section
-and a Quick Reference row, and `docs/architecture.md` MUST add
-the command to its Review Commands table alongside the other
-Post-PR commands.
+Commands table and bump its `commands/` structure count
+comment. `docs/usage.md` MUST document the command with a
+usage section and Quick Reference row. `docs/architecture.md`
+MUST add it to its Review Commands table and Scaffolded Files
+slash-commands list. `QUICKSTART.md` MUST bump its
+scaffolded-commands count. `CHANGELOG.md` MUST carry an
+Unreleased/Added entry with spec and documentation footers.
 
 #### Scenario: AGENTS.md table row
 
@@ -375,6 +395,37 @@ Post-PR commands.
   `docs/architecture.md`
 - **THEN** `/uf.fix-ci [N]` appears alongside the other
   Post-PR commands
+
+#### Scenario: AGENTS.md structural count
+
+- **GIVEN** the command ships
+- **WHEN** a reader checks the project-structure tree in
+  `AGENTS.md`
+- **THEN** the `.opencode/commands/` count comment reflects
+  the new command file
+
+#### Scenario: architecture.md Scaffolded Files entry
+
+- **GIVEN** the command ships
+- **WHEN** a reader checks the Scaffolded Files
+  slash-commands list in `docs/architecture.md`
+- **THEN** `uf.fix-ci.md` appears among the scaffolded
+  command files
+
+#### Scenario: QUICKSTART scaffolded-commands count
+
+- **GIVEN** the command ships
+- **WHEN** a reader checks the "What Gets Scaffolded" list
+  in `QUICKSTART.md`
+- **THEN** the scaffolded commands count includes the new
+  command
+
+#### Scenario: CHANGELOG entry
+
+- **GIVEN** the command ships
+- **WHEN** a reader checks `CHANGELOG.md`
+- **THEN** an Unreleased/Added entry names the command with
+  its spec directory and documentation-issue footers
 
 ### Requirement: FR-013 Question-tool presentation contract
 

@@ -57,16 +57,39 @@ conventions (frontmatter, `<protect>`, session-resume guard,
 MANDATORY GATE blocks, checkpoints, TodoWrite, Guardrails
 section). Deterministic steps execute through existing plugin
 tools; judgment (classification, fix authoring, option
-recommendation) stays in prose. Rationale: constitution VI
-(Deterministic Execution) — every mechanical step that has a
-tool uses the tool; adding new Go code would duplicate tested
-surface (e.g., CI polling already lives in `uf_finale_ci_poll`).
+recommendation) stays in prose.
+
+One documented deviation applies, recorded here rather than
+papered over: the PR-state, check-suite, and failure-log
+fetches are mechanical steps for which no existing plugin
+tool qualifies — `fetch_pr_review_context` returns
+review-dispatch fields only (no `state`, `mergeable`,
+`mergeStateStatus`, `headRepository`, or `baseRepository`)
+and no tool wraps `gh pr checks` or `gh run view
+--log-failed`. Extending the plugin layer is out of scope
+for this change (scope discipline: one command, its mirror,
+and docs), so those three fetch steps execute as command
+prose — raw `gh` invocations with pinned JSON field lists
+and the D9 untrusted-text hygiene — standing as an honest,
+named deviation from the constitution VI ideal, not a silent
+one. Issue #861 is the named extraction follow-up: extend
+`fetch_pr_review_context` with the PR-repair fields and
+route Phase 1's fetches through an intent-level tool.
+
+Rationale: constitution VI (Deterministic Execution) — every
+mechanical step that has a tool uses the tool, and the one
+class that does not is documented above rather than claimed
+as compliant; adding new Go code inside this change would
+duplicate tested surface (e.g., CI polling already lives in
+`uf_finale_ci_poll`).
 
 ### D2: Rebase-only synchronization; never merge
 
 When the PR is conflicted or behind, the command runs
 `git_fetch <BASE_REMOTE>` then `git_rebase
-<BASE_REMOTE>/<BASE_BRANCH>`. Merging base into head is
+<BASE_REMOTE>/<BASE_BRANCH>` — only after the D6 human gate
+confirms the diagnosis and plan; the rebase is a mutation
+and never runs ungated. Merging base into head is
 forbidden absolutely — no option offers it, and the Guardrails
 section restates it. After a successful rebase, pushes use
 `git_push_force_with_lease` because history was rewritten.
@@ -122,9 +145,14 @@ causality determination into action selection.
 
 ### D6: Human gate before every mutation; resume-safe
 
-The fix-plan gate presents the full diagnosis (per-check
-class, evidence excerpt, proposed action), then a question
-tool with proceed/decline options. Session-resume guards
+The diagnosis gate presents the full diagnosis (per-check
+class, evidence excerpt, and the proposed action for each —
+rebase, fix, or rerun), then a question tool with
+proceed/decline options. The gate fires after Phase 2's
+classification table and before ANY mutation executes, the
+Phase 3 rebase included: `git_fetch` and `git_rebase` do not
+run until the human confirms the plan (FR-004, FR-013).
+Session-resume guards
 mirror `uf.address-feedback`: after compressed context, the
 command re-reads the template, calls `get_progress` with
 `command: "uf.fix-ci"`, and re-presents any gate whose
