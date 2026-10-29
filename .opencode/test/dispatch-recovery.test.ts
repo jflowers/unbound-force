@@ -1408,6 +1408,58 @@ describe("redispatch_failed_runs", () => {
     })
   })
 
+  it("warns and records matrix degradation instead of silently shrinking recovery windows (RD-FR-029)", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [
+      planEntry("divisor-guard", { model: null, tier: "standard" }),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      // Corrupt the matrix so resolveTimeoutLimits degrades to the schema
+      // defaults on the recovery path. The degradation MUST be visible as
+      // a warning mirroring the dispatch path (RD-FR-029: a 1200 s matrix
+      // limit silently shrinking to the 600 s default is a defect), and
+      // MUST be recorded in the settled operation record. The same
+      // corruption fails the per-run policy load, so the re-run exits
+      // before child execution and the prior run file is restored.
+      await writeFile(join(project, ".uf", "review-matrix.yaml"), "limits: [unclosed", "utf8")
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+
+      expect(data.status).toBe("ok")
+      expect(
+        (data.warnings ?? []).some((w: string) =>
+          w.includes(
+            "review matrix limits unavailable; per-run timeout derivation degraded to schema defaults",
+          ),
+        ),
+      ).toBe(true)
+      expect(data.runs[0].outcome).toBe("early_exit")
+      expect(data.redispatched_runs).toBe(0)
+
+      // The prior failed run is back at its active path, consolidatable
+      // via RD-FR-025 exclusion.
+      const restored = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(restored.run_id).toBe(guardRun.run_id)
+
+      // RD-FR-031 + RD-FR-029: the settled operation record carries the
+      // warning alongside the recovery counts, so the degradation is
+      // auditable from the session directory alone.
+      const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
+      expect(opFiles).toHaveLength(1)
+      const record = JSON.parse(
+        await readFile(join(dir, opFiles[0]), "utf8"),
+      ) as Record<string, unknown>
+      const recordWarnings = record.warnings as string[] | undefined
+      expect(
+        (recordWarnings ?? []).some((w: string) => w.includes("review matrix limits unavailable")),
+      ).toBe(true)
+    })
+  })
+
   it("records its operation window with recovery counts (RD-FR-031)", async () => {
     const guardRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
     const { correlationId, dir } = await setupSession([guardRun], [planEntry("divisor-guard")])
@@ -1591,6 +1643,52 @@ describe("redispatch_failed_runs", () => {
       expect(archivedNames).toContain(`run-divisor-guard-${olderRun.run_id}.json`)
       expect(archivedNames).toContain(`run-divisor-guard-${newerRun.run_id}.json`)
     })
+  })
+
+  it("warns when a stranded archive cannot be restored (DR-FR-002)", async () => {
+    const strandedRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const { correlationId, dir } = await setupSession([], [planEntry("divisor-guard")])
+    const supersededDir = join(dir, "superseded")
+    await mkdir(supersededDir, { recursive: true })
+    const archiveName = `run-divisor-guard-${strandedRun.run_id}.json`
+    await writeFile(join(supersededDir, archiveName), JSON.stringify(strandedRun))
+    // Make the restore rename fail while the scan still succeeds: 0o500
+    // keeps read+traverse (readdir and stat work) but removes write, so
+    // restorePriorRunFile's rename out of superseded/ fails EACCES — the
+    // exact failure the pre-resolution loop used to drop silently.
+    await chmod(supersededDir, 0o500)
+
+    try {
+      await withBun(async () => {
+        const project = await scratchProject()
+        const hooks = await activate(fakeClient(), project)
+        const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+        const data = JSON.parse(result.output) as {
+          status: string
+          warnings?: string[]
+          restored_agents: string[]
+        }
+
+        // The session holds no active run files, so target resolution
+        // reports not_found — but the failed restore MUST still surface:
+        // the agent is left with no active run file and only the
+        // superseded archive, which is operator-intervention territory.
+        expect(data.status).toBe("not_found")
+        expect(data.restored_agents).toEqual([])
+        const warning = (data.warnings ?? []).find((w: string) =>
+          w.includes("stranded-archive restore failed for divisor-guard"),
+        )
+        expect(warning).toBeDefined()
+        expect(warning).toContain(`superseded/${archiveName}`)
+        expect(warning).toContain("operator intervention required")
+
+        // The archive itself is preserved untouched.
+        expect(await readFile(join(supersededDir, archiveName), "utf8")).toBe(JSON.stringify(strandedRun))
+      })
+    } finally {
+      // Restore writability so the afterEach rm -rf cleanup can unlink.
+      await chmod(supersededDir, 0o700)
+    }
   })
 
   it("excludes a re-run cancelled-again reviewer's submissions at consolidation (RD-FR-025)", async () => {
