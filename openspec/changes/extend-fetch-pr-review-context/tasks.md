@@ -75,7 +75,7 @@ in order (design D1–D5).
   default.md CS-004). The existing suite's local copy migrates
   opportunistically — do not force-rewrite it. Files:
   `.opencode/test/helpers/gh-spawn-mock.ts`
-- [ ] 3.2 [P] Extend `.opencode/test/fetch-pr-review-context.test.ts`
+- [x] 3.2 [P] Extend `.opencode/test/fetch-pr-review-context.test.ts`
   (modified FR-002/FR-003): the five new fields present and
   passed through (including fork orientation — `head_repository`
   differs from `base_repository` on a fork PR fixture);
