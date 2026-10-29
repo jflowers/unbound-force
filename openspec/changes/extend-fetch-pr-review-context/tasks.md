@@ -228,7 +228,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   MODIFIED operations; changes here are not archived in practice
   — the advisor-host-model-fallback precedent carries a harder
   ERROR).
-- [ ] 6.2 CI parity per the AGENTS.md rule — run `make check`
+- [x] 6.2 CI parity per the AGENTS.md rule — run `make check`
   (lint, test with `-race -count=1`, build, scope-based coverage
   gate, TypeScript plugin suite) and confirm green, including the
   scaffold drift, manifest, and command-contract tests.
