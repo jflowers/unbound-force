@@ -248,6 +248,7 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 |---------|------|-------|
 | `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 6, Code Review) | 5+ Divisor agents |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent, CI analysis |
+| `/uf.fix-ci [N]` | Post-PR (GitHub) | Diagnose + fix failing checks |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
 | `/uf.rebase-pr [N]` | Post-PR (GitHub) | Rebase a conflicted PR's head branch onto its base |
 

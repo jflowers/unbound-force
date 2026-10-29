@@ -56,32 +56,83 @@ The command is agent instruction prose in
 conventions (frontmatter, `<protect>`, session-resume guard,
 MANDATORY GATE blocks, checkpoints, TodoWrite, Guardrails
 section). Deterministic steps execute through existing plugin
-tools; judgment (classification, fix authoring, option
-recommendation) stays in prose.
+tools where one qualifies; judgment (classification, fix
+authoring, option recommendation) stays in prose, and every
+mechanical step shipping as prose is enumerated in the
+deviation inventory below.
 
-One documented deviation applies, recorded here rather than
-papered over: the PR-state, check-suite, and failure-log
-fetches are mechanical steps for which no existing plugin
-tool qualifies — `fetch_pr_review_context` returns
-review-dispatch fields only (no `state`, `mergeable`,
-`mergeStateStatus`, `headRepository`, or `baseRepository`)
-and no tool wraps `gh pr checks` or `gh run view
---log-failed`. Extending the plugin layer is out of scope
-for this change (scope discipline: one command, its mirror,
-and docs), so those three fetch steps execute as command
-prose — raw `gh` invocations with pinned JSON field lists
-and the D9 untrusted-text hygiene — standing as an honest,
-named deviation from the constitution VI ideal, not a silent
-one. Issue #861 is the named extraction follow-up: extend
-`fetch_pr_review_context` with the PR-repair fields and
-route Phase 1's fetches through an intent-level tool.
+One documented deviation record applies — a complete
+inventory of every mechanical step shipping as command prose,
+each entry carrying its tool-feasibility assessment, recorded
+here rather than papered over. Extending the plugin layer is
+out of scope for this change (scope discipline: one command,
+its mirror, and docs). The inventory:
+
+- **Three raw-gh fetch classes** — the PR-state fetch
+  (`gh pr view`), the check-suite fetch (`gh pr checks`), and
+  the failure-log fetch (`gh run view --log-failed`). No
+  existing plugin tool qualifies: `fetch_pr_review_context`
+  returns review-dispatch fields only (no `state`,
+  `mergeable`, `mergeStateStatus`, `headRepository`, or
+  `baseRepository`), and no tool wraps `gh pr checks` or
+  `gh run view --log-failed`. They execute as command prose
+  — raw `gh` invocations with pinned JSON field lists and
+  the D9 untrusted-text hygiene. Issue #861 is the named
+  extraction follow-up: extend `fetch_pr_review_context`
+  with the PR-repair fields and expose the check-suite and
+  failure-log fetches through the same intent-level path,
+  re-routing this command's fetches and retiring this entry
+  when it lands.
+- **Phase 1.0 gh availability checks** (`which gh`,
+  `gh auth status`) — existence checks with no session
+  plugin tool; the `uf.review-pr` step 0 precedent runs the
+  identical prose. Accepted as prose, pinned by the
+  structural contract test.
+- **Phase 1.2 bucket-keyed eligibility routing** — the
+  three-rule gate branching on each check's `bucket` (any
+  `fail` proceeds; all `pass`/`skipping` reports green;
+  `pending`/`cancel` STOPs). Branching on structured results
+  belongs in a tool per DE-005, but the routing consumes the
+  check-suite fetch above, so its collapse rides #861's
+  intent-level path; until then the fixed table is pinned by
+  the structural contract test.
+- **Phase 1.3 fork-aware remote resolution** — parsing each
+  remote's `owner/repo` from its HTTPS and SSH fetch URLs
+  with the fixed upstream→origin→other preference.
+  `uf_finale_base_state` and `resolve_base_ref` resolve a
+  local base ref for the current branch's own PR and accept
+  no PR-repository inputs; Phase 1.3 anchors to the fetched
+  PR's head/base repositories (design D3, the
+  someone-else's-fork STOP), which no tool covers. Accepted
+  as bounded prose — two URL forms, one fixed preference
+  order — pinned by the structural contract test.
+- **Phase 2.0 run-id derivation** — the numeric path
+  segment after `/actions/runs/`, validated against
+  `^[0-9]+$` (the D9 shell-argument rule). A pure text
+  transformation with no wrapping tool; accepted as bounded
+  prose, pinned by the structural contract test.
+- **No-tool git invocations** — staging resolved files
+  (`git add <resolved-file>`), verifying staged scope
+  (`git diff --cached --stat`), the conventional fix commit
+  (`git commit -m "fix: ..."` — `git_commit_no_edit` cannot
+  express the FR-005 message), and rebase continuation
+  (`git rebase --continue`). No plugin tools wrap them
+  (FR-010); the commit-scope check around them is pinned by
+  the structural contract test.
+- **Gate presentation scaffolding** — the shared
+  question-tool presentation contract, defined once as the
+  intra-file Gate Presentation Contract and referenced by
+  the four MANDATORY GATE sites (this change's own dedup).
+  Cross-command extraction is owned by the pending
+  `question-tool-presentation-contract` change (#850), per
+  the proposal's Dependencies.
 
 Rationale: constitution VI (Deterministic Execution) — every
-mechanical step that has a tool uses the tool, and the one
-class that does not is documented above rather than claimed
-as compliant; adding new Go code inside this change would
-duplicate tested surface (e.g., CI polling already lives in
-`uf_finale_ci_poll`).
+mechanical step that has a tool uses the tool, and every
+step that does not is enumerated above with its feasibility
+assessment rather than claimed as compliant; adding new Go
+code inside this change would duplicate tested surface
+(e.g., CI polling already lives in `uf_finale_ci_poll`).
 
 ### D2: Rebase-only synchronization; never merge
 

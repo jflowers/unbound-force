@@ -65,6 +65,77 @@ func TestCommandContracts_TriageIssue(t *testing.T) {
 	assertCommandCopies(t, "uf.triage-issue.md", true, clauses)
 }
 
+func TestCommandContracts_FixCiCommandStructure(t *testing.T) {
+	clauses := []commandClause{
+		{name: "never-merge rule", all: []string{"MUST NEVER merge", "no option offers it", "rebase only"}},
+		{name: "fr-008 terminal pr state", all: []string{"NEVER merges the PR, approves the PR, closes the PR", "posts any review on it", "remains open, unmerged, and unapproved", "unapproved by this command in every terminal state"}},
+		{name: "mandatory gate markers", all: []string{"MANDATORY GATE: HUMAN CONFIRMATION REQUIRED", "END MANDATORY GATE"}},
+		{name: "question-tool presentation contract", all: []string{"plain session text **above** the question tool", "per-option reasoning", "the recommended option FIRST and", `labeled "(Recommended)"`, "fail-closed, per FR-013"}},
+		{name: "shared gate presentation contract", all: []string{"Gate Presentation Contract", "Do not restate the procedure at the gate sites", "through the **Gate Presentation Contract**", "supplying this gate's content", "a gated mutation never executes ungated"}},
+		{name: "rebase gate wiring", all: []string{"Rebase onto <BASE_REMOTE>/<BASE_BRANCH>", "Continue without rebase -- keep the branch as-is", "before `git_fetch` or `git_rebase` runs"}},
+		{name: "ambiguity gate wiring", all: []string{"Abort the rebase -- restore the pre-rebase state", "Leave the rebase in progress -- resolve manually", "`git_rebase_abort` without an explicit human choice"}},
+		{name: "fix-plan gate wiring", all: []string{"Proceed with the fix plan", "Pause -- defer the decision", "the loop never starts ungated"}},
+		{name: "rerun gate wiring", all: []string{"Skip the rerun -- keep the results as-is", "before `gh run rerun` runs"}},
+		{name: "session-resume guard", all: []string{"SESSION-RESUME GUARD", "Call `get_progress` with `command: \"uf.fix-ci\"`", "no mutation executes on", "inferred consent"}},
+		{name: "checkpoint steps", all: []string{"step: \"pr-resolved\"", "step: \"diagnosis\"", "step: \"rebase\"", "step: \"fix-loop\"", "step: \"final-verification\"", "Then call `clear_progress` with", "`command: \"uf.fix-ci\"` to clean up progress state"}},
+		{name: "todowrite tracking", all: []string{"TodoWrite Progress Tracking", "initialize TodoWrite with all six phases", "both MUST be maintained", "re-initialize the TodoWrite list"}},
+		{name: "ci polling through plugin tool", all: []string{"uf_finale_ci_poll", "never a bash"}},
+		{name: "git plugin tools", all: []string{"git_fetch", "git_rebase", "git_rebase_abort", "git_push", "git_push_force_with_lease", "git_conflict_files", "scan_conflict_markers"}},
+		{name: "eligibility bucket routing", all: []string{"Categorize each check by its `bucket`", "Any check `fail`", "every check `pass` or `skipping`", "some check `pending` or `cancel`"}},
+		{name: "d1 choreography pins", all: []string{"which gh", "gh auth status", "https://github.com/owner/repo.git", "git@github.com:owner/repo.git", "prefer `upstream`, then `origin`", "the numeric path segment immediately following `/actions/runs/`", "^[0-9]+$", "git diff --cached --stat", "never `git add .`, never `git add -A`"}},
+		{name: "review-council gate", all: []string{"/uf.review-council", "REQUEST CHANGES", "Exhaustion MUST NOT push"}},
+		{name: "three-iteration cap", all: []string{"capped at 3", "iteration counter", "**STOP** without pushing"}},
+		{name: "flaky-infra rerun path", all: []string{"gh run rerun <RUN_ID> --failed --repo <BASE_REPOSITORY>", "Rerun the failed jobs", "No code change is ever proposed for a flaky/infra-classified check"}},
+	}
+
+	assertCommandCopies(t, "uf.fix-ci.md", true, clauses)
+
+	// Count pins: the shared presentation contract is defined exactly
+	// once and wired into exactly four gates, and the never-merge and
+	// terminal-state discipline repeats at a fixed number of sites.
+	// Presence-only clauses cannot catch a gate silently losing its
+	// wiring or the contract being restated inline at a gate site.
+	countPins := []struct {
+		fragment string
+		want     int
+	}{
+		{"MANDATORY GATE: HUMAN CONFIRMATION REQUIRED", 4},
+		{"END MANDATORY GATE", 4},
+		{"remains open, unmerged, and unapproved", 3},
+		{"through the **Gate Presentation Contract**", 4},
+		{"supplying this gate's content", 4},
+		{"plain session text **above** the question tool", 1},
+		{"fail-closed, per FR-013", 1},
+		{"the recommended option FIRST and", 1},
+		{"MUST NEVER merge", 5},
+	}
+	for _, pin := range countPins {
+		for _, copy := range loadCommandCopies(t, "uf.fix-ci.md", true) {
+			if got := strings.Count(normalizeCommandText(copy.text), normalizeCommandText(pin.fragment)); got != pin.want {
+				t.Errorf("%s: fragment %q occurs %d times, want %d", copy.name, pin.fragment, got, pin.want)
+			}
+		}
+	}
+
+	// The never-merge and FR-008 terminal-state rules are structural:
+	// the command must not even name the merge tool or the PR-mutating
+	// gh verbs, so no option or push path can reintroduce them.
+	for _, copy := range loadCommandCopies(t, "uf.fix-ci.md", true) {
+		normalized := normalizeCommandText(copy.text)
+		for _, forbidden := range []string{
+			"git_merge",
+			"gh pr merge",
+			"gh pr approve",
+			"gh pr close",
+			"gh pr review",
+		} {
+			if strings.Contains(normalized, forbidden) {
+				t.Errorf("%s: never-merge command must not reference %q", copy.name, forbidden)
+			}
+		}
+	}
+}
+
 func TestCommandContracts_AddressFeedback(t *testing.T) {
 	clauses := []commandClause{
 		{name: "tier one preserved", all: []string{"**tier 1 (direct)**", "single file affected", "clear match to a convention pack rule", "no security implications", "no architectural implications"}},

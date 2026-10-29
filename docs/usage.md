@@ -81,6 +81,33 @@ The command is re-entrant: run it multiple times as
 reviewers respond. It only shows unresolved threads and
 uses a local cache to speed up re-assessment.
 
+### Fix Failing CI Checks
+
+When a PR's CI checks are red, use `/uf.fix-ci` to diagnose
+and repair them:
+
+```text
+/uf.fix-ci [PR_NUMBER]
+```
+
+The command fetches each failed check's logs and classifies
+the root cause as exactly one of code failure, stale branch,
+conflict, or flaky/infra. It then carries the repair
+through:
+
+- **Rebase path** — when the branch is conflicted or behind,
+  the head branch is rebased onto the base branch. Rebase
+  only, never merge: no option ever merges base into head
+- **Gated fix loop** — a human gate approves the diagnosis
+  and fix plan before any fix executes; `/uf.review-council`
+  must approve the fixes before anything is pushed (capped
+  at 3 iterations; exhaustion never pushes)
+- **Flaky/infra path** — offers rerunning the failed checks
+  instead of a code change, then re-polls CI
+
+The command verifies CI ends green and never merges,
+approves, or closes the PR.
+
 ### Propose a Change (Small)
 
 For bug fixes, minor enhancements, and tasks under 3
@@ -259,6 +286,7 @@ command documentation with flags and examples.
 | `/uf.review-council` | Run the 9-persona review council |
 | `/uf.review-pr` | Review a GitHub PR (post-PR) |
 | `/uf.address-feedback` | Triage and address PR review feedback |
+| `/uf.fix-ci` | Diagnose and fix failing PR CI checks |
 | `/uf.rebase-pr` | Rebase a conflicted PR onto its base |
 | `/opsx-propose` | Create a change proposal with plan and tasks |
 | `/opsx-apply` | Implement tasks from an OpenSpec change |

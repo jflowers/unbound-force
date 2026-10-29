@@ -47,9 +47,12 @@ number,state,headRefName,baseRefName,mergeable,mergeStateStatus,
 headRepository,isCrossRepository,url` (the base repository
 derives from the PR `url`; `gh pr view --json` exposes no
 `baseRepository` field) and check status via the pinned
-invocation `gh pr checks <N> --json name,state,link`. It MUST
-STOP when the PR is CLOSED or MERGED, and MUST STOP with a
-green report when all checks already pass.
+invocation `gh pr checks <N> --json name,state,bucket,link` —
+the `bucket` field (`pass`, `fail`, `pending`, `skipping`,
+`cancel`) categorizes each check for the eligibility gate,
+with `state` and `link` recorded alongside. It MUST STOP when
+the PR is CLOSED or MERGED, and MUST STOP with a green report
+when all checks already pass.
 
 #### Scenario: Closed or merged PR stops the command
 
@@ -328,8 +331,10 @@ wherever one exists: `uf_finale_ci_poll` for CI polling,
 `git_fetch`, `git_rebase`, `git_rebase_abort`,
 `git_push`, `git_push_force_with_lease` for git operations,
 and `git_conflict_files` plus `scan_conflict_markers` for
-conflict detection. Raw bash is reserved for operations with no
-plugin tool (`gh` commands).
+conflict detection. Raw bash is reserved for operations with
+no plugin tool (`gh` commands, remote/branch/status
+verification, staging, the conventional fix commit, rebase
+continuation).
 
 #### Scenario: CI polling through the plugin tool
 

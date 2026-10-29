@@ -1858,6 +1858,7 @@ var expectedAssetPaths = []string{
 	"opencode/commands/uf.cobalt-crush.md",
 	"opencode/commands/uf.constitution-check.md",
 	"opencode/commands/uf.finale.md",
+	"opencode/commands/uf.fix-ci.md",
 	"opencode/commands/uf.init.md",
 	"opencode/commands/uf.rebase-pr.md",
 	"opencode/commands/uf.review-council.md",

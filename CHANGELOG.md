@@ -6,6 +6,44 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- uf-fix-ci: Added a new post-PR command `/uf.fix-ci
+  [PR_NUMBER]` (canonical `.opencode/commands/uf.fix-ci.md`
+  plus a byte-identical scaffold mirror under
+  `internal/scaffold/assets/opencode/commands/`): diagnoses
+  each failing CI check on an open PR from fetched log
+  evidence (`gh run view --log-failed`), classifies the root
+  cause as exactly one of code failure, stale branch,
+  conflict, or flaky/infra, then carries the repair through.
+  When the branch is conflicted or behind, the head branch
+  is rebased onto the base branch -- rebase only, never
+  merge; no option ever merges base into head, and pushes
+  after a rebase use force-with-lease. Code fixes run
+  through a gated loop: a MANDATORY GATE question-tool
+  approval of the diagnosis and fix plan before any fix
+  executes, conventional `fix:` commits scoped to the
+  failing checks, and a `/uf.review-council` gate before any
+  push, with a single durable iteration counter capped at 3
+  (exhaustion never pushes). Flaky/infra failures offer
+  `gh run rerun --failed` instead of a code change. Final
+  verification polls CI until green (timeout-bounded) and
+  reports the outcome. Guardrails: never merge, approve, or
+  close the PR; never touch protected base branches; no fix
+  without the human gate; no push without the council gate;
+  untrusted log text never interpolated into shell
+  arguments. PR-state/checks/log fetches remain command-prose
+  deviations bound to companion issue #861
+  (fetch_pr_review_context extension plus intent-level
+  checks/log fetches -- not implemented here), with the
+  supporting mechanical choreography enumerated in the
+  change's design D1 deviation inventory. Complements
+  `/uf.rebase-pr` (#851) in the post-PR
+  command set; originating issue #858. The structural pin
+  test `TestCommandContracts_FixCiCommandStructure` asserts
+  the never-merge wording, gate markers, resume guard, gate
+  wiring, terminal PR state, tool references, and the D1
+  choreography pins on both command copies.
+  (Spec: openspec/changes/uf-fix-ci/)
+  (Docs: #862, unbound-force/website#342)
 - port-uf-rebase-pr: Ported the verified personal global command
   `resolve-branch-conflict.md` into the UF command set as
   `.opencode/commands/uf.rebase-pr.md`, invoked as
