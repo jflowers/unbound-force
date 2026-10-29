@@ -120,29 +120,23 @@ The gate's question MUST be answered before its mutation runs
 
 ## Phase 1: Prerequisites and PR Resolution
 
-Verify the `gh` CLI, resolve the PR number, fetch PR state and check
-status, enforce eligibility, resolve fork-aware remotes, and verify
-the local head-branch checkout. Every STOP in this phase fires before
-any diagnosis, rebase, fix, or push occurs.
+Resolve the PR number, fetch PR state and check status through the
+plugin fetch tools, enforce eligibility, resolve fork-aware remotes,
+and verify the local head-branch checkout. Every STOP in this phase
+fires before any diagnosis, rebase, fix, or push occurs.
 
 ### 1.0 Prerequisites
 
-Verify the `gh` CLI is available and authenticated before proceeding:
+The Phase 1 fetch tools validate `gh` CLI availability and
+authentication themselves — no separate prerequisite commands run.
+Every tool returns either its structured output or a structured error
+envelope — `error: true` with `code`, `message`, and `retryable`.
+Map the two availability codes to this command's STOP messages
+wherever a Phase 1 tool call returns them:
 
-```bash
-which gh
-```
-
-If `gh` is not found: **STOP** with error:
+- `gh_not_found`: **STOP** with error:
 > "`gh` CLI is not installed. Install it from https://cli.github.com/ or via your package manager."
-
-If `gh` is found, verify authentication:
-
-```bash
-gh auth status
-```
-
-If not authenticated: **STOP** with error:
+- `gh_auth_failed`: **STOP** with error:
 > "`gh` is installed but not authenticated. Run `gh auth login` to authenticate."
 
 ### 1.1 Resolve PR Number
@@ -151,81 +145,81 @@ If not authenticated: **STOP** with error:
 positive integer. If it is not: **STOP** with error:
 > "Invalid PR number `<PR_NUMBER>`. Provide a numeric PR number: `/uf.fix-ci 42`"
 
-When valid, skip detection entirely. Do NOT run `gh pr view`,
-`git branch --show-current`, or any branch/PR detection commands.
+When valid, skip detection entirely. Do NOT run any branch/PR
+detection — Phase 1.2's `fetch_pr_review_context` call carries the
+number directly.
 
 **Only if no PR number was provided**: auto-detect from the current
-branch:
+branch by calling `fetch_pr_review_context` with no `pr_number` —
+the tool resolves the current branch's open PR and reports the
+resolved number in its `pr_number` output field. Record that value
+as `PR_NUMBER` and carry the call's output into 1.2: it is the
+PR-context fetch, so 1.2 does not fetch the PR again on this path.
 
-```bash
-gh pr view --json number --jq '.number'
-```
-
-If no open PR exists for the current branch: **STOP** with error:
+If the tool returns `pr_not_found` (its message distinguishes "no
+such PR" from "no open PR for this branch" — here, no open PR exists
+for the current branch): **STOP** with error:
 > "No open PR found for branch '`<branch>`'. Provide a PR number: `/uf.fix-ci 42`"
+
+Any other structured error (`api_error`, `timeout`, `rate_limited`):
+**STOP** with the error envelope surfaced verbatim.
 
 ### 1.2 Fetch PR State and Check Status
 
-Fetch the PR state:
+Fetch the PR state through the plugin tool: argument-supplied
+invocations call `fetch_pr_review_context` with
+`pr_number: <PR_NUMBER>`; auto-detect invocations reuse the 1.1
+call's output — the PR context is fetched exactly once either way.
 
-```bash
-gh pr view <PR_NUMBER> --json number,state,headRefName,baseRefName,mergeable,mergeStateStatus,headRepository,isCrossRepository,url
-```
-
-If the fetch fails (PR not found, no access, network error): **STOP**
+If the call returns a structured error — `pr_not_found` (no such PR)
+or a fetch failure (`api_error`, `timeout`, `rate_limited`): **STOP**
 with the error surfaced verbatim and the PR number named — no state
 was read or mutated.
 
-Record:
+Record (each value from the tool's output fields):
 
-- `STATE` — PR state (`OPEN`, `CLOSED`, `MERGED`)
-- `HEAD_REF` — `headRefName`
-- `BASE_BRANCH` — `baseRefName`
-- `MERGEABLE`, `MERGE_STATE` — `mergeable` and `mergeStateStatus` as
-  returned (Phase 3 selects the rebase path when the PR is conflicted
-  or behind)
-- `HEAD_REPOSITORY` — `headRepository.nameWithOwner`
-- `IS_FORK` — `isCrossRepository`
-- `BASE_REPOSITORY` — the `owner/repo` parsed from the PR `url` (gh
-  exposes no `baseRepository` field; the PR URL is always rooted at
-  the base repository)
+- `STATE` — `state` (`OPEN`, `CLOSED`, `MERGED`)
+- `HEAD_REF` — `head_ref`
+- `BASE_BRANCH` — `base_ref`
+- `MERGEABLE`, `MERGE_STATE` — `mergeable` and `merge_state_status`
+  as returned (Phase 3 selects the rebase path when the PR is
+  conflicted or behind)
+- `HEAD_REPOSITORY` — `head_repository`
+- `IS_FORK` — derived from the repository comparison: the PR is a
+  fork PR when `HEAD_REPOSITORY` differs from `BASE_REPOSITORY`
+  (design D2)
+- `BASE_REPOSITORY` — `base_repository` (the tool derives it from
+  the PR `url`; gh exposes no `baseRepository` field, and the PR URL
+  is always rooted at the base repository)
 
 **Terminal state gate**: if `STATE` is `CLOSED` or `MERGED`, **STOP**
 with an error naming the terminal state:
 > "PR #<PR_NUMBER> is <STATE>. /uf.fix-ci only repairs open PRs — no diagnosis, rebase, fix, or push was performed."
 
-Fetch the check status:
+Fetch the check status through the plugin tool: call `fetch_pr_checks`
+with `pr_number: <PR_NUMBER>`. The tool returns the checks array —
+each check's `name`, `state`, `bucket`, and `link` — plus the derived
+`eligibility` classification: `failing` (any check buckets as
+`fail`), `pending` (none fail but some check buckets `pending`,
+`cancel`, or an unknown value — unknown buckets classify fail-closed
+as `pending` with a warning), or `passing` (every check `pass` or
+`skipping`, or no checks at all — a zero-check PR reports `passing`
+with an empty checks array). If the call returns a structured error:
+**STOP** with the error surfaced verbatim and the PR number named —
+no check status was read.
 
-```bash
-gh pr checks <PR_NUMBER> --json name,state,bucket,link
-```
+**Eligibility gate** (keyed on the derived `eligibility`):
 
-A non-zero exit from `gh pr checks` encodes check status (gh
-documents exit 8 for pending checks), not a fetch failure — the JSON
-output is the authoritative record. Categorize each check by its
-`bucket`:
-
-| Bucket | Meaning |
-|--------|---------|
-| `pass` | Check succeeded |
-| `fail` | Check failed — a fix target |
-| `pending` | Check still running |
-| `skipping` | Check skipped |
-| `cancel` | Check was canceled |
-
-**Eligibility gate**:
-
-- **Any check `fail`**: record the failing check list — name, `state`,
-  and `link` (the link carries the run/job URL Phase 2 uses for
-  `gh run view <run-id> --log-failed`) — alongside the refs, mergeable
-  state, and fork orientation recorded above, then proceed to Phase 2.
-- **No `fail` and every check `pass` or `skipping`** (or no checks
-  reported at all): call `clear_progress` with
+- **`failing`**: record the failing check list — name, `state`, and
+  `link` (the link carries the run/job URL Phase 2 uses for its
+  failure-log fetches) — alongside the refs, mergeable state, and
+  fork orientation recorded above, then proceed to Phase 2.
+- **`passing`**: call `clear_progress` with
   `command: "uf.fix-ci"` to clear any stale loop state a prior
   invocation left behind, report the PR green — print each check
   with its bucket — and **STOP**. There is nothing to fix.
-- **No `fail` but some check `pending` or `cancel`**: report the
-  observed buckets and **STOP** with guidance:
+- **`pending`**: report the observed buckets and **STOP** with
+  guidance:
 > "No failing checks yet — <N> check(s) are still pending or canceled. Re-invoke `/uf.fix-ci <PR_NUMBER>` once checks complete."
 
 ### 1.3 Resolve Fork-Aware Remotes
