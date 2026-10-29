@@ -283,10 +283,11 @@ explicit paths.
 
 Retiring uf-fix-ci's deviation records touches artifacts that
 carry passed review markers. Mitigation: edits are bounded to the
-deviation-record fragments (design D1 entry, FR-002/FR-003/FR-010)
-sanctioned by issue #861 and anticipated by that change's own
-Dependencies text; scenario intent is preserved; this change's
-review council certifies the edits.
+deviation-record fragments (design D1 inventory entries,
+FR-001/FR-002/FR-003/FR-010) sanctioned by issue #861 and
+anticipated by that change's own Dependencies text; scenario
+intent is preserved; this change's review council certifies the
+edits.
 
 ### R4: Log volume and disk accumulation
 

@@ -162,7 +162,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   keeping the `gh run rerun --failed` pin (rerun stays prose); run
   `go test ./internal/scaffold/...` and confirm drift, manifest,
   and pin tests pass.
-- [ ] 4.4 Retire the deviation records in
+- [x] 4.4 Retire the deviation records in
   `openspec/changes/uf-fix-ci/` (FR-015, design D6): amend design
   D1's three-raw-gh-fetch-classes inventory entry with a
   closed-with-reference note pointing at this change; reword
