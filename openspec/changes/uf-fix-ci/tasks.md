@@ -52,7 +52,7 @@ design D1.
   as exactly one of code failure, stale branch, conflict, or
   flaky/infra, grounded in the log evidence (FR-003, design
   D5); record the classification table for the fix-plan gate.
-- [ ] 1.4 Implement Phase 3 — rebase path (selected when
+- [x] 1.4 Implement Phase 3 — rebase path (selected when
   conflicted or behind): the MANDATORY GATE question tool
   presents the diagnosis and proposed plan and MUST be
   answered before `git_fetch`/`git_rebase` run — the rebase
