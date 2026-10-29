@@ -310,7 +310,31 @@ const IssueContentSchema = z
 
 const FetchPrReviewContextInputSchema = z
   .object({
+    pr_number: z.number().int().min(1).max(999_999).optional(),
+  })
+  .strict()
+
+const FetchPrChecksInputSchema = z
+  .object({
     pr_number: z.number().int().min(1).max(999_999),
+  })
+  .strict()
+
+/**
+ * Input schema for fetch_failed_run_logs (design D5 of
+ * extend-fetch-pr-review-context).
+ *
+ * `run_id` must be a bare decimal digit string and `repo` an
+ * `owner/repo` pair (the character classes mirror
+ * deriveBaseRepository). Validation is defense in depth on top of
+ * Bun.spawn argument arrays, which already preclude shell injection:
+ * an injection payload such as "40908825770; rm -rf /" is rejected
+ * by the schema before any `gh` invocation (FR-014).
+ */
+const FetchFailedRunLogsInputSchema = z
+  .object({
+    run_id: z.string().regex(/^[0-9]+$/),
+    repo: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/).optional(),
   })
   .strict()
 
@@ -6067,6 +6091,11 @@ interface FetchPrReviewContextOutput {
   readonly base_sha: string
   readonly head_ref: string
   readonly head_sha: string
+  readonly state: string
+  readonly mergeable: string
+  readonly merge_state_status: string
+  readonly head_repository: string
+  readonly base_repository: string
   readonly files: ReadonlyArray<{ path: string; additions: number; deletions: number }>
   readonly diff_path: string
   readonly diff_lines: number
@@ -6089,6 +6118,34 @@ interface FetchPrReviewContextOutput {
   readonly input_context: string
   readonly changed_files: string
   readonly warnings: string[]
+}
+
+/**
+ * Build the Error for a failed `gh` invocation, annotated with a structured
+ * `ghCode` property for classifyError.
+ *
+ * Detects gh-reported timeouts and GitHub API rate limits from stderr (plus
+ * gh's rate-limit exit code 4); every other failure annotates `api_error`.
+ * Shared by runGhCommand's non-zero-exit throw and fetch_pr_checks'
+ * exit-code-tolerant classification of stdout that carries no check-status
+ * data, so both paths produce identically classified errors.
+ *
+ * @param stderr The gh process's stderr text.
+ * @param exitCode The gh process's exit code.
+ * @returns An Error whose `ghCode` property classifies the failure.
+ */
+function ghFailureError(stderr: string, exitCode: number): Error & { ghCode: string } {
+  const lower = stderr.toLowerCase()
+  // Detect gh-reported timeout messages (AbortSignal timeouts reject the
+  // stream read before exit-code handling).
+  if (lower.includes("timed out") || lower.includes("timeout")) {
+    return Object.assign(new Error(`gh CLI timed out: ${stderr.trim()}`), { ghCode: "timeout" })
+  }
+  // Detect rate limiting from GitHub API.
+  if (lower.includes("rate limit") || lower.includes("api rate limit exceeded") || exitCode === 4) {
+    return Object.assign(new Error(`GitHub API rate limited: ${stderr.trim()}`), { ghCode: "rate_limited" })
+  }
+  return Object.assign(new Error(`gh CLI failed (exit ${exitCode}): ${stderr.trim()}`), { ghCode: "api_error" })
 }
 
 /**
@@ -6116,16 +6173,9 @@ async function runGhCommand(args: readonly string[]): Promise<string> {
   ])
 
   if (exitCode !== 0) {
-    const lower = stderr.toLowerCase()
-    // Detect timeout from AbortSignal (already thrown) or gh-reported timeout.
-    if (lower.includes("timed out") || lower.includes("timeout")) {
-      throw Object.assign(new Error(`gh CLI timed out: ${stderr.trim()}`), { ghCode: "timeout" })
-    }
-    // Detect rate limiting from GitHub API.
-    if (lower.includes("rate limit") || lower.includes("api rate limit exceeded") || exitCode === 4) {
-      throw Object.assign(new Error(`GitHub API rate limited: ${stderr.trim()}`), { ghCode: "rate_limited" })
-    }
-    throw Object.assign(new Error(`gh CLI failed (exit ${exitCode}): ${stderr.trim()}`), { ghCode: "api_error" })
+    // AbortSignal timeouts already rejected the Promise.all above; only
+    // gh-reported failures reach this throw.
+    throw ghFailureError(stderr, exitCode)
   }
 
   return stdout
@@ -6152,12 +6202,32 @@ function classifyError(error: unknown, fallbackCode: string, fallbackMessage: st
 }
 
 /**
+ * Derive the base repository (`owner/repo`) from a PR url.
+ *
+ * `gh pr view --json` exposes no `baseRepository` field, but the PR
+ * url is always rooted at the base repository — on fork PRs the url
+ * names the base while `headRepository` names the fork (design D2 of
+ * extend-fetch-pr-review-context). Fork orientation is therefore
+ * derivable by comparing `head_repository` with `base_repository`.
+ *
+ * @param url PR url as returned by `gh pr view --json url`.
+ * @returns The `owner/repo` base repository slug, or null when the
+ *   url does not parse as a base-repository PR url.
+ */
+function deriveBaseRepository(url: string): string | null {
+  const match = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/\d+$/.exec(url)
+  return match === null ? null : `${match[1]}/${match[2]}`
+}
+
+/**
  * Fetch all PR review context in one deterministic call.
  *
  * Orchestrates gh CLI calls for PR metadata, CI checks, diff,
- * existing reviews, and inline comments. Pre-computes derived
- * fields (input_context, changed_files, exceeds_threshold,
- * ci_pending) and populates warnings for non-fatal degradation.
+ * existing reviews, and inline comments. Passes the PR-repair
+ * fields (state, mergeable, merge_state_status, head_repository)
+ * through as gh returns them and pre-computes derived fields
+ * (input_context, changed_files, exceeds_threshold, ci_pending,
+ * base_repository), populating warnings for non-fatal degradation.
  *
  * Security: All gh CLI calls use Bun.spawn with argument arrays
  * to prevent shell injection. The diff temp file is created with
@@ -6166,13 +6236,14 @@ function classifyError(error: unknown, fallbackCode: string, fallbackMessage: st
  * into shell commands.
  *
  * @param prNumber Validated positive integer PR number (1–999999).
+ *   When omitted, `gh pr view` runs with no number so gh resolves the
+ *   current branch's open PR; the resolved number is reported in the
+ *   output's `pr_number` (design D3).
  * @returns Structured output or structured error.
  */
 async function fetchPrReviewContext(
-  prNumber: number,
+  prNumber: number | undefined,
 ): Promise<FetchPrReviewContextOutput | FetchContextError> {
-  // Pre-compute string representation once (DRY — used in multiple gh CLI calls).
-  const prNumberStr = String(prNumber)
 
   // ── 1.2a: Validate gh CLI availability and auth ──────────
   try {
@@ -6215,29 +6286,56 @@ async function fetchPrReviewContext(
     baseRefOid: string
     headRefName: string
     headRefOid: string
+    state: string
+    mergeable: string
+    mergeStateStatus: string
+    headRepository: { nameWithOwner: string }
+    url: string
     files: Array<{ path: string; additions: number; deletions: number }>
   }
   try {
+    // Design D3: with no pr_number, gh pr view resolves the current
+    // branch's open PR. gh rejects a baseRepository --json field, so
+    // base_repository is derived from the PR url instead (design D2).
     const raw = await runGhCommand([
       "pr",
       "view",
-      prNumberStr,
+      ...(prNumber === undefined ? [] : [String(prNumber)]),
       "--json",
-      "number,title,body,baseRefName,baseRefOid,headRefName,headRefOid,files",
+      "number,title,body,baseRefName,baseRefOid,headRefName,headRefOid,state,mergeable,mergeStateStatus,headRepository,url,files",
     ])
     prMeta = JSON.parse(raw)
   } catch (error: unknown) {
-    // Detect PR not found from error message.
+    // Detect PR not found from error message. The message names which
+    // pr_not_found case fired: an explicit number with no such PR, or
+    // no open PR for the current branch when pr_number was omitted.
     if (error instanceof Error && /not found|no pull request|could not find/i.test(error.message)) {
       return {
         error: true,
         code: "pr_not_found",
-        message: `PR #${prNumber} not found in the current repository`,
+        message:
+          prNumber === undefined
+            ? "No open pull request found for the current branch"
+            : `PR #${prNumber} not found in the current repository`,
         retryable: false,
       }
     }
-    return classifyError(error, "api_error", `Failed to fetch PR #${prNumber} metadata`)
+    return classifyError(
+      error,
+      "api_error",
+      prNumber === undefined
+        ? "Failed to fetch the current branch's PR metadata"
+        : `Failed to fetch PR #${prNumber} metadata`,
+    )
   }
+
+  // Every subsequent gh call anchors on the PR gh actually returned: with
+  // an explicit pr_number that is the caller's number (unchanged
+  // behavior), and with an omitted one it is the current-branch PR gh
+  // resolved. Pre-compute the string representation once (DRY — used in
+  // multiple gh CLI calls).
+  const resolvedPrNumber = prNumber ?? prMeta.number
+  const prNumberStr = String(resolvedPrNumber)
 
   const warnings: string[] = []
 
@@ -6266,11 +6364,11 @@ async function fetchPrReviewContext(
   try {
     diffContent = await runGhCommand(["pr", "diff", prNumberStr])
   } catch (error: unknown) {
-    return classifyError(error, "api_error", `Failed to fetch diff for PR #${prNumber}`)
+    return classifyError(error, "api_error", `Failed to fetch diff for PR #${resolvedPrNumber}`)
   }
 
   const diffDir = join(tmpdir(), "opencode")
-  const diffPath = join(diffDir, `pr-${prNumber}-diff.patch`)
+  const diffPath = join(diffDir, `pr-${resolvedPrNumber}-diff.patch`)
 
   try {
     // Create parent directory with 0o700 permissions.
@@ -6354,9 +6452,26 @@ async function fetchPrReviewContext(
   }
 
   // ── 1.2f: Pre-compute derived fields ────────────────────
+  // Design D2: gh pr view --json exposes no baseRepository field, so
+  // base_repository is derived from the PR url, which gh always roots
+  // at the base repository (on fork PRs the url names the base while
+  // headRepository names the fork). An unparseable url degrades to an
+  // empty string plus a warning — the established graceful-degradation
+  // pattern.
+  let baseRepository = ""
+  const prUrl = prMeta.url ?? ""
+  if (prUrl !== "") {
+    const derived = deriveBaseRepository(prUrl)
+    if (derived === null) {
+      warnings.push(`base_repository degraded: unparseable PR url ${JSON.stringify(prUrl)}`)
+    } else {
+      baseRepository = derived
+    }
+  }
+
   const inputContext = [
     `kind: pr`,
-    `pr_number: ${prNumber}`,
+    `pr_number: ${resolvedPrNumber}`,
     `base_ref: ${prMeta.baseRefName}`,
     `base_sha: ${prMeta.baseRefOid}`,
     `head_ref: ${prMeta.headRefName}`,
@@ -6387,6 +6502,11 @@ async function fetchPrReviewContext(
     base_sha: prMeta.baseRefOid,
     head_ref: prMeta.headRefName,
     head_sha: prMeta.headRefOid,
+    state: prMeta.state ?? "",
+    mergeable: prMeta.mergeable ?? "",
+    merge_state_status: prMeta.mergeStateStatus ?? "",
+    head_repository: prMeta.headRepository?.nameWithOwner ?? "",
+    base_repository: baseRepository,
     files: prMeta.files ?? [],
     diff_path: diffPath,
     diff_lines: diffLines,
@@ -6406,20 +6526,27 @@ async function fetchPrReviewContext(
  * Creates the fetch_pr_review_context OpenCode tool.
  *
  * Fetches all PR metadata needed for review dispatch in one
- * deterministic call: PR metadata, CI checks, diff (persisted
- * to disk), existing reviews, inline comments, and pre-computed
- * derived fields. Returns structured output on success or
- * structured error on failure.
+ * deterministic call: PR metadata (including the PR-repair fields
+ * state, mergeable, merge_state_status, head_repository, and
+ * base_repository derived from the PR url), CI checks, diff
+ * (persisted to disk), existing reviews, inline comments, and
+ * pre-computed derived fields. Returns structured output on
+ * success or structured error on failure.
  *
- * @returns An OpenCode tool definition with validated PR number input.
+ * @returns An OpenCode tool definition with an optional validated
+ *   PR number input; omission resolves the current branch's open PR.
  */
 function createFetchPrReviewContextTool(): ReturnType<typeof tool> {
   return tool({
     description:
       "Fetch all PR metadata needed for review dispatch in one deterministic call. " +
-      "Returns PR metadata, CI checks, diff path, existing reviews, inline comments, " +
-      "and pre-computed fields (input_context, changed_files, exceeds_threshold, ci_pending). " +
-      "Saves the diff to a temp file. Returns structured errors with error codes on failure.",
+      "Returns PR metadata — including the PR-repair fields state, mergeable, " +
+      "merge_state_status, head_repository, and base_repository (derived from the PR url) — " +
+      "CI checks, diff path, existing reviews, inline comments, and pre-computed fields " +
+      "(input_context, changed_files, exceeds_threshold, ci_pending). pr_number is optional: " +
+      "when omitted, the current branch's open PR is resolved and its number reported in the " +
+      "output's pr_number. Saves the diff to a temp file. Returns structured errors with " +
+      "error codes on failure.",
     args: {
       pr_number: FetchPrReviewContextInputSchema.shape.pr_number,
     },
@@ -6435,6 +6562,553 @@ function createFetchPrReviewContextTool(): ReturnType<typeof tool> {
         return { output: JSON.stringify(result, null, 2) }
       }
       const result = await fetchPrReviewContext(parsed.data.pr_number)
+      return { output: JSON.stringify(result, null, 2) }
+    },
+  })
+}
+
+// ── fetch_pr_checks ──────────────────────────────────────────
+
+/**
+ * stderr marker for a PR with zero checks.
+ *
+ * Verified shape (gh 2.91.0, 2026-10-29): `gh pr checks <N> --json
+ * name,state,bucket,link` on a PR with no checks exits 1 with EMPTY
+ * stdout and this human-readable message on stderr — gh does not emit
+ * `[]` for a checkless PR. Empty stdout is therefore zero-checks data
+ * only when gh says so through this marker; a `[]` stdout, should a gh
+ * version emit it, parses as a JSON array and lands in the normal data
+ * path instead.
+ */
+const NO_CHECKS_REPORTED_PATTERN = /no checks reported/i
+
+/**
+ * stderr pattern indicating the PR number does not resolve.
+ *
+ * Extends fetchPrReviewContext's `/not found|no pull request|could not
+ * find/i` pr_not_found detection with `gh pr checks`' GraphQL phrasing —
+ * "Could not resolve to a PullRequest with the number of N" (verified
+ * against gh 2.91.0, 2026-10-29) — which the sibling pattern does not
+ * match.
+ */
+const PR_CHECKS_NOT_FOUND_PATTERN = /not found|no pull request|could not find|could not resolve to a pullrequest/i
+
+/** gh check `bucket` values fetch_pr_checks recognizes. Verified against
+ * gh 2.91.0 (2026-10-28, issue #861); anything else classifies fail-closed. */
+const KNOWN_CHECK_BUCKETS: ReadonlySet<string> = new Set(["pass", "fail", "pending", "skipping", "cancel"])
+
+/** Eligibility classification derived from observed check buckets. */
+type PrChecksEligibility = "failing" | "pending" | "passing"
+
+/** Output shape for a successful fetch_pr_checks call. */
+interface FetchPrChecksOutput {
+  readonly pr_number: number
+  readonly checks: ReadonlyArray<{
+    name: string
+    state: string
+    bucket: string
+    link: string
+  }>
+  readonly eligibility: PrChecksEligibility
+  readonly warnings: string[]
+}
+
+/** Result of an exit-code-tolerant gh invocation. */
+interface GhCommandResult {
+  readonly stdout: string
+  readonly stderr: string
+  readonly exitCode: number
+}
+
+/**
+ * Run a `gh` CLI command via Bun.spawn WITHOUT throwing on non-zero exit.
+ *
+ * Design D4 of extend-fetch-pr-review-context: `gh pr checks` exits
+ * non-zero when checks fail or are pending (gh documents exit 8 for
+ * pending) while still printing the authoritative JSON array to stdout.
+ * runGhCommand's throw-on-non-zero contract is correct for the
+ * review-dispatch sub-calls but fatal-loss for PR repair, where the
+ * checks payload is the primary signal — so this variant resolves with
+ * the raw streams and exit code, and the caller decides what counts as
+ * data. AbortSignal timeouts still reject and classify as `timeout`.
+ * Uses Bun.spawn argument arrays exactly like runGhCommand — no shell
+ * layer, so untrusted check names and links cannot inject.
+ *
+ * @param args CLI arguments (e.g. ["pr", "checks", "123", "--json", "..."]).
+ * @returns stdout, stderr, and the exit code.
+ */
+async function runGhCommandTolerant(args: readonly string[]): Promise<GhCommandResult> {
+  const process = Bun.spawn(["gh", ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+    signal: AbortSignal.timeout(GH_CLI_TIMEOUT_MS),
+  })
+
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(process.stdout).text(),
+    new Response(process.stderr).text(),
+    process.exited,
+  ])
+
+  return { stdout, stderr, exitCode }
+}
+
+/**
+ * Parse text as a JSON array, or null when it does not parse as one.
+ *
+ * Design D4 parsing rule: on ANY exit code, stdout that parses as a JSON
+ * array is check-status data; stdout that does not — unparseable, or
+ * parseable but not an array — is a fetch failure, including exit 0,
+ * because gh exit codes are not a reliable indicator of stdout
+ * parseability.
+ *
+ * @param text The gh process's stdout.
+ * @returns The parsed array, or null when stdout is not a JSON array.
+ */
+function tryParseJsonArray(text: string): unknown[] | null {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Derive PR-repair eligibility from observed gh check buckets.
+ *
+ * `failing` when any check buckets as `fail`; `pending` when none fail
+ * but any buckets as `pending`, `cancel`, or an unknown value (unknown
+ * values also append a warning naming the value — fail-closed per design
+ * D4 and risk R5, so an unrecognized status never proceeds to fixing);
+ * `passing` otherwise, including when there are no checks at all.
+ *
+ * @param buckets The observed bucket value of each check.
+ * @returns The eligibility classification and any unknown-bucket warnings.
+ */
+function deriveCheckEligibility(buckets: ReadonlyArray<string>): {
+  eligibility: PrChecksEligibility
+  warnings: string[]
+} {
+  const warnings: string[] = []
+  const warnedBuckets = new Set<string>()
+  let failing = false
+  let pending = false
+  for (const bucket of buckets) {
+    if (bucket === "fail") {
+      failing = true
+    } else if (bucket === "pending" || bucket === "cancel") {
+      pending = true
+    } else if (!KNOWN_CHECK_BUCKETS.has(bucket)) {
+      pending = true
+      if (!warnedBuckets.has(bucket)) {
+        warnedBuckets.add(bucket)
+        warnings.push(`unknown check bucket ${JSON.stringify(bucket)} classified as pending (fail-closed)`)
+      }
+    }
+  }
+  return { eligibility: failing ? "failing" : pending ? "pending" : "passing", warnings }
+}
+
+/**
+ * Fetch a PR's check-suite status and derive repair eligibility.
+ *
+ * Runs `gh pr checks <N> --json name,state,bucket,link` through the
+ * exit-code-tolerant path: on any exit code, stdout that parses as a JSON
+ * array is check-status data, while unparseable stdout is a fetch failure
+ * classified through classifyError — including exit 0. A PR with zero
+ * checks reports passing eligibility with an empty checks array (the
+ * verified gh shape is empty stdout plus the "no checks reported" stderr
+ * marker, exit 1 — see NO_CHECKS_REPORTED_PATTERN).
+ *
+ * Security: the gh call uses Bun.spawn with an argument array — no shell
+ * layer — so untrusted check names and links cannot inject. Check fields
+ * are passed through as data only.
+ *
+ * @param prNumber Validated positive integer PR number (1–999999).
+ * @returns Structured output with derived eligibility, or structured error.
+ */
+async function fetchPrChecks(prNumber: number): Promise<FetchPrChecksOutput | FetchContextError> {
+  // ── Validate gh CLI availability and auth ──────────────────
+  // Mirrors fetchPrReviewContext's prologue: `which gh` fails fast with
+  // gh_not_found and `gh auth status` with gh_auth_failed, so repair
+  // commands can map both to their existing STOP messages (design D6).
+  try {
+    const whichProcess = Bun.spawn(["which", "gh"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      signal: AbortSignal.timeout(5_000),
+    })
+    const whichExit = await whichProcess.exited
+    if (whichExit !== 0) {
+      return {
+        error: true,
+        code: "gh_not_found",
+        message: "gh CLI not found in PATH. Install from https://cli.github.com/",
+        retryable: false,
+      }
+    }
+  } catch {
+    return {
+      error: true,
+      code: "gh_not_found",
+      message: "gh CLI not found in PATH. Install from https://cli.github.com/",
+      retryable: false,
+    }
+  }
+
+  try {
+    await runGhCommand(["auth", "status"])
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "gh auth status failed"
+    return { error: true, code: "gh_auth_failed", message, retryable: false }
+  }
+
+  // ── Fetch checks through the exit-code-tolerant path ───────
+  let result: GhCommandResult
+  try {
+    result = await runGhCommandTolerant(["pr", "checks", String(prNumber), "--json", "name,state,bucket,link"])
+  } catch (error: unknown) {
+    return classifyError(error, "api_error", `Failed to fetch checks for PR #${prNumber}`)
+  }
+
+  const stdout = result.stdout.trim()
+
+  // ── Classify: stdout JSON is data on ANY exit code (design D4) ──
+  if (stdout === "") {
+    // Zero checks: gh exits 1 with EMPTY stdout and the "no checks
+    // reported" stderr marker — it does not emit `[]` (verified shape
+    // documented on NO_CHECKS_REPORTED_PATTERN). The stderr marker gates
+    // the data classification so any other empty-stdout outcome stays a
+    // fetch failure — fail-closed, so an unrecognized empty stdout never
+    // silently reports "passing".
+    if (NO_CHECKS_REPORTED_PATTERN.test(result.stderr)) {
+      return { pr_number: prNumber, checks: [], eligibility: "passing", warnings: [] }
+    }
+    if (PR_CHECKS_NOT_FOUND_PATTERN.test(result.stderr)) {
+      return {
+        error: true,
+        code: "pr_not_found",
+        message: `PR #${prNumber} not found in the current repository`,
+        retryable: false,
+      }
+    }
+    return classifyError(
+      ghFailureError(result.stderr, result.exitCode),
+      "api_error",
+      `Failed to fetch checks for PR #${prNumber}`,
+    )
+  }
+
+  const parsedChecks = tryParseJsonArray(stdout)
+  if (parsedChecks === null) {
+    // Unparseable stdout is a fetch failure on ANY exit code, including 0
+    // — gh exit codes are not a reliable indicator of stdout parseability.
+    // The excerpt is bounded so untrusted stdout cannot flood the error
+    // message.
+    return classifyError(
+      Object.assign(
+        new Error(
+          `gh pr checks stdout was not a JSON array (exit ${result.exitCode}): ` + JSON.stringify(stdout.slice(0, 200)),
+        ),
+        { ghCode: "api_error" },
+      ),
+      "api_error",
+      `Failed to fetch checks for PR #${prNumber}`,
+    )
+  }
+
+  // ── Map checks and derive eligibility ──────────────────────
+  const checks = parsedChecks.map((entry: unknown) => {
+    // Defensive field mapping: a missing or null bucket must surface as ""
+    // — an unknown value that classifies fail-closed as pending — rather
+    // than undefined, so eligibility derivation never sees a hole.
+    const check = (entry ?? {}) as Partial<{ name: string; state: string; bucket: string; link: string }>
+    return {
+      name: check.name ?? "",
+      state: check.state ?? "",
+      bucket: check.bucket ?? "",
+      link: check.link ?? "",
+    }
+  })
+  const { eligibility, warnings } = deriveCheckEligibility(checks.map((check) => check.bucket))
+
+  return {
+    pr_number: prNumber,
+    checks,
+    eligibility,
+    warnings,
+  }
+}
+
+/**
+ * Creates the fetch_pr_checks OpenCode tool.
+ *
+ * Repair-lane counterpart to fetch_pr_review_context's internal advisory
+ * ci_checks sub-call: that sub-call wraps runGhCommand, throws on
+ * non-zero exit, and degrades ci_checks to empty with a warning —
+ * correct for review dispatch, where checks are advisory, but
+ * fatal-loss for PR repair. This tool treats gh pr checks stdout JSON
+ * as check-status data on ANY exit code and derives the eligibility
+ * classification from the observed buckets (design D4).
+ *
+ * @returns An OpenCode tool definition taking a required validated PR
+ *   number and returning check status plus derived eligibility.
+ */
+function createFetchPrChecksTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Fetch PR check-suite status for repair routing in one deterministic call (gh pr checks). " +
+      "Returns each check's name, state, bucket, and link, plus an eligibility classification " +
+      "(failing / pending / passing) derived from the observed buckets — unknown bucket values " +
+      "classify fail-closed as pending with a warning. Repair lane: unlike " +
+      "fetch_pr_review_context's internal advisory ci_checks sub-call, which degrades to empty " +
+      "on red PRs, this tool's stdout JSON is check-status data on ANY gh exit code (gh pr checks " +
+      "exits non-zero when checks fail or are pending); only stdout that does not parse as a JSON " +
+      "array is a fetch failure. A PR with zero checks reports passing eligibility with an empty " +
+      "checks array. Returns structured errors with error codes on failure.",
+    args: {
+      pr_number: FetchPrChecksInputSchema.shape.pr_number,
+    },
+    async execute(args): Promise<{ readonly output: string }> {
+      const parsed = FetchPrChecksInputSchema.safeParse(args)
+      if (!parsed.success) {
+        const result: FetchContextError = {
+          error: true,
+          code: "api_error",
+          message: `Invalid input: ${formatValidationError(parsed.error)}`,
+          retryable: false,
+        }
+        return { output: JSON.stringify(result, null, 2) }
+      }
+      const result = await fetchPrChecks(parsed.data.pr_number)
+      return { output: JSON.stringify(result, null, 2) }
+    },
+  })
+}
+
+// ── fetch_failed_run_logs ────────────────────────────────────
+
+/**
+ * Pattern matching gh's not-found phrasing for `gh run view` failures.
+ *
+ * Verified shapes (gh 2.91.0, 2026-10-29, against the live API): an
+ * unknown run id exits 1 with `failed to get run: HTTP 404: Not Found`
+ * plus the actions/runs API url on stderr, and a run whose logs passed
+ * GitHub's retention window exits 1 with `failed to get run log:
+ * HTTP 410: Server Error` plus the runs/<id>/logs url — HTTP 410 Gone
+ * is the expired-logs signal. gh run view's phrasing differs from gh
+ * pr view's, so the pr_not_found pattern cannot be reused as-is; the
+ * HTTP status codes discriminate the not-found family (404/410) from
+ * permission failures (403) and rate limits, which classify through
+ * classifyError instead. `not found` / `could not find` mirror the
+ * sibling fetch patterns' generic not-found family. Tested against the
+ * thrown error's message, which embeds gh's stderr via ghFailureError.
+ */
+const RUN_NOT_FOUND_PATTERN = /not found|could not find|http 404|http 410/i
+
+/** Output shape for a successful fetch_failed_run_logs call. */
+interface FetchFailedRunLogsOutput {
+  readonly run_id: string
+  readonly repo: string
+  readonly log_path: string
+  readonly log_bytes: number
+  readonly log_lines: number
+  readonly warnings: string[]
+}
+
+/**
+ * Fetch a workflow run's failed-step logs and persist them to disk.
+ *
+ * Runs `gh run view <run_id> [--repo <repo>] --log-failed` and
+ * persists the output to `$TMPDIR/opencode/run-<run_id>-failed-logs.txt`
+ * with the FR-005 diff-persistence pattern (unlink-then-open with 'wx'
+ * flags, 0o600 file permissions, 0o700 parent, explicit chmod).
+ * Design D5: the log text is NEVER returned inline — a big CI failure
+ * can be megabytes, so callers get the path plus byte/line counts
+ * (bounded consumption, mirroring diff_path). A run with no failed
+ * steps exits 0 with empty output (verified shape), which succeeds
+ * with `log_lines: 0` plus a warning, preserving /uf.fix-ci Phase
+ * 2.1's STOP-on-empty decision as command prose. A missing or expired
+ * run returns `run_not_found` with the gh error surfaced (the
+ * pr_not_found precedent). `--repo` anchoring removes gh's local
+ * remote-resolution ambiguity on fork checkouts: PR checks report
+ * their Actions runs in the base repository, fork PRs included.
+ *
+ * Security: the gh call uses Bun.spawn with an argument array — no
+ * shell layer — so untrusted log text cannot inject, and `run_id`
+ * (`^[0-9]+$`) and `repo` (owner/repo pattern) are validated before
+ * use (defense in depth, design D5). Log text is untrusted data: it
+ * is persisted verbatim and never interpolated into error messages.
+ *
+ * @param runId Validated numeric run id (`^[0-9]+$`) — safe for the
+ *   temp-file name (no path traversal).
+ * @param repo Optional `owner/repo` anchor, passed as discrete
+ *   `--repo <repo>` spawn arguments when present and omitted entirely
+ *   when absent.
+ * @returns Structured output with the persisted log path and counts
+ *   (`repo` echoes the anchor, or "" when the call was unanchored),
+ *   or structured error.
+ */
+async function fetchFailedRunLogs(
+  runId: string,
+  repo: string | undefined,
+): Promise<FetchFailedRunLogsOutput | FetchContextError> {
+  // ── Validate gh CLI availability and auth ──────────────────
+  // Mirrors fetchPrReviewContext's and fetchPrChecks's prologue: `which
+  // gh` fails fast with gh_not_found and `gh auth status` with
+  // gh_auth_failed, so repair commands can map both to their existing
+  // STOP messages (design D6).
+  try {
+    const whichProcess = Bun.spawn(["which", "gh"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      signal: AbortSignal.timeout(5_000),
+    })
+    const whichExit = await whichProcess.exited
+    if (whichExit !== 0) {
+      return {
+        error: true,
+        code: "gh_not_found",
+        message: "gh CLI not found in PATH. Install from https://cli.github.com/",
+        retryable: false,
+      }
+    }
+  } catch {
+    return {
+      error: true,
+      code: "gh_not_found",
+      message: "gh CLI not found in PATH. Install from https://cli.github.com/",
+      retryable: false,
+    }
+  }
+
+  try {
+    await runGhCommand(["auth", "status"])
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "gh auth status failed"
+    return { error: true, code: "gh_auth_failed", message, retryable: false }
+  }
+
+  // ── Fetch failed-step logs ─────────────────────────────────
+  // Design D5: --repo is passed as discrete spawn arguments when
+  // provided and omitted entirely when not, so remote resolution never
+  // depends on the local checkout's remote configuration.
+  const repoArgs = repo === undefined ? [] : ["--repo", repo]
+  let logContent: string
+  try {
+    logContent = await runGhCommand(["run", "view", runId, ...repoArgs, "--log-failed"])
+  } catch (error: unknown) {
+    // Detect a missing or expired run from the gh error (gh run view's
+    // phrasing differs from gh pr view's — see RUN_NOT_FOUND_PATTERN).
+    // The gh error is surfaced verbatim per the spec's run_not_found
+    // scenario; it is gh's own stderr, never log text — stdout is only
+    // read on success, so untrusted log lines cannot reach this path.
+    if (error instanceof Error && RUN_NOT_FOUND_PATTERN.test(error.message)) {
+      return {
+        error: true,
+        code: "run_not_found",
+        message: `Run ${runId} not found or its logs are no longer available: ${error.message}`,
+        retryable: false,
+      }
+    }
+    return classifyError(error, "api_error", `Failed to fetch failed-step logs for run ${runId}`)
+  }
+
+  // ── Persist to a temp file (the FR-005 diff pattern) ───────
+  const logDir = join(tmpdir(), "opencode")
+  const logPath = join(logDir, `run-${runId}-failed-logs.txt`)
+
+  try {
+    // Create parent directory with 0o700 permissions.
+    await mkdir(logDir, { recursive: true, mode: 0o700 })
+
+    // Write logs with O_EXCL semantics: unlink existing file first, then
+    // create exclusively to prevent symlink/TOCTOU attacks.
+    try {
+      await unlink(logPath)
+    } catch {
+      // File may not exist — that is the happy path.
+    }
+
+    // Open with 'wx' flags (O_WRONLY | O_CREAT | O_EXCL) for exclusive create.
+    const fileHandle = await open(logPath, "wx", 0o600)
+    try {
+      const logBuffer = Buffer.from(logContent, "utf8")
+      await fileHandle.writeFile(logBuffer)
+    } finally {
+      await fileHandle.close()
+    }
+
+    // Explicitly set permissions in case umask interfered.
+    await chmod(logPath, 0o600)
+  } catch (error: unknown) {
+    return classifyError(error, "api_error", `Failed to write failed-run logs to ${logPath}`)
+  }
+
+  const logBytes = Buffer.byteLength(logContent, "utf8")
+  // Line count mirrors the diff_lines computation (split on newline).
+  // The empty fetch is special-cased to 0 lines — split("") would report
+  // a phantom line — which is the zero-log warning case below.
+  const logLines = logContent === "" ? 0 : logContent.split("\n").length
+
+  const warnings: string[] = []
+  if (logLines === 0) {
+    warnings.push(`--log-failed returned no log lines for run ${runId}`)
+  }
+
+  return {
+    run_id: runId,
+    repo: repo ?? "",
+    log_path: logPath,
+    log_bytes: logBytes,
+    log_lines: logLines,
+    warnings,
+  }
+}
+
+/**
+ * Creates the fetch_failed_run_logs OpenCode tool.
+ *
+ * Failure-log lane of the PR-repair fetch trio (design D5): fetches
+ * only the failed steps of a GitHub Actions run, persists them to a
+ * 0o600 temp file with O_EXCL semantics (the FR-005 diff-persistence
+ * precedent), and returns the path plus byte/line counts — never the
+ * log text inline, so a multi-megabyte CI failure cannot flood the
+ * caller's context. The zero-line result stays a successful call with
+ * a warning so the STOP-on-empty decision stays in command prose
+ * (/uf.fix-ci Phase 2.1).
+ *
+ * @returns An OpenCode tool definition taking a validated run id and
+ *   an optional owner/repo anchor, returning the persisted log path
+ *   and counts.
+ */
+function createFetchFailedRunLogsTool(): ReturnType<typeof tool> {
+  return tool({
+    description:
+      "Fetch a GitHub Actions run's failed-step logs (gh run view <run_id> --log-failed) and persist them " +
+      "to a 0o600 temp file. Returns run_id, repo, log_path, log_bytes, log_lines, and warnings — never the " +
+      "log text inline (CI failure logs can be megabytes; read targeted slices from log_path instead). repo " +
+      "(owner/repo) optionally anchors the fetch to a specific repository — recommended on fork checkouts, " +
+      "where PR checks report their runs in the base repository. A run with no failed steps succeeds with " +
+      "log_lines: 0 plus a warning. A missing or expired run returns the run_not_found error with the gh " +
+      "error surfaced. Returns structured errors with error codes on failure.",
+    args: {
+      run_id: FetchFailedRunLogsInputSchema.shape.run_id,
+      repo: FetchFailedRunLogsInputSchema.shape.repo,
+    },
+    async execute(args): Promise<{ readonly output: string }> {
+      const parsed = FetchFailedRunLogsInputSchema.safeParse(args)
+      if (!parsed.success) {
+        const result: FetchContextError = {
+          error: true,
+          code: "api_error",
+          message: `Invalid input: ${formatValidationError(parsed.error)}`,
+          retryable: false,
+        }
+        return { output: JSON.stringify(result, null, 2) }
+      }
+      const result = await fetchFailedRunLogs(parsed.data.run_id, parsed.data.repo)
       return { output: JSON.stringify(result, null, 2) }
     },
   })
@@ -6482,6 +7156,8 @@ export const ReviewDispatchPlugin = {
           directory: projectRoot,
         }),
         fetch_pr_review_context: createFetchPrReviewContextTool(),
+        fetch_pr_checks: createFetchPrChecksTool(),
+        fetch_failed_run_logs: createFetchFailedRunLogsTool(),
         capture_review_diff: createCaptureReviewDiffTool(createReviewDiffDependencies(projectRoot)),
       },
     }
