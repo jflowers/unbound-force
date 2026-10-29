@@ -242,7 +242,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   inputs, `0o600`/`O_EXCL` persistence, no inline untrusted text;
   VI — the three mechanical fetch classes now execute in tested
   tools and the deviation records are retired (4.4).
-- [ ] 6.4 Documentation-gate re-check: CHANGELOG entry present
+- [x] 6.4 Documentation-gate re-check: CHANGELOG entry present
   with the spec and Docs footers (5.2), the documentation issue
   filed with dispositions and the exemption rationale (5.1), the
   no-change disposition for the remaining docs surfaces recorded
