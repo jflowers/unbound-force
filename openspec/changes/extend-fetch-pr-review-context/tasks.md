@@ -127,7 +127,7 @@ in order (design D1–D5).
 Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
 4.4 follow in order (4.3 depends on 4.1–4.2 landing first).
 
-- [ ] 4.1 Re-route Phase 1 of `.opencode/commands/uf.fix-ci.md`
+- [x] 4.1 Re-route Phase 1 of `.opencode/commands/uf.fix-ci.md`
   (FR-015, design D6): collapse the 1.0 availability prose (the
   tools validate `gh`/auth; map `gh_not_found`/`gh_auth_failed`
   structured errors to the existing STOP messages); 1.1 auto-detect
