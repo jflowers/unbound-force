@@ -142,7 +142,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   the raw bash blocks, the non-zero-exit caveat, and the
   bucket-categorization table prose now consumed via
   `eligibility` and the checks array.
-- [ ] 4.2 Re-route Phase 2.1 (FR-015, design D6): replace `mktemp`
+- [x] 4.2 Re-route Phase 2.1 (FR-015, design D6): replace `mktemp`
   plus `gh run view <RUN_ID> --repo <BASE_REPOSITORY>
   --log-failed` with `fetch_failed_run_logs` called with the
   validated run-id and `BASE_REPOSITORY`; map `run_not_found` and
