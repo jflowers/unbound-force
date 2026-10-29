@@ -25,6 +25,7 @@ import {
   resolveBaseWindowMs,
   type TimeoutDerivationSignals,
 } from "../lib/run-timeout.js"
+import { TimeoutSchema } from "../lib/agent-executor.js"
 
 /** Baseline signals matching the 2026-10-27 incident panel shape. */
 function signals(overrides: Partial<TimeoutDerivationSignals> = {}): TimeoutDerivationSignals {
@@ -48,6 +49,15 @@ describe("promptTermMs", () => {
   it("charges whole KiB above the free window (D5 example)", () => {
     // 179_200 - 65_536 = 113_664 bytes = 111 KiB; 111 x 1_500 = 166_500.
     expect(promptTermMs(179_200)).toBe(166_500)
+  })
+
+  it("truncates to whole KiB at the free-window boundary (D5)", () => {
+    // 179_200 above is exactly 111 KiB above the free window, where
+    // floor, round, and ceil agree — these boundary pairs pin the
+    // whole-KiB truncation contract itself: a partial KiB charges
+    // nothing, the byte that completes it charges the full term.
+    expect(promptTermMs(PROMPT_FREE_BYTES + 1023)).toBe(0)
+    expect(promptTermMs(PROMPT_FREE_BYTES + 1024)).toBe(MS_PER_KIB_ABOVE_FREE)
   })
 
   it("is monotonically non-decreasing in prompt bytes", () => {
@@ -225,5 +235,20 @@ describe("derivePerRunTimeoutMs", () => {
     const result = derivePerRunTimeoutMs(signals({ explicitTimeoutMs: 900_000 }))
     expect(result.effectiveMs).toBe(900_000)
     expect(result.provenance).toEqual({ effective_ms: 900_000, source: "explicit" })
+  })
+})
+
+describe("executor bound drift pin (RD-FR-028)", () => {
+  it("keeps MAX_TIMEOUT_MS aligned with the executor TimeoutSchema bound", () => {
+    // RD-FR-028: the derivation ceiling re-declares the executor's
+    // 1_800_000 ms TimeoutSchema bound as a zod-free constant — the two
+    // are coupled by comment only at authoring time. This test-only
+    // safeParse pin (run-timeout.ts stays zod-free; the schema is
+    // imported here) fails the suite the moment either side drifts: a
+    // schema bound lowered below MAX_TIMEOUT_MS would reject the ceiling
+    // the derivation already emits, and one raised above it would let the
+    // executor accept windows the derivation can never produce.
+    expect(TimeoutSchema.safeParse(MAX_TIMEOUT_MS).success).toBe(true)
+    expect(TimeoutSchema.safeParse(MAX_TIMEOUT_MS + 1).success).toBe(false)
   })
 })
