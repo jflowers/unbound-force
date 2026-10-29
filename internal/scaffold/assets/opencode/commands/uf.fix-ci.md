@@ -220,8 +220,10 @@ output is the authoritative record. Categorize each check by its
   `gh run view <run-id> --log-failed`) — alongside the refs, mergeable
   state, and fork orientation recorded above, then proceed to Phase 2.
 - **No `fail` and every check `pass` or `skipping`** (or no checks
-  reported at all): report the PR green — print each check with its
-  bucket — and **STOP**. There is nothing to fix.
+  reported at all): call `clear_progress` with
+  `command: "uf.fix-ci"` to clear any stale loop state a prior
+  invocation left behind, report the PR green — print each check
+  with its bucket — and **STOP**. There is nothing to fix.
 - **No `fail` but some check `pending` or `cancel`**: report the
   observed buckets and **STOP** with guidance:
 > "No failing checks yet — <N> check(s) are still pending or canceled. Re-invoke `/uf.fix-ci <PR_NUMBER>` once checks complete."
@@ -727,13 +729,28 @@ budget.
   `command: "uf.fix-ci"` and read the `fix-loop` checkpoint's
   `data: {"iteration": N}` back as `ITERATION` — 0 when no
   prior record exists.
+- **Fresh budget after exhaustion**: when the recovered
+  `fix-loop` data carries `"budget_exhausted": true`, the prior
+  invocation terminated on an exhausted budget (design R4).
+  Consume the marker atomically: call `checkpoint` with
+  `command: "uf.fix-ci"`, `step: "fix-loop"`,
+  `data: {"iteration": 0, "budget_exhausted": false}`, and
+  continue with `ITERATION = 0` — a fresh budget. Consuming the
+  marker at recovery keeps a later mid-invocation resume from
+  misreading it (the checkpoint shallow-merges its data; only a
+  full-shape write clears the flag).
 - **Never reset on resume**: the cap is 3 total across the
   sessions of one invocation. A session resumed from compressed
   context inherits the recovered count unchanged — the
-  checkpoint record is authoritative, never a fresh start.
+  checkpoint record is authoritative, never a fresh start. Only
+  a fresh invocation that recovers an exhaustion marker starts
+  at 0 (the bullet above).
 - **Increment after each fix attempt**: when an iteration's
   fixes are committed (4.2), `ITERATION` advances and the new
-  value is recorded under the `fix-loop` checkpoint step.
+  value is recorded under the `fix-loop` checkpoint step with
+  the full shape `data: {"iteration": N,
+  "budget_exhausted": false}` — recording the full shape keeps
+  the marker trustworthy across the shallow merge.
 - **Mid-loop records are progress, not completion**: a
   `fix-loop` checkpoint written mid-loop records the attempts
   consumed so far. The phase completes only through 4.5's
@@ -744,10 +761,14 @@ budget.
   session-resume guard).
 - **Cap check**: before any fix attempt begins — at phase entry,
   on council re-entry (4.3), and on a still-red re-poll (4.5) —
-  an `ITERATION` of 3 means the budget is exhausted: **STOP**
-  without pushing, with an exit message naming the remaining red
-  checks and their diagnoses, the iterations consumed, and that
-  nothing was pushed.
+  an `ITERATION` of 3 means the budget is exhausted: record the
+  exhaustion marker by calling `checkpoint` with
+  `command: "uf.fix-ci"`, `step: "fix-loop"`,
+  `data: {"iteration": 3, "budget_exhausted": true}`, then
+  **STOP** without pushing, with an exit message naming the
+  remaining red checks and their diagnoses, the iterations
+  consumed, that nothing was pushed, and that a fresh
+  invocation starts a new budget (design R4).
 
 ### 4.1 Present the Fix-Plan Gate
 
@@ -933,11 +954,14 @@ Read the council's terminal verdict and act on it:
   manually.
 
 **Exhaustion MUST NOT push** (FR-006): when REQUEST CHANGES
-arrives with the iteration budget exhausted, STOP with an exit
-message — the council's remaining findings, the iterations
-consumed, the commits left local (named by SHA and subject), and
-that nothing was pushed. Never weaken or bypass the cap to force
-a push.
+arrives with the iteration budget exhausted, first record the
+exhaustion marker (4.0's cap check: `checkpoint` with
+`data: {"iteration": 3, "budget_exhausted": true}`), then STOP
+with an exit message — the council's remaining findings, the
+iterations consumed, the commits left local (named by SHA and
+subject), that nothing was pushed, and that a fresh invocation
+starts a new budget (design R4). Never weaken or bypass the cap
+to force a push.
 
 ### 4.4 Select the Push Mode and Push
 
@@ -991,8 +1015,8 @@ never a bash watch loop): call `uf_finale_ci_poll` with
   the next iteration's fixes execute, re-present the 4.1 gate
   with the updated classification table and fix plan — every
   newly diagnosed round of fixes gets the same human gate — and
-  apply the 4.0 cap check: an exhausted budget STOPs without
-  pushing.
+  apply the 4.0 cap check: an exhausted budget records the
+  exhaustion marker and STOPs without pushing.
 
 Phase 4 hands Phase 6: the push outcome — what was pushed, the
 push mode, and which iteration pushed it — the final `ITERATION`
@@ -1178,7 +1202,8 @@ status and every check still not green, each with its
 classification and disposition from the handoffs, plus the
 actions taken (the same summary the green report carries). Close
 with re-invocation guidance: a check still failing after its fix
-iterations may need a fresh invocation's budget; a check still
+iterations may need a fresh invocation's budget (4.0's exhaustion
+marker starts a re-invocation at 0); a check still
 failing after a rerun may be a real failure masquerading as a
 flake; a timed-out poll needs only a re-invocation once the
 checks settle. The command completes without further mutation:
@@ -1220,7 +1245,8 @@ the PR remains open, unmerged, and unapproved by this command.
    `/uf.review-council` before any push. REQUEST CHANGES
    re-enters the fix loop; iteration exhaustion MUST NOT push.
    The iteration cap is 3, durable across sessions, and never
-   reset by a resume.
+   reset by a resume — a fresh invocation that recovers an
+   exhaustion marker starts a new budget (4.0, design R4).
 
 6. **Commit scope limited to the failing checks**: Only files
    within the gated fix plan are staged and committed — explicit
