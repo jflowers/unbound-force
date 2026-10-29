@@ -181,7 +181,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
 
 ## 5. Documentation
 
-- [ ] 5.1 File the repo-local documentation issue required by the
+- [x] 5.1 File the repo-local documentation issue required by the
   AGENTS.md documentation gate (new plugin tools are user-facing
   capability surface), recording: the tool additions, the
   behavior-preserving `/uf.fix-ci` re-route, the website-target
@@ -198,7 +198,7 @@ Tasks 4.1 and 4.2 edit the same file and run sequentially; 4.3 and
   dispositions (blog declined — internal extraction below the
   significance threshold; tutorial declined — no new user
   workflow).
-- [ ] 5.2 Add the `extend-fetch-pr-review-context` entry to
+- [x] 5.2 Add the `extend-fetch-pr-review-context` entry to
   `CHANGELOG.md` under Unreleased/Added following the existing
   format: the extended tool, the two new tools, the re-route, and
   the measured instruction-text delta from 4.1–4.2 (lines of
