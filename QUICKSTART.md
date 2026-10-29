@@ -154,7 +154,7 @@ uf init --divisor
 
 `uf init` creates 65+ files in your project, including:
 
-- **11 commands** (`.opencode/commands/`) -- review
+- **12 commands** (`.opencode/commands/`) -- review
   council, finale, unleash, and more
 - **11 agents** (`.opencode/agents/`) -- developer,
   reviewer council (9 personas), constitution checker

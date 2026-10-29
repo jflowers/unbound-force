@@ -187,13 +187,14 @@ by `uf init`, plus more from companion tools):
   opsx-explore.md         opsx-archive.md
   unleash.md              finale.md
   uf-init.md              constitution-check.md
+  uf-fix-ci.md
 ```
 
 Companion tools add their own commands during `uf init`:
 Speckit adds the `/speckit.*` pipeline commands, Gaze
 adds `/gaze` and `/gaze-fix`, Replicator adds `/forge`,
 `/forge-status`, `/handoff`, `/inbox`, and `/org`.
-A full scaffold produces ~46 command files total.
+A full scaffold produces ~47 command files total.
 
 **Agent personas** (user-owned, 16 active agents):
 ```
@@ -532,6 +533,7 @@ enforce. Rules are tagged by severity:
 |---------|------|--------------|
 | `/uf.review-council` | Pre-PR (local) | Discovers available personas, runs them in parallel, produces APPROVE or REQUEST CHANGES |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent reviews a specific PR, analyzes CI results |
+| `/uf.fix-ci [N]` | Post-PR (GitHub) | Diagnose and fix failing CI checks with a gated fix loop (rebase only, never merge) |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
 | `/uf.rebase-pr [N]` | Post-PR (GitHub) | Rebases a conflicted PR's head branch onto its base and force-pushes with lease |
 

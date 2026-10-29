@@ -45,8 +45,9 @@ executes and an absolute never-merge rule.
      repository derives from the PR `url`; `gh pr view --json`
      exposes no `baseRepository` field) plus the pinned
      check-suite invocation `gh pr checks <N> --json
-     name,state,link`. STOP if CLOSED/MERGED or all checks
-     pass.
+     name,state,bucket,link` (the `bucket` field categorizes
+     each check for the eligibility gate). STOP if
+     CLOSED/MERGED or all checks pass.
   4. **Diagnose**: for each failed check, fetch failure logs
      (`gh run view <run-id> --log-failed`); classify root cause:
      code failure (build/test/lint), stale branch (base moved),
@@ -109,8 +110,11 @@ modifies `uf.rebase-pr`.
   tracks extending `fetch_pr_review_context` with the
   PR-repair fields (`state`, `mergeable`, `mergeStateStatus`,
   `headRepository`, `baseRepository` — the last derived from
-  the PR `url`) and routing this command's Phase 1 fetches
-  through an intent-level tool. This change does not block on
+  the PR `url`) and exposing the check-suite fetch
+  (`gh pr checks`) and the failure-log fetch (`gh run view
+  --log-failed`) through the same intent-level path — the
+  retirement carrier for all three raw-gh fetch deviations
+  in design D1's inventory. This change does not block on
   it: the raw-gh fetch steps are a documented deviation
   (design D1), and #861 retires the deviation when it lands.
 - **Cross-spec coordination — question-tool presentation
@@ -186,13 +190,17 @@ modifies `uf.rebase-pr`.
   (rebase, fix commits, push, rerun) sit behind human
   question-tool gates; untrusted log/PR text is never
   interpolated into shell arguments.
-- **Content pipeline**: blog and tutorial opportunities are
-  acknowledged, not filed by this change: a blog post on the
-  post-PR repair workflow, and a tutorial-style decision
-  guide for a red PR — `/uf.fix-ci` vs `/uf.rebase-pr`
-  (#851) vs `/uf.address-feedback`. Task 3.4's documentation
-  filings may fold these in as labeled follow-ups when the
-  website issue is filed.
+- **Content pipeline**: both opportunities are disposed with
+  recorded rationale, not carried open: blog — declined
+  (complements the existing post-PR command set rather than
+  debuting a new capability; below the significance
+  threshold); tutorial — declined (bounded single-command
+  repair workflow; the human-decision gates are documented
+  in the command reference and the `docs/usage.md` section).
+  Both dispositions are recorded in the documentation issue
+  #862; the website tracking issue
+  (unbound-force/website#342) carries the command-reference
+  sync, and neither issue carries an open content follow-up.
 
 ## Constitution Alignment
 
@@ -259,25 +267,36 @@ merge, approve, or close the PR. No new dependencies are added.
 
 ### VI. Deterministic Execution
 
-**Assessment**: PASS (with one documented deviation, below)
+**Assessment**: PASS (with the documented deviation inventory,
+below)
 
 Mechanical steps (rebase, push, CI verification) execute
 through existing tools (`git_fetch`, `git_rebase`, `git_push`,
 `git_push_force_with_lease`, `uf_finale_ci_poll`) rather than
-re-reasoned bash prose; only judgment (root-cause
-classification, fix authoring, option recommendation) remains
-in instruction prose. The command reuses the tested
+re-reasoned bash prose. Judgment (root-cause classification,
+fix authoring, option recommendation) remains in instruction
+prose — and so does the complete mechanical-deviation
+inventory recorded in design D1, which is the honest boundary
+of this assessment. The command reuses the tested
 `uf_finale_ci_poll` for CI polling instead of inventing a
 bash watch loop.
 
-Documented deviation, stated rather than claimed away: the
-PR-state fetch (`gh pr view`), the check-suite fetch
-(`gh pr checks`), and the failure-log fetch (`gh run view
---log-failed`) are mechanical steps with no existing plugin
-tool that covers them — `fetch_pr_review_context` returns
-review-dispatch fields only, and no tool wraps the run-log
-fetch. They execute as command prose with pinned JSON field
-lists and untrusted-text hygiene (design D1, D9) instead of
-through an intent-level tool. This is a named deviation from
-the principle's ideal, recorded in design D1, and companion
-issue #861 tracks the extraction that retires it.
+Documented deviation inventory, stated rather than claimed
+away: three raw-gh fetch classes — the PR-state fetch
+(`gh pr view`), the check-suite fetch (`gh pr checks`), and
+the failure-log fetch (`gh run view --log-failed`) — have no
+existing plugin tool that covers them
+(`fetch_pr_review_context` returns review-dispatch fields
+only, and no tool wraps the run-log fetch); they execute as
+command prose with pinned JSON field lists and
+untrusted-text hygiene (design D1, D9), and companion issue
+#861 tracks the extraction that retires all three. The
+supporting mechanical choreography around them — the Phase
+1.0 gh availability checks, the Phase 1.2 bucket-keyed
+eligibility routing, the Phase 1.3 fork-aware remote-URL
+parsing, the Phase 2.0 run-id derivation, the Phase 3.3/4.2
+staging and commit choreography, and the gate presentation
+scaffolding (one intra-file contract referenced by the four
+gates) — is enumerated with tool-feasibility assessments in
+design D1's inventory and pinned by the structural contract
+test, rather than claimed away.
