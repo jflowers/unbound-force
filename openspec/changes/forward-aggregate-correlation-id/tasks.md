@@ -39,21 +39,21 @@
       permanent; all-skip stays a valid outcome). Sync the
       scaffold mirror
       `internal/scaffold/assets/opencode/commands/uf.review-pr.md`.
-- [ ] 2.2 [P] Apply the same forwarding prose pattern to
+- [x] 2.2 [P] Apply the same forwarding prose pattern to
       `.opencode/commands/uf.review-council.md` (dispatch
       step, Section 4 retrieval, finalization section, retry
       prose) and sync its scaffold mirror.
-- [ ] 2.3 [P] Apply the same forwarding prose pattern to
+- [x] 2.3 [P] Apply the same forwarding prose pattern to
       `.opencode/commands/uf.triage-issue.md` (Section 2.2
       dispatch, Section 2.3 retrieval, finalization section,
       retry prose) and sync its scaffold mirror.
-- [ ] 2.4 [P] Apply the same forwarding prose pattern to
+- [x] 2.4 [P] Apply the same forwarding prose pattern to
       `.opencode/commands/uf.address-feedback.md` (Section
       2.3.4 per-item dispatch, Section 2.3.7 retrieval,
       finalization section, retry prose — the captured ID is
       per feedback item's dispatch) and sync its scaffold
       mirror.
-- [ ] 2.5 [P] Apply the same forwarding prose pattern to
+- [x] 2.5 [P] Apply the same forwarding prose pattern to
       `.opencode/commands/uf.unleash.md` at both dispatch
       sites (Step 4 spec review and Step 6 code review),
       threading each dispatch's ID to its consolidation calls,
