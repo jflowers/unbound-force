@@ -1,0 +1,10 @@
+---
+tag: extend-fetch-pr-review-context
+author: jay-flowers
+category: context
+created_at: 2026-10-30T01:05:36Z
+identity: extend-fetch-pr-review-context-20261030T010536-jay-flowers
+tier: draft
+---
+
+Code-review council outcome for the extend-fetch-pr-review-context change (branch opsx/extend-fetch-pr-review-context, reviewed 2026-10-29/30 at head 661a7ef3 against upstream/main 8ca8f892, 28 files +4744/-469): APPROVE WITH ADVISORIES on the first iteration — 4 successful reviewer assessments (architect, curator, guard, testing; the adversary run failed with a retryable provider error and was correctly non-voting), 13 advisories (4 MEDIUM, 9 LOW), zero blocking findings. The MEDIUM advisories cluster into two themes future workers should carry forward: (1) derived-field degradation semantics — /uf.fix-ci's IS_FORK = HEAD_REPOSITORY != BASE_REPOSITORY misclassifies same-repo PRs as forks when base_repository degrades to the empty string on non-github.com PR urls (GHES), flipping fork-aware remote resolution, and the FR-013 spec delta never received the zero-checks carve-out (empty stdout + "no checks reported" stderr marker at exit 1 → passing) that the implementation, tests, command prose, tool description, and CHANGELOG all carry, so the spec record would reintroduce the regression if re-implemented from; (2) DRY debt — the gh availability/auth prologue now exists in three near-identical copies across fetchPrReviewContext/fetchPrChecks/fetchFailedRunLogs (six sites counting the scaffold mirror), and the findGhArgv test helper in three suites instead of the shared gh-spawn-mock harness. These were accepted as non-blocking at PR time; the FR-013 back-port and the IS_FORK degraded-input guard are the two most follow-up-worthy. The mid-pipeline resume itself validated the durable-state pattern: checkpoint + review-council progress files let the code review resume at the Divisor dispatch without re-running the pre-flight, gaze, or context phases (delegation 16 of the change).
