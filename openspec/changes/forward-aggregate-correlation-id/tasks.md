@@ -72,7 +72,7 @@
       assert the map fallback still succeeds; (d) consolidate
       with a well-formed unknown ID and assert `not_found`
       (design D7).
-- [ ] 3.2 [P] Add a registration-surface lock in
+- [x] 3.2 [P] Add a registration-surface lock in
       `.opencode/test/registration-surface.test.ts`: the
       `consolidate_dispatch` tool declares `correlation_id`
       as an optional argument in its model-facing args.
