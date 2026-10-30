@@ -12,7 +12,7 @@
 // refusal of named non-failed runs, missing_prompt, no_plan_entry,
 // unreadable run files, failed-again RD-FR-025 exclusion, zero-success
 // fail-closed, and the early-exit outcome — lives on here permanently.
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -728,7 +728,7 @@ describe("redispatch_failed_runs", () => {
   })
 
   it("fails closed when session metadata is missing", async () => {
-    const { correlationId } = await setupSession([makeRun("divisor-guard", { status: "failed" })], [planEntry("divisor-guard")], {
+    const { correlationId, dir } = await setupSession([makeRun("divisor-guard", { status: "failed" })], [planEntry("divisor-guard")], {
       writeMetadata: false,
     })
     await withBun(async () => {
@@ -736,11 +736,23 @@ describe("redispatch_failed_runs", () => {
       const hooks = await activate(fakeClient(), project)
       const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
       expect(result.output).toContain("redispatch_failed_runs error: no session metadata found")
+
+      // RD-FR-031: the error path still settles the operation window —
+      // one record, closed with status "error" and zero-effect counts.
+      const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
+      expect(opFiles).toHaveLength(1)
+      const record = JSON.parse(await readFile(join(dir, opFiles[0]!), "utf8")) as Record<string, unknown>
+      expect(record.kind).toBe("redispatch")
+      expect(typeof record.operation_id).toBe("string")
+      expect(typeof record.started_at).toBe("string")
+      expect(typeof record.completed_at).toBe("string")
+      expect(record.status).toBe("error")
+      expect(record.run_counts).toMatchObject({ redispatched: 0, refused: 0, restored: 0 })
     })
   })
 
   it("fails closed when session metadata is invalid", async () => {
-    const { correlationId } = await setupSession([makeRun("divisor-guard", { status: "failed" })], [planEntry("divisor-guard")], {
+    const { correlationId, dir } = await setupSession([makeRun("divisor-guard", { status: "failed" })], [planEntry("divisor-guard")], {
       metadataJson: JSON.stringify({ nonsense: true }),
     })
     await withBun(async () => {
@@ -748,6 +760,18 @@ describe("redispatch_failed_runs", () => {
       const hooks = await activate(fakeClient(), project)
       const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
       expect(result.output).toContain("redispatch_failed_runs error: invalid session metadata")
+
+      // RD-FR-031: the error path still settles the operation window —
+      // one record, closed with status "error" and zero-effect counts.
+      const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
+      expect(opFiles).toHaveLength(1)
+      const record = JSON.parse(await readFile(join(dir, opFiles[0]!), "utf8")) as Record<string, unknown>
+      expect(record.kind).toBe("redispatch")
+      expect(typeof record.operation_id).toBe("string")
+      expect(typeof record.started_at).toBe("string")
+      expect(typeof record.completed_at).toBe("string")
+      expect(record.status).toBe("error")
+      expect(record.run_counts).toMatchObject({ redispatched: 0, refused: 0, restored: 0 })
     })
   })
 
@@ -827,7 +851,7 @@ describe("redispatch_failed_runs", () => {
     })
   })
 
-  it("refuses named non-failed runs — including reclassified successes — and reports not_found for a missing agent", async () => {
+  it("refuses named successful runs — including reclassified successes — re-runs a named cancelled run, and reports not_found for a missing agent", async () => {
     // A post-submission-abort run reclassified to success (RD-FR-026)
     // says "success" on disk and MUST never be re-run.
     const guardRun = makeRun("divisor-guard", {
@@ -866,8 +890,8 @@ describe("redispatch_failed_runs", () => {
       )
       const data = JSON.parse(result.output)
       expect(data.status).toBe("ok")
-      expect(data.redispatched_runs).toBe(0)
-      expect(data.refused_runs).toBe(3)
+      expect(data.redispatched_runs).toBe(1)
+      expect(data.refused_runs).toBe(2)
       expect(data.total_runs).toBe(4)
 
       const guard = data.runs.find((r: { agent: string }) => r.agent === "divisor-guard")
@@ -880,23 +904,31 @@ describe("redispatch_failed_runs", () => {
       expect(adversary.run_id).toBe(adversaryRun.run_id)
 
       const architect = data.runs.find((r: { agent: string }) => r.agent === "divisor-architect")
-      expect(architect.outcome).toBe("refused")
+      expect(architect.outcome).toBe("redispatched")
       expect(architect.run_id).toBe(architectRun.run_id)
-      expect(architect.reason).toContain('run status is "cancelled"')
+      expect(architect.new_run_id).not.toBe(architectRun.run_id)
 
       const missing = data.runs.find((r: { agent: string }) => r.agent === "divisor-scribe")
       expect(missing.outcome).toBe("not_found")
       expect(missing.run_id).toBeNull()
 
-      // Nothing ran, nothing moved: all three files byte-identical and no
-      // superseded archive was created.
+      // The refused successes are untouched (byte-identical); the named
+      // cancelled run was re-run, so its active file holds the replacement
+      // and the prior cancelled record is archived under superseded/.
       const after = await Promise.all(
-        ["divisor-guard", "divisor-adversary", "divisor-architect"].map((agent) =>
+        ["divisor-guard", "divisor-adversary"].map((agent) =>
           readFile(join(dir, `run-${agent}.json`), "utf8"),
         ),
       )
-      expect(after).toEqual(before)
-      expect(await readdir(join(dir, "superseded")).catch(() => null)).toBeNull()
+      expect(after).toEqual([before[0], before[1]])
+
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-architect.json"), "utf8"))
+      expect(replacement.run_id).not.toBe(architectRun.run_id)
+      expect(replacement.status).toBe("success")
+      const archived = JSON.parse(
+        await readFile(join(dir, "superseded", `run-divisor-architect-${architectRun.run_id}.json`), "utf8"),
+      )
+      expect(archived.status).toBe("cancelled")
     })
   })
 
@@ -1311,6 +1343,444 @@ describe("redispatch_failed_runs", () => {
       expect(replacement.status).toBe("success")
       expect(replacement.requested_model).toBe("provider/standard")
       expect(replacement.prompt).toBe("Original prompt for divisor-guard")
+    })
+  })
+
+  it("derives the replacement timeout from persisted work signals when timeout is omitted", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [
+      planEntry("divisor-guard", { model: null, tier: "standard" }),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.redispatched_runs).toBe(1)
+
+      // RD-FR-029: the replacement derives its timeout from the persisted
+      // work signals — the archived prompt bytes and the plan entry's tier —
+      // against the repository's current matrix. Recovery is sequential, so
+      // the contention multiplier stays at 1.0.
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(replacement.timeout).toMatchObject({
+        source: "derived",
+        base_ms: 600_000,
+        resolved_tier: "standard",
+        session_profile_tier: "standard",
+        profile_term_ms: 120_000,
+        prompt_term_ms: 0,
+        contention_multiplier: 1,
+        max_parallel_runs: 1,
+        ceiling_ms: 1_800_000,
+        clamped: false,
+      })
+      expect(replacement.timeout.prompt_bytes).toBe(Buffer.byteLength("Original prompt for divisor-guard", "utf8"))
+      expect(replacement.timeout.effective_ms).toBe(720_000)
+    })
+  })
+
+  it("records explicit timeout provenance when timeout is provided", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [
+      planEntry("divisor-guard", { model: null, tier: "standard" }),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId, timeout: 900_000 }, noopContext())
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.redispatched_runs).toBe(1)
+
+      // An explicit timeout argument overrides the derivation for every
+      // re-executed reviewer and is recorded with source "explicit".
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(replacement.timeout).toMatchObject({
+        source: "explicit",
+        effective_ms: 900_000,
+      })
+    })
+  })
+
+  it("warns and records matrix degradation instead of silently shrinking recovery windows (RD-FR-029)", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [
+      planEntry("divisor-guard", { model: null, tier: "standard" }),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      // Corrupt the matrix so resolveTimeoutLimits degrades to the schema
+      // defaults on the recovery path. The degradation MUST be visible as
+      // a warning mirroring the dispatch path (RD-FR-029: a 1200 s matrix
+      // limit silently shrinking to the 600 s default is a defect), and
+      // MUST be recorded in the settled operation record. The same
+      // corruption fails the per-run policy load, so the re-run exits
+      // before child execution and the prior run file is restored.
+      await writeFile(join(project, ".uf", "review-matrix.yaml"), "limits: [unclosed", "utf8")
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+
+      expect(data.status).toBe("ok")
+      expect(
+        (data.warnings ?? []).some((w: string) =>
+          w.includes(
+            "review matrix limits unavailable; per-run timeout derivation degraded to schema defaults",
+          ),
+        ),
+      ).toBe(true)
+      expect(data.runs[0].outcome).toBe("early_exit")
+      expect(data.redispatched_runs).toBe(0)
+      expect(data.restored_runs).toBe(1)
+
+      // The prior failed run is back at its active path, consolidatable
+      // via RD-FR-025 exclusion.
+      const restored = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(restored.run_id).toBe(guardRun.run_id)
+
+      // RD-FR-031 + RD-FR-029: the settled operation record carries the
+      // warning alongside the recovery counts, so the degradation is
+      // auditable from the session directory alone. The in-loop restore
+      // of the archived prior run is counted in run_counts.restored.
+      const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
+      expect(opFiles).toHaveLength(1)
+      const record = JSON.parse(
+        await readFile(join(dir, opFiles[0]), "utf8"),
+      ) as Record<string, unknown>
+      const recordWarnings = record.warnings as string[] | undefined
+      expect(
+        (recordWarnings ?? []).some((w: string) => w.includes("review matrix limits unavailable")),
+      ).toBe(true)
+      expect(record.run_counts).toMatchObject({ redispatched: 0, restored: 1 })
+    })
+  })
+
+  it("derives redispatch windows from the session's matrix limits, not schema defaults (RD-FR-029)", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const adversaryRun = makeRun("divisor-adversary", { status: "failed", sequence: 2 })
+    const { correlationId, dir } = await setupSession(
+      [guardRun, adversaryRun],
+      [
+        planEntry("divisor-guard", { model: null, tier: "standard", sequence: 1 }),
+        planEntry("divisor-adversary", { model: null, tier: "heavy", sequence: 2 }),
+      ],
+    )
+
+    await withBun(async () => {
+      // Non-default matrix: the scalar limit is raised to 1200 s and the
+      // heavy tier carries a 1500 s override. The recovery path assembles
+      // its timeout signals from the session directory rather than the
+      // dispatch input, so only this test can prove the redispatch wiring
+      // reads these limits — under schema defaults both windows would
+      // collapse to the 600 s base with no tier override.
+      const matrix = JSON.parse(JSON.stringify(matrixFixture)) as {
+        limits: Record<string, unknown>
+      }
+      matrix.limits.per_run_timeout_seconds = 1200
+      matrix.limits.per_run_timeout_tiers = { lightweight: 300, heavy: 1500 }
+      const project = await scratchProject(matrix)
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.redispatched_runs).toBe(2)
+
+      // Standard entry: 1200 s matrix base + 120 s profile term, prompt
+      // below the free-byte allowance, sequential multiplier 1.0.
+      const standard = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(standard.timeout).toMatchObject({
+        source: "derived",
+        base_ms: 1_200_000,
+        resolved_tier: "standard",
+        effective_ms: 1_320_000,
+        clamped: false,
+      })
+
+      // Heavy entry: the 1500 s tier override + 300 s heavy profile term
+      // lands exactly on the 1,800,000 ms ceiling under the sequential
+      // 1.0 multiplier — derived equals effective, so clamped is false
+      // (contrast the dispatch path, whose 1.45x contention multiplier
+      // pushes the same base over the ceiling and clamps).
+      const heavy = JSON.parse(await readFile(join(dir, "run-divisor-adversary.json"), "utf8"))
+      expect(heavy.timeout).toMatchObject({
+        source: "derived",
+        base_ms: 1_500_000,
+        resolved_tier: "heavy",
+        ceiling_ms: 1_800_000,
+        effective_ms: 1_800_000,
+        clamped: false,
+      })
+    })
+  })
+
+  it("records its operation window with recovery counts (RD-FR-031)", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [planEntry("divisor-guard")])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      const result = await hooks.tool.redispatch_failed_runs.execute(
+        { correlation_id: correlationId },
+        noopContext(),
+      )
+
+      const data = JSON.parse(result.output)
+      expect(data.redispatched_runs).toBe(1)
+      expect(data.refused_runs).toBe(0)
+
+      const opFiles = (await readdir(dir)).filter((name) => /^operation-.*\.json$/.test(name))
+      expect(opFiles).toHaveLength(1)
+      const record = JSON.parse(
+        await readFile(join(dir, opFiles[0]), "utf8"),
+      ) as Record<string, unknown>
+      expect(record.kind).toBe("redispatch")
+      expect(typeof record.operation_id).toBe("string")
+      expect(typeof record.started_at).toBe("string")
+      expect(typeof record.completed_at).toBe("string")
+      expect(record.status).toBe("ok")
+      expect(record.run_counts).toMatchObject({
+        // Pinned as literals rather than sourced from the tool's own
+        // output: the record's run_counts mapping is an independent
+        // contract, and self-sourcing it here could not fail unless
+        // the output key itself went missing.
+        redispatched: 1,
+        refused: 0,
+        restored: 0,
+      })
+    })
+  })
+
+  it("re-runs a cancelled reviewer and archives the prior cancelled record (DR-FR-002)", async () => {
+    const cancelledRun = makeRun("divisor-guard", { status: "cancelled", findings: 2, proposals: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([cancelledRun], [planEntry("divisor-guard")])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+
+      expect(data.runs[0].outcome).toBe("redispatched")
+      expect(data.runs[0].run_id).toBe(cancelledRun.run_id)
+      expect(data.redispatched_runs).toBe(1)
+      expect(data.restored_runs).toBe(0)
+
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(replacement.run_id).not.toBe(cancelledRun.run_id)
+      expect(replacement.status).toBe("success")
+
+      const archived = JSON.parse(
+        await readFile(join(dir, "superseded", `run-divisor-guard-${cancelledRun.run_id}.json`), "utf8"),
+      )
+      expect(archived.status).toBe("cancelled")
+      expect(archived.findings).toHaveLength(2)
+      expect(archived.proposals).toHaveLength(1)
+    })
+  })
+
+  it("still refuses a named successful run (DR-FR-002)", async () => {
+    const successRun = makeRun("divisor-guard", { sequence: 1 })
+    const cancelledRun = makeRun("divisor-scribe", { status: "cancelled", sequence: 2 })
+    const { correlationId, dir } = await setupSession(
+      [successRun, cancelledRun],
+      [planEntry("divisor-guard"), planEntry("divisor-scribe", { sequence: 2 })],
+    )
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      const result = await hooks.tool.redispatch_failed_runs.execute(
+        { correlation_id: correlationId, agents: ["divisor-guard"] },
+        noopContext(),
+      )
+      const data = JSON.parse(result.output)
+
+      expect(data.runs).toHaveLength(1)
+      expect(data.runs[0].outcome).toBe("refused")
+      expect(data.runs[0].run_id).toBe(successRun.run_id)
+      expect(data.runs[0].reason).toContain("only failed and cancelled runs are redispatch targets")
+      expect(data.refused_runs).toBe(1)
+      expect(data.redispatched_runs).toBe(0)
+
+      const untouched = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(untouched.run_id).toBe(successRun.run_id)
+      expect(untouched.status).toBe("success")
+    })
+  })
+
+  it("restores a stranded archive before target resolution (DR-FR-002)", async () => {
+    const strandedRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const { correlationId, dir } = await setupSession([], [planEntry("divisor-guard")])
+    await mkdir(join(dir, "superseded"), { recursive: true })
+    await writeFile(join(dir, "superseded", `run-divisor-guard-${strandedRun.run_id}.json`), JSON.stringify(strandedRun))
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+
+      expect(data.status).toBe("ok")
+      expect(data.restored_agents).toContain("divisor-guard")
+      expect(data.restored_runs).toBe(1)
+      expect(data.runs[0].outcome).toBe("redispatched")
+      expect(data.runs[0].run_id).toBe(strandedRun.run_id)
+
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(replacement.run_id).not.toBe(strandedRun.run_id)
+    })
+  })
+
+  it("leaves archives untouched when the agent has an active run file (DR-FR-002 D8)", async () => {
+    const activeRun = makeRun("divisor-guard", { sequence: 1 })
+    const strandedRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const { correlationId, dir } = await setupSession([activeRun], [planEntry("divisor-guard")])
+    await mkdir(join(dir, "superseded"), { recursive: true })
+    const archivePath = join(dir, "superseded", `run-divisor-guard-${strandedRun.run_id}.json`)
+    await writeFile(archivePath, JSON.stringify(strandedRun))
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      // Naming the agent forces target resolution through the active
+      // (successful) run — without the filter it simply is not a target
+      // and no refusal would be recorded.
+      const result = await hooks.tool.redispatch_failed_runs.execute(
+        { correlation_id: correlationId, agents: ["divisor-guard"] },
+        noopContext(),
+      )
+      const data = JSON.parse(result.output)
+
+      // The active (successful) run is refused, never redispatched.
+      expect(data.runs).toHaveLength(1)
+      expect(data.runs[0].outcome).toBe("refused")
+      expect(data.runs[0].run_id).toBe(activeRun.run_id)
+      expect(data.runs[0].reason).toContain("only failed and cancelled runs are redispatch targets")
+      expect(data.refused_runs).toBe(1)
+      expect(data.redispatched_runs).toBe(0)
+
+      // D8 invariant: the archive behind the active replacement is never
+      // restored — it stays byte-identical in superseded/.
+      expect(data.restored_agents).not.toContain("divisor-guard")
+      expect(data.restored_runs).toBe(0)
+      expect(await readFile(archivePath, "utf8")).toBe(JSON.stringify(strandedRun))
+
+      const untouched = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(untouched.run_id).toBe(activeRun.run_id)
+      expect(untouched.status).toBe("success")
+    })
+  })
+
+  it("restores the most recent archive when several are stranded (DR-FR-002)", async () => {
+    const olderRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const newerRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const { correlationId, dir } = await setupSession([], [planEntry("divisor-guard")])
+    await mkdir(join(dir, "superseded"), { recursive: true })
+    const olderPath = join(dir, "superseded", `run-divisor-guard-${olderRun.run_id}.json`)
+    const newerPath = join(dir, "superseded", `run-divisor-guard-${newerRun.run_id}.json`)
+    await writeFile(olderPath, JSON.stringify(olderRun))
+    await writeFile(newerPath, JSON.stringify(newerRun))
+    await utimes(olderPath, 1000, 1000)
+    await utimes(newerPath, 2000, 2000)
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+
+      expect(data.restored_agents).toEqual(["divisor-guard"])
+      expect(data.restored_runs).toBe(1)
+      expect(data.runs[0].outcome).toBe("redispatched")
+      expect(data.runs[0].run_id).toBe(newerRun.run_id)
+
+      const archivedNames = await readdir(join(dir, "superseded"))
+      expect(archivedNames).toContain(`run-divisor-guard-${olderRun.run_id}.json`)
+      expect(archivedNames).toContain(`run-divisor-guard-${newerRun.run_id}.json`)
+    })
+  })
+
+  it("warns when a stranded archive cannot be restored (DR-FR-002)", async () => {
+    const strandedRun = makeRun("divisor-guard", { status: "failed", sequence: 1 })
+    const { correlationId, dir } = await setupSession([], [planEntry("divisor-guard")])
+    const supersededDir = join(dir, "superseded")
+    await mkdir(supersededDir, { recursive: true })
+    const archiveName = `run-divisor-guard-${strandedRun.run_id}.json`
+    await writeFile(join(supersededDir, archiveName), JSON.stringify(strandedRun))
+    // Make the restore rename fail while the scan still succeeds: 0o500
+    // keeps read+traverse (readdir and stat work) but removes write, so
+    // restorePriorRunFile's rename out of superseded/ fails EACCES — the
+    // exact failure the pre-resolution loop used to drop silently.
+    await chmod(supersededDir, 0o500)
+
+    try {
+      await withBun(async () => {
+        const project = await scratchProject()
+        const hooks = await activate(fakeClient(), project)
+        const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+        const data = JSON.parse(result.output) as {
+          status: string
+          warnings?: string[]
+          restored_agents: string[]
+        }
+
+        // The session holds no active run files, so target resolution
+        // reports not_found — but the failed restore MUST still surface:
+        // the agent is left with no active run file and only the
+        // superseded archive, which is operator-intervention territory.
+        expect(data.status).toBe("not_found")
+        expect(data.restored_agents).toEqual([])
+        const warning = (data.warnings ?? []).find((w: string) =>
+          w.includes("stranded-archive restore failed for divisor-guard"),
+        )
+        expect(warning).toBeDefined()
+        expect(warning).toContain(`superseded/${archiveName}`)
+        expect(warning).toContain("operator intervention required")
+
+        // The archive itself is preserved untouched.
+        expect(await readFile(join(supersededDir, archiveName), "utf8")).toBe(JSON.stringify(strandedRun))
+      })
+    } finally {
+      // Restore writability so the afterEach rm -rf cleanup can unlink.
+      await chmod(supersededDir, 0o700)
+    }
+  })
+
+  it("excludes a re-run cancelled-again reviewer's submissions at consolidation (RD-FR-025)", async () => {
+    const scribeRun = makeRun("divisor-scribe", { status: "cancelled", findings: 2, proposals: 1, sequence: 2 })
+    const { correlationId } = await setupSession(
+      [makeRun("divisor-guard"), scribeRun],
+      [planEntry("divisor-guard"), planEntry("divisor-scribe", { sequence: 2 })],
+    )
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+      const payload = JSON.parse(
+        (await hooks.tool.consolidate_dispatch.execute({ correlation_id: correlationId }, noopContext())).output,
+      )
+
+      expect(payload.run_counts.total).toBe(2)
+      expect(payload.run_counts.success).toBe(1)
+      expect(payload.findings).toHaveLength(0)
+      expect(payload.warnings).toHaveLength(1)
+      expect(payload.warnings[0]).toEqual({
+        type: "orphaned_submissions_excluded",
+        agent: "divisor-scribe",
+        run_id: scribeRun.run_id,
+        discarded_findings: 2,
+        discarded_proposals: 1,
+      })
     })
   })
 })

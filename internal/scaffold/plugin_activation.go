@@ -216,6 +216,7 @@ func stageReviewPluginSources(opts *Options, stageRoot string) error {
 		"opencode/lib/review-dispatch-sibling-evidence.ts",
 		"opencode/lib/review-diff.ts",
 		"opencode/lib/reviewer-manifest.ts",
+		"opencode/lib/run-timeout.ts",
 		"opencode/lib/uf-workflow-types.ts",
 		"opencode/lib/unleash-templates.ts",
 	}

@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer"
 import { createHash, randomUUID } from "node:crypto"
-import { chmod, link, mkdir, open, readFile, readdir, realpath, rename, unlink, writeFile } from "node:fs/promises"
+import { chmod, link, mkdir, open, readFile, readdir, realpath, rename, stat, unlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -25,6 +25,15 @@ import {
   type InvokeAgentResult,
   type ModelIdentity,
 } from "../../lib/agent-executor.js"
+import {
+  DEFAULT_CEILING_MS,
+  MAX_TIMEOUT_MS,
+  derivePerRunTimeoutMs,
+  resolveBaseWindowMs,
+  type DerivedTimeout,
+  type TimeoutProvenanceRecord,
+  type TimeoutTier,
+} from "../../lib/run-timeout.js"
 import {
   DISPATCH_ARTIFACT_DIRECTORY,
   REVIEW_DISPATCH_ARTIFACT_TYPE,
@@ -101,12 +110,20 @@ const DEFAULT_TIER_CAPS = {
   heavy: null,
 } as const
 
+const DEFAULT_TIMEOUT_TIER_OVERRIDES: TimeoutTierOverrides = {
+  lightweight: undefined,
+  standard: undefined,
+  heavy: undefined,
+}
+
 const DEFAULT_LIMITS = {
   max_personas: 16,
   max_runs_per_persona: 3,
   max_total_runs: 24,
   max_parallel_runs: 4,
   per_run_timeout_seconds: 600,
+  per_run_timeout_ceiling_seconds: DEFAULT_CEILING_MS / 1000,
+  per_run_timeout_tiers: DEFAULT_TIMEOUT_TIER_OVERRIDES,
   max_reported_cost_usd: 25,
   tier_caps: DEFAULT_TIER_CAPS,
 } as const
@@ -223,6 +240,17 @@ const TierCapsSchema = z
   .strict()
   .optional()
 
+const TimeoutSecondsSchema = z.number().int().min(30).max(1800)
+
+const TimeoutTiersSchema = z
+  .object({
+    lightweight: TimeoutSecondsSchema.optional(),
+    standard: TimeoutSecondsSchema.optional(),
+    heavy: TimeoutSecondsSchema.optional(),
+  })
+  .strict()
+  .optional()
+
 const LimitsSchema = z
   .object({
     max_personas: z.number().int().min(1).max(32).optional(),
@@ -230,6 +258,8 @@ const LimitsSchema = z
     max_total_runs: z.number().int().min(1).max(64).optional(),
     max_parallel_runs: z.number().int().min(1).max(8).optional(),
     per_run_timeout_seconds: z.number().int().min(30).max(1800).optional(),
+    per_run_timeout_ceiling_seconds: TimeoutSecondsSchema.optional(),
+    per_run_timeout_tiers: TimeoutTiersSchema,
     max_reported_cost_usd: z.number().min(1).max(100).optional(),
     tier_caps: TierCapsSchema,
   })
@@ -724,6 +754,14 @@ interface PersistedRunData {
    * field remain valid.
    */
   readonly discarded_submissions?: DiscardedSubmissionsRecord
+  /**
+   * Optional run-file-only timeout provenance record (RD-FR-030, design D5
+   * of derive-per-run-timeout): populated by dispatch_review_runs and
+   * redispatch_failed_runs when they resolve the run's timeout through
+   * derivation or an explicit argument. Older run files that predate the
+   * field remain valid.
+   */
+  readonly timeout?: TimeoutProvenanceRecord
 }
 
 /** Structured result returned by dispatch_agent_run for agent consumption. */
@@ -850,12 +888,20 @@ interface TierCaps {
   readonly heavy: number | null
 }
 
+interface TimeoutTierOverrides {
+  readonly lightweight: number | undefined
+  readonly standard: number | undefined
+  readonly heavy: number | undefined
+}
+
 interface Limits {
   readonly max_personas: number
   readonly max_runs_per_persona: number
   readonly max_total_runs: number
   readonly max_parallel_runs: number
   readonly per_run_timeout_seconds: number
+  readonly per_run_timeout_ceiling_seconds: number
+  readonly per_run_timeout_tiers: TimeoutTierOverrides
   readonly max_reported_cost_usd: number
   readonly tier_caps: TierCaps
 }
@@ -1323,12 +1369,25 @@ function matrixMode(mode: CommandMode): MatrixMode {
 }
 
 function limitsFor(matrix: ReviewMatrix): Limits {
-  const { tier_caps: matrixTierCaps, ...matrixScalars } = matrix.limits ?? {}
+  const {
+    tier_caps: matrixTierCaps,
+    per_run_timeout_tiers: matrixTimeoutTiers,
+    ...matrixScalars
+  } = matrix.limits ?? {}
   const tier_caps: TierCaps = {
     ...DEFAULT_TIER_CAPS,
     ...matrixTierCaps,
   }
-  return { ...DEFAULT_LIMITS, ...matrixScalars, tier_caps }
+  const per_run_timeout_tiers: TimeoutTierOverrides = {
+    ...DEFAULT_TIMEOUT_TIER_OVERRIDES,
+    ...matrixTimeoutTiers,
+  }
+  return {
+    ...DEFAULT_LIMITS,
+    ...matrixScalars,
+    per_run_timeout_tiers,
+    tier_caps,
+  }
 }
 
 function profilePair(matrix: ReviewMatrix, profileName: string, variant?: string): {
@@ -2932,6 +2991,13 @@ export interface ExecuteDispatchRunOptions {
   readonly readOnly: boolean
   /** Pre-validated run timeout in milliseconds (the calling tool validates). */
   readonly timeoutMilliseconds: number
+  /**
+   * Timeout provenance persisted in the run file (design D5 of
+   * derive-per-run-timeout): present when the calling tool resolved the
+   * timeout through derivation or an explicit argument, absent when the
+   * caller keeps the flat default.
+   */
+  readonly timeoutProvenance?: TimeoutProvenanceRecord
   /** Run source from the dispatch plan. Defaults to "explicit". */
   readonly source?: Source
   /** Direct provider/model-id bypass. Mutually exclusive with tier. */
@@ -2977,6 +3043,46 @@ function resolvePlanEntryRuntime(
     tier: entry.model === null ? (entry.tier ?? undefined) : undefined,
     variant: entry.variant ?? undefined,
   }
+}
+
+/**
+ * Shared per-run timeout-derivation input assembly (RD-FR-029, design D2):
+ * resolves the base window (per-tier override when configured) from the
+ * resolved limits and feeds the entry's runtime plus the
+ * invocation-specific signals to derivePerRunTimeoutMs.
+ *
+ * dispatch_review_runs and redispatch_failed_runs MUST derive identical
+ * work signals identically (DR-FR-002 reuses the original entry's runtime
+ * intent), so the assembly MUST NOT be duplicated at the call sites —
+ * callers supply only what genuinely differs: prompt bytes, session-profile
+ * tier, concurrency cap, and the explicit override.
+ *
+ * @param inputs Entry runtime, resolved limits, and the invocation's
+ *   varying derivation signals.
+ * @returns The effective window plus its provenance record.
+ */
+function deriveRunTimeoutMs(
+  inputs: {
+    readonly runtime: PlanEntryRuntime
+    readonly limits: Limits
+    readonly promptBytes: number
+    readonly sessionProfileTier: TimeoutTier | null
+    readonly maxParallelRuns: number
+    readonly explicitTimeoutMs?: number
+  },
+): DerivedTimeout {
+  return derivePerRunTimeoutMs({
+    baseMs: resolveBaseWindowMs(inputs.runtime.tier ?? null, {
+      per_run_timeout_seconds: inputs.limits.per_run_timeout_seconds,
+      per_run_timeout_tiers: inputs.limits.per_run_timeout_tiers,
+    }),
+    promptBytes: inputs.promptBytes,
+    resolvedTier: inputs.runtime.tier ?? null,
+    sessionProfileTier: inputs.sessionProfileTier,
+    maxParallelRuns: inputs.maxParallelRuns,
+    configuredCeilingMs: inputs.limits.per_run_timeout_ceiling_seconds * 1000,
+    explicitTimeoutMs: inputs.explicitTimeoutMs,
+  })
 }
 
 /**
@@ -3236,6 +3342,9 @@ export async function executeDispatchRun(
     // Undefined (key absent after JSON.stringify) for every
     // non-reclassified run — populated only at the RD-FR-026 hook above.
     post_submission_abort: postSubmissionAbort,
+    // Timeout provenance (RD-FR-030, design D5 of derive-per-run-timeout):
+    // key absent when the calling tool did not resolve a timeout.
+    timeout: options.timeoutProvenance,
   }
   let persisted = false
   const dir = dispatchSessionDir(options.correlationId)
@@ -3289,6 +3398,11 @@ export async function dispatchAgentRun(
   rawInput: unknown,
   context: ToolContext,
   deps: DispatchAgentRunDependencies,
+  // Aggregate dispatch tools (dispatch_review_runs and
+  // redispatch_failed_runs) pass the timeout provenance they derived
+  // so it lands in the run record (RD-FR-030). Direct calls omit it
+  // and keep explicit-arg-or-flat-default semantics.
+  timeoutProvenance?: TimeoutProvenanceRecord,
 ): Promise<DispatchAgentRunResult> {
   const parsed = DispatchAgentRunInputSchema.safeParse(rawInput)
   if (!parsed.success) {
@@ -3383,6 +3497,11 @@ export async function dispatchAgentRun(
       sequence: resolvedSequence,
       readOnly,
       timeoutMilliseconds,
+      // Timeout provenance pass-through for the aggregate dispatch
+      // tools (dispatch_review_runs / redispatch_failed_runs); absent
+      // for direct dispatch_agent_run calls, which keep flat-default
+      // semantics per the derive-per-run-timeout non-goals.
+      timeoutProvenance,
       source: input.source,
       model: input.model,
       tier: input.tier,
@@ -4060,7 +4179,16 @@ const DispatchReviewRunsInputSchema = z
     plan_entries: z.array(DispatchPlanEntrySchema).min(1),
     max_parallel_runs: z.number().int().positive().default(DEFAULT_LIMITS.max_parallel_runs),
     budget_usd: z.number().positive().optional(),
-    per_run_timeout_ms: z.number().int().positive().optional(),
+    per_run_timeout_ms: z
+      .number()
+      .int()
+      .positive()
+      .max(MAX_TIMEOUT_MS)
+      .optional()
+      .describe(
+        "Explicit per-run timeout override in milliseconds. When omitted, each run's timeout is derived from the work being " +
+          "dispatched (review-matrix base window, prompt size, plan tier, and parallelism), bounded by 1,800,000 ms.",
+      ),
     session_metadata: SessionMetadataSchema,
     pre_flight_results: z.string().optional(),
     existing_reviews: z.string().optional(),
@@ -4588,6 +4716,25 @@ function createBuildReviewPromptsTool(projectRoot: string): ReturnType<typeof to
 // ── dispatch_review_runs implementation ──────────────────────
 
 /**
+ * Resolves the per-run timeout derivation limits from the repository's
+ * override-merged review matrix (design D3 of derive-per-run-timeout):
+ * one load-and-fallback source shared by dispatch_review_runs and
+ * redispatch_failed_runs. Load failure degrades to the schema defaults
+ * rather than failing the calling operation wholesale; the degraded
+ * flag lets callers surface the fallback.
+ */
+async function resolveTimeoutLimits(deps: {
+  readonly plannerDependencies: PlannerDependencies
+}): Promise<{ readonly limits: Limits; readonly degraded: boolean }> {
+  try {
+    const policies = await loadPolicies(deps.plannerDependencies)
+    return { limits: limitsFor(policies.matrix), degraded: false }
+  } catch {
+    return { limits: { ...DEFAULT_LIMITS }, degraded: true }
+  }
+}
+
+/**
  * Aggregate evidence-acquisition, prompt-building, and agent-dispatching into a
  * single deterministic orchestration call. Replaces sequential calls to
  * acquire_sibling_evidence, build_review_prompts, and dispatch_agent_run.
@@ -4712,6 +4859,22 @@ async function dispatchReviewRuns(
     }
   }
 
+  // RD-FR-031 (design D7): record this invocation's operation
+  // window. Started here — once the session exists (buildReviewPrompts
+  // landed the prompts under the session directory, so the dispatch
+  // session is real) — so a parent tool-call window death mid-dispatch
+  // leaves a started-but-unsettled record that dispatch_status
+  // reports as interrupted. The pre-prompt paths above (all-skip,
+  // prompt-building failure) are session-less per D1/D3 (issue #794)
+  // and record nothing: they never owned a session, and later
+  // retrieval correctly fails closed as not_found.
+  const operation: OperationRecord = {
+    kind: "dispatch",
+    operation_id: randomUUID(),
+    started_at: new Date().toISOString(),
+  }
+  await writeOperationRecord(correlationId, operation)
+
   if (promptResult.result.warnings) {
     warnings.push(...promptResult.result.warnings)
   }
@@ -4720,6 +4883,25 @@ async function dispatchReviewRuns(
   const promptPathMap = new Map<string, string>()
   for (const prompt of promptResult.result.prompts) {
     promptPathMap.set(prompt.agent, prompt.path)
+  }
+
+  // RD-FR-028 (derive-per-run-timeout): resolve the derivation limits
+  // once per invocation from the repository's review matrix — the same
+  // override-merged matrix the planner validates against (loadPolicies).
+  // Load failure falls back to the schema defaults so the dispatch
+  // degrades to flat derivation windows rather than failing wholesale;
+  // the planner and per-run paths fail closed separately. The degraded
+  // fallback is surfaced as a warning so silent window shrinkage
+  // (1200s→600s) cannot go unnoticed.
+  const { limits: timeoutLimits, degraded: limitsDegraded } = await resolveTimeoutLimits(deps)
+  if (limitsDegraded) {
+    warnings.push("review matrix limits unavailable; per-run timeout derivation degraded to schema defaults")
+  }
+
+  // Design D1: prompt byte sizes feed the per-run derivation.
+  const promptSizeMap = new Map<string, number>()
+  for (const prompt of promptResult.result.prompts) {
+    promptSizeMap.set(prompt.agent, prompt.size_bytes)
   }
 
   // Step 3 (FR-004, FR-005): Dispatch agent runs in batches.
@@ -4769,16 +4951,31 @@ async function dispatchReviewRuns(
       if (runtime.variant !== undefined) {
         runInput.variant = runtime.variant
       }
-      if (input.per_run_timeout_ms !== undefined) {
-        runInput.timeout = input.per_run_timeout_ms
-      }
+      // RD-FR-028 (derive-per-run-timeout): each run derives its
+      // timeout from the work being dispatched — the base window from
+      // the resolved limits (per-tier override when configured), the
+      // prompt bytes, the entry's resolved tier (zero for tier-less
+      // direct-model runs), and the configured concurrency cap. An
+      // explicit per_run_timeout_ms argument wins and is recorded
+      // with source "explicit" in the run's timeout provenance. The
+      // signal assembly is shared with redispatch_failed_runs
+      // (deriveRunTimeoutMs) so both paths derive identically.
+      const derivedTimeout = deriveRunTimeoutMs({
+        runtime,
+        limits: timeoutLimits,
+        promptBytes: promptSizeMap.get(entry.agent) ?? 0,
+        sessionProfileTier: input.session_metadata.change_profile.tier,
+        maxParallelRuns: input.max_parallel_runs,
+        explicitTimeoutMs: input.per_run_timeout_ms,
+      })
+      runInput.timeout = derivedTimeout.effectiveMs
       // FR-007: Pass session_metadata only on the FIRST dispatchAgentRun call.
       if (isFirstRun) {
         runInput.session_metadata = input.session_metadata
         isFirstRun = false
       }
 
-      return dispatchAgentRun(runInput, context, deps)
+      return dispatchAgentRun(runInput, context, deps, derivedTimeout.provenance)
     })
 
     const results = await Promise.allSettled(batchPromises)
@@ -4830,6 +5027,15 @@ async function dispatchReviewRuns(
     allProposals.push(...result.run.proposals)
   }
 
+  await settleOperationRecord(correlationId, operation, runsFailed > 0 && runsCompleted === 0 ? "error" : "ok", {
+    total: input.plan_entries.length,
+    success: runsCompleted,
+    failed: runsFailed,
+    skipped: runsSkipped,
+    budget_skipped: 0,
+    limit_skipped: 0,
+    cancelled: 0,
+  })
   return {
     status: runsFailed > 0 && runsCompleted === 0 ? "error" : "ok",
     // D3: report the invocation's minted correlation — the same local the
@@ -4860,7 +5066,9 @@ function createDispatchReviewRunsTool(
   return tool({
     description:
       "Aggregate evidence-acquisition, prompt-building, and agent-dispatching into a single deterministic tool call. " +
-      "Replaces sequential calls to acquire_sibling_evidence, build_review_prompts, and dispatch_agent_run.",
+      "Replaces sequential calls to acquire_sibling_evidence, build_review_prompts, and dispatch_agent_run. " +
+      "When per_run_timeout_ms is omitted, each run's timeout is derived from the work being dispatched " +
+      "(review-matrix base window, prompt size, plan tier, and parallelism), bounded by 1,800,000 ms.",
     args: DispatchReviewRunsInputSchema.shape,
     async execute(
       args,
@@ -4873,6 +5081,117 @@ function createDispatchReviewRunsTool(
       const summary = `dispatch_review_runs: ${result.status} (correlation_id ${result.correlation_id ?? "none"}) — ${result.runs_completed} completed, ${result.runs_failed} failed, ${result.runs_skipped} skipped, ${result.findings.length} findings, ${result.proposals.length} proposals`
       return { output: summary, metadata: result }
     },
+  })
+}
+
+// ── Operation window records (RD-FR-031) ─────────────────────
+
+/**
+ * Run-count buckets recorded on a settled dispatch operation.
+ * Mirrors the seven-bucket RunCounts vocabulary the dispatch
+ * envelope carries. Budget-skipped batch entries are folded into
+ * `skipped` — mirroring dispatch_review_runs's own runs_skipped
+ * output, which conflates them — so total = success + failed +
+ * skipped holds. Pre-execution cancellations (a run rejected
+ * before child-session creation) likewise fold into `failed`,
+ * so `cancelled` stays 0 on the dispatch path; only persisted
+ * run files carry per-run cancelled status.
+ */
+interface DispatchOperationCounts {
+  readonly total: number
+  readonly success: number
+  readonly failed: number
+  readonly skipped: number
+  readonly budget_skipped: number
+  readonly limit_skipped: number
+  readonly cancelled: number
+}
+
+/**
+ * Outcome counts recorded on a settled recovery operation.
+ */
+interface RecoveryOperationCounts {
+  readonly redispatched: number
+  readonly refused: number
+  readonly restored: number
+}
+
+/**
+ * Union of the per-kind operation count vocabularies.
+ */
+type OperationRunCounts = DispatchOperationCounts | RecoveryOperationCounts
+
+/**
+ * An operation window record (RD-FR-031, design D7). Every
+ * dispatch_review_runs and redispatch_failed_runs invocation that
+ * owns a dispatch session writes operation-<uuid>.json: a start
+ * record {kind, operation_id, started_at} at invocation start,
+ * and — unless the invocation dies with its parent tool-call
+ * window — a settle record adding completed_at, the terminal
+ * status, and run counts. The settle write renames over the same
+ * path, atomically replacing the start record, so a record with
+ * started_at but no completed_at marks an interrupted operation.
+ * Run discovery is unaffected: readRunFiles filters the run-
+ * prefix, and these records are named operation-.
+ */
+interface OperationRecord {
+  readonly kind: "dispatch" | "redispatch"
+  readonly operation_id: string
+  readonly started_at: string
+  readonly completed_at?: string
+  readonly status?: string
+  readonly run_counts?: OperationRunCounts
+  /**
+   * Non-fatal operational warnings observed during the operation —
+   * matrix-load degradation (RD-FR-029) and stranded-archive restore
+   * failures (DR-FR-002). Settled records carry what was known at
+   * settle time; absent when the operation observed none.
+   */
+  readonly warnings?: readonly string[]
+}
+
+/**
+ * Persist an operation window record via write-temp-then-rename.
+ * Best-effort by design (RD-FR-031): observability must never
+ * fail the operation it observes, so write errors are swallowed.
+ *
+ * Records are only written into existing session directories:
+ * writeFile into a missing dir throws ENOENT and the best-effort
+ * catch no-ops, so session-less invocations (D1/D3, issue #794)
+ * leave no session state.
+ */
+async function writeOperationRecord(correlationId: string, record: OperationRecord): Promise<void> {
+  try {
+    const dir = dispatchSessionDir(correlationId)
+    const recordPath = join(dir, `operation-${record.operation_id}.json`)
+    const tempPath = `${recordPath}.tmp`
+    await writeFile(tempPath, JSON.stringify(record, null, 2), "utf8")
+    await rename(tempPath, recordPath)
+  } catch {
+    // Swallowed: the window record is observability, not a gate.
+  }
+}
+
+/**
+ * Settle an operation window record: atomically replace the start
+ * record with its terminal form, adding completed_at, the
+ * invocation's terminal status, its run counts, and — for recovery
+ * operations that observed non-fatal degradation (RD-FR-029,
+ * DR-FR-002) — the warnings collected along the way.
+ */
+async function settleOperationRecord(
+  correlationId: string,
+  operation: OperationRecord,
+  status: string,
+  runCounts: OperationRunCounts,
+  warnings?: readonly string[],
+): Promise<void> {
+  await writeOperationRecord(correlationId, {
+    ...operation,
+    completed_at: new Date().toISOString(),
+    status,
+    run_counts: runCounts,
+    ...(warnings !== undefined && warnings.length > 0 ? { warnings } : {}),
   })
 }
 
@@ -4899,7 +5218,10 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
       "Query the status of this session's dispatch. Automatically resolves the dispatch session " +
       "from prior dispatch_agent_run calls; pass correlation_id explicitly to inspect a dispatch " +
       "started by a different session (e.g. after a restart). Returns completed runs, statuses, " +
-      "finding counts, per-run token usage, and any pending submissions in the store.",
+      "finding counts, per-run token usage, per-run effective timeouts, and any pending submissions " +
+      "in the store. Also reports operation windows (RD-FR-031): every dispatch_review_runs and " +
+      "redispatch_failed_runs invocation on the session recorded its start and settle; a record " +
+      "with no completed_at is flagged as an interrupted operation.",
     args: {
       correlation_id: UUIDSchema.optional().describe(
         "Optional explicit dispatch correlation_id; takes precedence over the " +
@@ -4935,11 +5257,12 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
         findings: number
         proposals: number
         usage: z.infer<typeof UsageSchema> | null
+        timeout_effective_ms: number | null
       }> = []
 
       for (const result of readResults) {
         if (result.run === null) {
-          runSummaries.push({ agent: result.file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0, usage: null })
+          runSummaries.push({ agent: result.file.replace(/^run-|\.json$/g, ""), status: "unreadable", findings: 0, proposals: 0, usage: null, timeout_effective_ms: null })
           continue
         }
         runSummaries.push({
@@ -4948,7 +5271,78 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
           findings: result.run.findings.length,
           proposals: result.run.proposals.length,
           usage: result.run.usage,
+          // Effective per-run timeout (RD-FR-030, design D5 of
+          // derive-per-run-timeout): surfaced when the run file carries
+          // timeout provenance; null for older run files and unreadable
+          // entries. Strictly observational — never feeds status or
+          // verdict computation.
+          timeout_effective_ms:
+            typeof result.run.timeout?.effective_ms === "number" ? result.run.timeout.effective_ms : null,
         })
+      }
+
+      // RD-FR-031 (design D7): operation window records. Every
+      // dispatch_review_runs / redispatch_failed_runs invocation that
+      // owned this session wrote operation-<uuid>.json; a record with
+      // started_at but no completed_at marks an interrupted operation
+      // (parent tool-call window death). Sessions older than the
+      // feature carry none — reported as an empty list, never an
+      // error. Records are read defensively: unparseable or malformed
+      // files are skipped.
+      const operations: Array<{
+        kind: string
+        operation_id: string
+        started_at: string
+        completed_at: string | null
+        status: string | null
+        run_counts: OperationRunCounts | null
+        interrupted: boolean
+      }> = []
+      try {
+        const dirEntries = await readdir(dir)
+        for (const name of dirEntries) {
+          if (!/^operation-.*\.json$/.test(name)) {
+            continue
+          }
+          try {
+            const parsed: unknown = JSON.parse(await readFile(join(dir, name), "utf8"))
+            if (typeof parsed !== "object" || parsed === null) {
+              continue
+            }
+            const record = parsed as OperationRecord
+            if (
+              (record.kind !== "dispatch" && record.kind !== "redispatch") ||
+              typeof record.operation_id !== "string" ||
+              typeof record.started_at !== "string"
+            ) {
+              continue
+            }
+            // Constitution V: records on disk are untrusted — validate
+            // the count payload before echoing it.
+            let runCounts: OperationRunCounts | null = null
+            if (
+              typeof record.run_counts === "object" &&
+              record.run_counts !== null &&
+              Object.values(record.run_counts).every((value) => typeof value === "number")
+            ) {
+              runCounts = record.run_counts
+            }
+            operations.push({
+              kind: record.kind,
+              operation_id: record.operation_id,
+              started_at: record.started_at,
+              completed_at: typeof record.completed_at === "string" ? record.completed_at : null,
+              status: typeof record.status === "string" ? record.status : null,
+              run_counts: runCounts,
+              interrupted: typeof record.completed_at !== "string",
+            })
+          } catch {
+            // Unparseable operation record — skip.
+          }
+        }
+        operations.sort((a, b) => a.started_at.localeCompare(b.started_at))
+      } catch {
+        // Session directory unreadable — report no operations.
       }
 
       // Check for any pending submissions in the store.
@@ -4962,6 +5356,8 @@ function createDispatchStatusTool(): ReturnType<typeof tool> {
             runs: runSummaries,
             total_runs: runSummaries.length,
             pending_submissions: pendingSubmissions,
+            operations,
+            total_operations: operations.length,
           },
           null,
           2,
@@ -5644,12 +6040,14 @@ async function restorePriorRunFile(supersededPath: string, activePath: string): 
  * fresh parent session after a restart (issue #751), when the in-process
  * sessionCorrelationMap has no entry, so there is nothing to fall back to
  * (Constitution II — the tool is usable standalone). The optional agents
- * filter names the reviewers whose failed runs to re-execute. The optional
+ * filter names the reviewers whose failed or cancelled runs to re-execute. The optional
  * timeout overrides the per-run timeout for every re-executed reviewer and is
  * validated exactly like dispatch_agent_run's timeout: the shared
  * TimeoutSchema bounds it to a positive integer of at most 1_800_000
- * milliseconds; the plan entry carries no timeout, so the shared dispatch
- * default is the only fallback.
+ * milliseconds. The plan entry carries no timeout, so when the input
+ * omits one each re-run derives its window from the persisted work
+ * signals (RD-FR-029): the run's prompt bytes and the plan entry's
+ * tier against the repository's current matrix.
  */
 const RedispatchFailedRunsInputSchema = z
   .object({
@@ -5706,15 +6104,34 @@ interface RedispatchFailedRunsSummary {
   readonly total_runs: number
   readonly redispatched_runs: number
   readonly refused_runs: number
+  /**
+   * Prior run files restored from superseded/: stranded archives restored
+   * before target resolution, plus in-loop restores after failed re-run
+   * attempts.
+   */
+  readonly restored_runs: number
+  /**
+   * Agents whose stranded superseded archives were restored to their active
+   * run-file paths before target resolution (DR-FR-002).
+   */
+  readonly restored_agents: readonly string[]
+  /**
+   * Non-fatal recovery warnings: per-run timeout derivation degraded to
+   * schema defaults because the review matrix could not be loaded
+   * (RD-FR-029), and stranded-archive restores that failed before target
+   * resolution (DR-FR-002). Always present, possibly empty.
+   */
+  readonly warnings: readonly string[]
 }
 
 /**
  * Creates the redispatch_failed_runs recovery tool (DR-FR-002, design D4 of
  * fix-review-dispatch-recovery; issue #751).
  *
- * Re-runs the failed reviewers of a dispatch session within that same session
- * by resolving the session from its explicit correlation_id and handing each
- * failed run's persisted prompt plus its original plan entry (model, tier,
+ * Re-runs the failed and cancelled reviewers of a dispatch session within
+ * that same session by resolving the session from its explicit
+ * correlation_id and handing each failed or cancelled run's persisted
+ * prompt plus its original plan entry (model, tier,
  * variant, sequence, source, read-only) to the shared executeDispatchRun core
  * — the identical execution path dispatch_agent_run uses, so the replacement
  * run is recorded exactly like a fresh dispatch. The prior run file is moved
@@ -5728,14 +6145,23 @@ interface RedispatchFailedRunsSummary {
  *
  * Successful runs — including post-submission-abort reclassifications whose
  * files say "success" — are never re-run; a run named in the agents filter
- * whose status is not "failed" is refused per run. A re-run that exits
+ * whose status is neither "failed" nor "cancelled" is refused per run. A
+ * cancelled run is an infrastructure failure in recovery terms — parent
+ * tool-call window death, not a judgment call to discard — so cancelled
+ * runs are re-run targets exactly like failed runs. A re-run that exits
  * BEFORE producing a persisted replacement run file — a pre-execution
  * early exit (runData null, e.g. tier_model_unavailable), an unexpected
  * executeDispatchRun throw, or a replacement whose run-file write never
  * reached disk (the outcome's persisted flag is false) — restores the
  * archived prior file to its active path, returning the session to its
  * pre-attempt state: the prior failed run is active again and
- * consolidatable via RD-FR-025 exclusion.
+ * consolidatable via RD-FR-025 exclusion. Stranded superseded archives —
+ * left when a killed recovery invocation archived a prior run but died
+ * before persisting its replacement, leaving the plan entry with no active
+ * run file — are restored to their active run-file paths (most recent
+ * archive per plan entry) before target resolution, so the session is
+ * consolidatable and the restored run is addressable by the normal re-run
+ * path.
  * Reported as the distinct "early_exit" (or "error") outcome noting the
  * restoration in the reason. Runs whose files predate prompt persistence
  * (no persisted prompt) or whose original plan entry no longer matches
@@ -5746,12 +6172,17 @@ interface RedispatchFailedRunsSummary {
 function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): ReturnType<typeof tool> {
   return tool({
     description:
-      "Re-run the failed reviewers of a dispatch session within that same session — the DR-FR-002 recovery for " +
-      "dispatches with failed children (issue #751). Reuses each failed run's original persisted prompt and plan " +
+      "Re-run the failed and cancelled reviewers of a dispatch session within that same session — the DR-FR-002 " +
+      "recovery for dispatches with failed children (issue #751). Reuses each failed or cancelled run's original " +
+      "persisted prompt and plan " +
       "entry (model, tier, variant, sequence, source, read-only) through the identical dispatch execution path; " +
       "sibling evidence is embedded in the reused prompt. The prior run file is moved to a superseded/ subdirectory " +
       "before the replacement is written, so each plan entry keeps exactly one active run file (replacement, not " +
-      "duplication) while the archive preserves the audit trail. A re-run that exits before child execution, throws, " +
+      "duplication) while the archive preserves the audit trail. Stranded superseded archives — left when a killed " +
+      "recovery invocation archived a prior run but never persisted its replacement — are restored to their active " +
+      "run-file paths (most recent per plan entry) before target resolution, so the session stays consolidatable. " +
+      "Cancelled runs (parent tool-call window death) are re-run targets exactly like failed ones. A re-run that " +
+      "exits before child execution, throws, " +
       "or fails to persist its replacement run file renames the archived prior file back to its active path, so the " +
       "session returns to its pre-attempt state and stays consolidatable. A re-run that succeeds contributes to " +
       "consolidation; one that fails again is handled by RD-FR-025 exclusion at consolidation. Successful runs " +
@@ -5766,13 +6197,14 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         .min(1)
         .optional()
         .describe(
-          "Optional filter naming the reviewers whose failed runs to re-execute. A named run whose status is not " +
-            '"failed" is refused untouched (DR-FR-002); a named agent with no run file reports not_found. When ' +
-            "omitted, every failed run in the session is re-executed.",
+          "Optional filter naming the reviewers whose failed or cancelled runs to re-execute. A named run whose " +
+            'status is neither "failed" nor "cancelled" is refused untouched (DR-FR-002); a named agent with no ' +
+            "run file reports not_found. When omitted, every failed and cancelled run in the session is re-executed.",
         ),
       timeout: TimeoutSchema.optional().describe(
         "Optional per-run timeout in milliseconds (bounded to 1_800_000) applied to every re-executed reviewer. " +
-          "When omitted, the dispatch default (600_000 ms) applies.",
+          "When omitted, each re-run derives its window from the persisted work signals (RD-FR-029): the run's " +
+          "prompt bytes and the original plan entry's tier against the repository's current review matrix.",
       ),
     },
     async execute(args, context): Promise<{ readonly output: string }> {
@@ -5783,6 +6215,15 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       const input = parsed.data
       const correlationId = input.correlation_id
       const dir = dispatchSessionDir(correlationId)
+      const supersededDir = join(dir, "superseded")
+      // Agents whose stranded superseded archives were restored to their
+      // active run-file paths before target resolution (DR-FR-002).
+      const restoredAgents: string[] = []
+      // Non-fatal recovery warnings (RD-FR-029 matrix degradation,
+      // DR-FR-002 restore failures): collected here, surfaced in the
+      // summary and the settled operation record so silent degradation
+      // is visible to the operator.
+      const redispatchWarnings: string[] = []
 
       const notFound = (): { readonly output: string } =>
         recoveryNotFoundOutput({
@@ -5792,7 +6233,79 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           total_runs: 0,
           redispatched_runs: 0,
           refused_runs: 0,
+          restored_runs: restoredAgents.length,
+          restored_agents: [...restoredAgents],
+          warnings: [...redispatchWarnings],
         } satisfies RedispatchFailedRunsSummary)
+
+      // Stranded-archive restoration (DR-FR-002, design D8 of
+      // derive-per-run-timeout): a killed recovery invocation can archive a
+      // prior run file to superseded/ and die before persisting its
+      // replacement, leaving the plan entry with no active run file — a
+      // stranded archive. Restore the most recent such archive per agent
+      // (mtime) BEFORE loading the session's run files, so the restored run
+      // joins target resolution — addressable as a re-run target according
+      // to its status — and the session stays consolidatable. Archives whose
+      // agent has an active run file are never touched: that active file is
+      // a later replacement and the archive behind it is its retained audit
+      // trail. Best-effort — a missing or unreadable superseded/ directory
+      // restores nothing.
+      try {
+        const archivedNames = await readdir(supersededDir)
+        const activeNames = new Set(
+          (await readdir(dir)).filter((name) => name.startsWith("run-") && name.endsWith(".json")),
+        )
+        // Archives are named run-<agent>-<run_id>.json with a 36-char UUID
+        // run_id; names without that tail are foreign files, left untouched.
+        const archivesByAgent = new Map<string, { name: string; mtimeMs: number }[]>()
+        for (const name of archivedNames) {
+          const match =
+            /^run-(.+)-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/.exec(name)
+          if (match === null) {
+            continue
+          }
+          const agent = match[1]
+          if (activeNames.has(`run-${agent}.json`)) {
+            continue
+          }
+          // Best-effort per archive: a stat failure (file removed
+          // mid-scan, permission change) skips just this archive
+          // rather than aborting every remaining restore.
+          let mtimeMs: number
+          try {
+            mtimeMs = (await stat(join(supersededDir, name))).mtimeMs
+          } catch {
+            continue
+          }
+          const group = archivesByAgent.get(agent) ?? []
+          group.push({ name, mtimeMs })
+          archivesByAgent.set(agent, group)
+        }
+        for (const [agent, group] of archivesByAgent) {
+          const mostRecent = group.reduce((a, b) => (b.mtimeMs > a.mtimeMs ? b : a))
+          const restore = await restorePriorRunFile(
+            join(supersededDir, mostRecent.name),
+            join(dir, `run-${agent}.json`),
+          )
+          if (restore.restored) {
+            restoredAgents.push(agent)
+          } else {
+            // DR-FR-002: the stranded archive could not be restored, so
+            // the agent still has no active run file. The restore loop is
+            // best-effort by design — one agent's failed restore must not
+            // abort recovery of the remaining agents — but silence here
+            // would hide the stranding, so surface it as a warning: the
+            // archive itself is preserved in superseded/ and the operator
+            // must intervene.
+            redispatchWarnings.push(
+              `stranded-archive restore failed for ${agent}: ${errorText(restore.error)}; the prior run remains archived at superseded/${mostRecent.name} and the agent has no active run file (operator intervention required)`,
+            )
+          }
+        }
+      } catch {
+        // No superseded/ directory (a session with no prior re-runs) or an
+        // unreadable one: nothing to restore.
+      }
 
       // Shared recovery scaffolding (see loadDispatchRunFiles): the
       // session's run files plus the agents filter, or not_found when the
@@ -5807,6 +6320,20 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       }
       const { loaded, unreadableFiles, filter } = runFiles
 
+      // RD-FR-031 (design D7): the session exists and is readable, so
+      // this recovery invocation owns it — start the operation window
+      // record before metadata validation so a parent tool-call window
+      // death during validation is visible as an interrupted operation.
+      // The notFound path above writes nothing: an unknown correlation
+      // must not create session state. The metadata-failure returns and
+      // the summary return below settle the record.
+      const operation: OperationRecord = {
+        kind: "redispatch",
+        operation_id: randomUUID(),
+        started_at: new Date().toISOString(),
+      }
+      await writeOperationRecord(correlationId, operation)
+
       // Session metadata is a hard precondition (fail-closed, mirroring
       // consolidate_dispatch): the dispatch plan carries the model/tier/
       // variant, sequence, source, and read-only intent every re-run MUST
@@ -5816,24 +6343,40 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         const raw = await readFile(join(dir, SESSION_METADATA_FILE), "utf8")
         const parsedMetadata = SessionMetadataSchema.safeParse(JSON.parse(raw))
         if (!parsedMetadata.success) {
+          await settleOperationRecord(correlationId, operation, "error", {
+            redispatched: 0,
+            refused: 0,
+            restored: restoredAgents.length,
+          }, redispatchWarnings)
           return { output: `redispatch_failed_runs error: invalid session metadata: ${parsedMetadata.error.message}` }
         }
         sessionMetadata = parsedMetadata.data
       } catch {
+        await settleOperationRecord(correlationId, operation, "error", {
+          redispatched: 0,
+          refused: 0,
+          restored: restoredAgents.length,
+        }, redispatchWarnings)
         return {
           output:
             "redispatch_failed_runs error: no session metadata found; the dispatch plan is required to re-run failed reviewers (pass session_metadata on a dispatch_agent_run call)",
         }
       }
 
-      // Target resolution (DR-FR-002: only the failed reviewers re-run):
-      // with agents omitted, every failed run in the session directory —
+      // Target resolution (DR-FR-002: only the failed and cancelled
+      // reviewers re-run — a cancelled run is an infrastructure failure in
+      // recovery terms, not a judgment call to discard): with agents
+      // omitted, every failed or cancelled run in the session directory —
       // successful runs are out of scope entirely, never matched; with
       // agents provided, the named agents' runs regardless of status, so a
       // named successful run surfaces as an explicit per-run refusal
       // (partial re-dispatch MUST NOT re-run successful reviewers) instead
       // of silently vanishing from the summary.
-      const targets = resolveRecoveryTargets(loaded, filter, (run) => run.status === "failed")
+      const targets = resolveRecoveryTargets(
+        loaded,
+        filter,
+        (run) => run.status === "failed" || run.status === "cancelled",
+      )
 
       // Execute in plan-sequence order (mirroring the original dispatch) so
       // the recovery path is deterministic and observes the same ordering
@@ -5842,13 +6385,33 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         (a, b) => a.run.sequence - b.run.sequence || a.run.agent.localeCompare(b.run.agent),
       )
 
-      // Timeout resolution mirrors dispatch_agent_run: schema-bounded input
-      // or the shared default. The plan entry carries no timeout, so the
-      // default is the only fallback.
-      const timeoutMilliseconds = input.timeout ?? DEFAULT_TIMEOUT_MILLISECONDS
+      // Timeout derivation (RD-FR-029, design D2 of derive-per-run-timeout):
+      // recovery resolves each replacement's window from the repository's
+      // current matrix — the same override-merged resolution the dispatch
+      // path uses — combined with the persisted work signals (the run's
+      // prompt bytes and the original plan entry's tier). Recovery is
+      // sequential, so no contention multiplier applies. An explicit
+      // `timeout` argument overrides every re-run and is recorded with
+      // source "explicit". Matrix-load failure degrades to schema defaults
+      // rather than failing the recovery wholesale.
+      const { limits: timeoutLimits, degraded: limitsDegraded } = await resolveTimeoutLimits(deps)
+      if (limitsDegraded) {
+        // RD-FR-029: mirror the dispatch path's degradation warning — a
+        // matrix-load failure silently shrinking every recovery window to
+        // the schema defaults (a 1200 s matrix limit degrades to the
+        // 600 s default) must be visible to the operator, not just in the
+        // derived provenance.
+        redispatchWarnings.push(
+          "review matrix limits unavailable; per-run timeout derivation degraded to schema defaults",
+        )
+      }
 
-      const supersededDir = join(dir, "superseded")
       const results: RedispatchRunResult[] = []
+      // Prior run files restored from superseded/: the stranded archives
+      // restored before target resolution above, plus the in-loop restores
+      // after failed re-run attempts below (RD-FR-031 operation-record
+      // count).
+      let restoredCount = restoredAgents.length
 
       // Single construction point for per-run results (PR #776): every
       // branch routes through one builder owning the no-change defaults,
@@ -5871,14 +6434,15 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
       })
 
       for (const { file, run } of ordered) {
-        // Refuse non-failed runs (DR-FR-002): only failed runs are redispatch
-        // targets — runs reclassified per RD-FR-026 say "success" and are
-        // never re-run. Per-run refusal, not a whole-operation abort — one
-        // mis-scoped agent name must not block recovery of the remaining
-        // failed runs.
-        if (run.status !== "failed") {
+        // Refuse runs that are neither failed nor cancelled (DR-FR-002):
+        // only failed and cancelled runs are redispatch targets — runs
+        // reclassified per RD-FR-026 say "success" and are never re-run.
+        // Per-run refusal, not a whole-operation abort — one mis-scoped
+        // agent name must not block recovery of the remaining failed and
+        // cancelled runs.
+        if (run.status !== "failed" && run.status !== "cancelled") {
           results.push(redispatchResult(run.agent, run.run_id, "refused", {
-            reason: `run status is "${run.status}"; only failed runs are redispatch targets (DR-FR-002)`,
+            reason: `run status is "${run.status}"; only failed and cancelled runs are redispatch targets (DR-FR-002)`,
           }))
           continue
         }
@@ -5941,6 +6505,23 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         // path it always has.
         const runtime = resolvePlanEntryRuntime(planEntry)
 
+        // Per-run derivation from the persisted work signals (RD-FR-029):
+        // the archived prompt's byte length and the plan entry's tier
+        // (zero profile term for tier-less direct-model entries). Recovery
+        // executes sequentially, so maxParallelRuns 1 holds the contention
+        // multiplier at 1.0 (design D2). The session's change-profile tier
+        // is recorded as a provenance signal only. The signal assembly is
+        // shared with dispatch_review_runs (deriveRunTimeoutMs) so both
+        // paths derive identically.
+        const derivedTimeout = deriveRunTimeoutMs({
+          runtime,
+          limits: timeoutLimits,
+          promptBytes: Buffer.byteLength(promptText, "utf8"),
+          sessionProfileTier: sessionMetadata.change_profile.tier,
+          maxParallelRuns: 1,
+          explicitTimeoutMs: input.timeout,
+        })
+
         try {
           const outcome = await executeDispatchRun(
             {
@@ -5949,7 +6530,8 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
               correlationId,
               sequence: planEntry.sequence,
               readOnly: planEntry.read_only,
-              timeoutMilliseconds,
+              timeoutMilliseconds: derivedTimeout.effectiveMs,
+              timeoutProvenance: derivedTimeout.provenance,
               source: planEntry.source,
               model: runtime.model,
               tier: runtime.tier,
@@ -5968,6 +6550,7 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           if (outcome.runData === null) {
             const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
             if (restore.restored) {
+              restoredCount++
               results.push(redispatchResult(run.agent, run.run_id, "early_exit", {
                 reason: `the re-run exited before child execution, so no replacement run file was written; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
                 error: outcome.result.error ?? undefined,
@@ -5993,6 +6576,7 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           if (!outcome.persisted) {
             const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
             if (restore.restored) {
+              restoredCount++
               results.push(redispatchResult(run.agent, run.run_id, "error", {
                 reason: `the replacement run file could not be persisted; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
                 error: outcome.result.error ?? undefined,
@@ -6026,6 +6610,7 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
           // left with no active run file for this plan entry.
           const restore = await restorePriorRunFile(join(supersededDir, supersededName), join(dir, file))
           if (restore.restored) {
+            restoredCount++
             results.push(redispatchResult(run.agent, run.run_id, "error", {
               reason: `executeDispatchRun threw: ${errorText(error)}; the prior run file was restored to its active path ${file}, returning the session to its pre-attempt state`,
             }))
@@ -6060,7 +6645,18 @@ function createRedispatchFailedRunsTool(deps: DispatchAgentRunDependencies): Ret
         total_runs: results.length,
         redispatched_runs: results.filter((result) => result.outcome === "redispatched").length,
         refused_runs: results.filter((result) => result.outcome === "refused").length,
+        restored_runs: restoredCount,
+        restored_agents: [...restoredAgents],
+        warnings: [...redispatchWarnings],
       }
+      // RD-FR-031 (design D7): settle the recovery operation's window
+      // record with the terminal summary counts and any non-fatal
+      // warnings observed along the way.
+      await settleOperationRecord(correlationId, operation, "ok", {
+        redispatched: summary.redispatched_runs,
+        refused: summary.refused_runs,
+        restored: restoredCount,
+      }, redispatchWarnings)
       return { output: JSON.stringify(summary, null, 2) }
     },
   })

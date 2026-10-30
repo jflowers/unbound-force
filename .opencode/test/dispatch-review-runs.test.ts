@@ -738,6 +738,17 @@ describe("dispatch_review_runs", () => {
         const explicitPayload = JSON.parse(explicit.output) as Record<string, unknown>
         expect(explicitPayload.status).not.toBe("not_found")
         expect(explicitPayload.correlation_id).toBe(c1)
+
+        // Pin the positive payload, not just the absence of not_found: the
+        // c1 session had one included guard run that completed successfully.
+        const counts = explicitPayload.run_counts as Record<string, number>
+        expect(counts.total).toBe(1)
+        expect(counts.success).toBe(1)
+        const runs = explicitPayload.runs as Array<{ agent: string; run_id: string }>
+        expect(runs).toHaveLength(1)
+        expect(runs[0].agent).toBe("divisor-guard")
+        expect(typeof runs[0].run_id).toBe("string")
+        expect(explicitPayload.warnings).toBeUndefined()
       })
     })
   })
@@ -1222,6 +1233,349 @@ describe("dispatch_review_runs", () => {
         const proposals = meta.proposals as Array<Record<string, unknown>>
         expect(proposals).toHaveLength(1)
         expect(proposals[0]?.tag).toBe("feedback-triage")
+      })
+    })
+  })
+
+  describe("per-run timeout derivation wiring (RD-FR-028)", () => {
+    it("records derived timeout provenance in run files when per_run_timeout_ms is omitted", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        expect(response.output).toContain("dispatch_review_runs")
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+
+        const correlationId = meta.correlation_id as string
+        trackDispatchDir(correlationId)
+        const run = JSON.parse(
+          await readFile(join(dispatchDir(correlationId), "run-divisor-guard.json"), "utf8"),
+        ) as { prompt: string; timeout?: Record<string, unknown> }
+
+        // RD-FR-028: the run's timeout derives from the work being
+        // dispatched — fixture matrix limits (base 600 s, no ceiling or
+        // per-tier override fields) resolved through the same limitsFor
+        // defaults, standard-tier entry, 4-way parallel batching.
+        const timeout = run.timeout
+        expect(timeout).toBeDefined()
+        expect(timeout!.source).toBe("derived")
+        expect(timeout!.base_ms).toBe(600_000)
+        expect(timeout!.resolved_tier).toBe("standard")
+        expect(timeout!.session_profile_tier).toBe("standard")
+        expect(timeout!.profile_term_ms).toBe(120_000)
+        // TC-001: pin the prompt term's byte source, never just its type —
+        // the persisted prompt (D4) is what promptSizeMap measured, so a
+        // key-drifted promptSizeMap would zero the prompt term while a
+        // typeof-only assertion still passes.
+        expect(timeout!.prompt_bytes).toBe(Buffer.byteLength(run.prompt, "utf8"))
+        expect(timeout!.contention_multiplier).toBe(1.45)
+        expect(timeout!.max_parallel_runs).toBe(4)
+        expect(timeout!.ceiling_ms).toBe(1_800_000)
+        // Effective value follows the D1 formula over the recorded terms.
+        const derived = Math.round(
+          ((timeout!.base_ms as number) +
+            (timeout!.prompt_term_ms as number) +
+            (timeout!.profile_term_ms as number)) *
+            (timeout!.contention_multiplier as number),
+        )
+        expect(timeout!.effective_ms).toBe(
+          Math.min(
+            Math.max(derived, timeout!.base_ms as number),
+            timeout!.ceiling_ms as number,
+          ),
+        )
+      })
+    })
+
+    it("derives the base window from the review matrix rather than the flat default (RD-FR-028)", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+
+        // Overwrite the scratch matrix with a non-default base window so a
+        // wired matrix limit (1200 s) is distinguishable from the 600 s flat
+        // default the field replaced.
+        const matrixPath = join(directory, ".uf", "review-matrix.yaml")
+        const matrix = JSON.parse(await readFile(matrixPath, "utf8")) as {
+          limits: { per_run_timeout_seconds: number }
+        }
+        matrix.limits.per_run_timeout_seconds = 1200
+        await writeFile(matrixPath, JSON.stringify(matrix), "utf8")
+
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+
+        const correlationId = meta.correlation_id as string
+        trackDispatchDir(correlationId)
+        const run = JSON.parse(
+          await readFile(join(dispatchDir(correlationId), "run-divisor-guard.json"), "utf8"),
+        ) as { timeout?: Record<string, unknown> }
+
+        // RD-FR-028: base_ms must reflect the matrix-configured 1200 s
+        // window through loadPolicies -> limitsFor -> resolveBaseWindowMs,
+        // never the 600 s flat default. The ceiling stays at the
+        // 1,800,000 ms schema bound because the matrix omits
+        // per_run_timeout_ceiling_seconds.
+        const timeout = run.timeout
+        expect(timeout).toBeDefined()
+        expect(timeout!.source).toBe("derived")
+        expect(timeout!.base_ms).toBe(1_200_000)
+        expect(timeout!.resolved_tier).toBe("standard")
+        expect(timeout!.profile_term_ms).toBe(120_000)
+        expect(timeout!.max_parallel_runs).toBe(4)
+        expect(timeout!.ceiling_ms).toBe(1_800_000)
+        const effective = timeout!.effective_ms as number
+        expect(effective).toBeGreaterThanOrEqual(1_200_000)
+        expect(effective).toBeLessThanOrEqual(1_800_000)
+      })
+    })
+
+    it("warns when matrix degradation shrinks derived windows to schema defaults (RD-FR-029)", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+
+        // Corrupt the scratch matrix so loadPolicies throws at both
+        // resolution points. resolveTimeoutLimits then degrades to the
+        // schema defaults (base 600 s, RD-FR-029) — which MUST be visible
+        // as a warning, never silent. The same corruption also fails every
+        // per-run policy load (retryable policy_load_failed early exit), so
+        // no run file is persisted and the dispatch-level degradation
+        // contract is the warning plus the failed-run counts, not a run
+        // file's base_ms. The redispatch companion test in
+        // dispatch-recovery.test.ts covers the recovery-side warning.
+        const matrixPath = join(directory, ".uf", "review-matrix.yaml")
+        await writeFile(matrixPath, "limits: [unclosed", "utf8")
+
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        const warnings = meta.warnings as string[]
+        expect(
+          warnings.some((w: string) =>
+            w.includes(
+              "review matrix limits unavailable; per-run timeout derivation degraded to schema defaults",
+            ),
+          ),
+        ).toBe(true)
+        expect(meta.status).toBe("error")
+        expect(meta.runs_completed).toBe(0)
+        expect(meta.runs_failed).toBe(1)
+      })
+    })
+
+    it("derives distinct base windows per tier from matrix per_run_timeout_tiers (RD-FR-029)", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+
+        // Overwrite the scratch matrix with per-tier base-window overrides
+        // so lightweight and heavy entries resolve different base windows
+        // than the scalar limit (design D6: the per-tier override wins for
+        // its tier; tiers without an override fall back to the scalar).
+        const matrixPath = join(directory, ".uf", "review-matrix.yaml")
+        const matrix = JSON.parse(await readFile(matrixPath, "utf8")) as {
+          limits: {
+            per_run_timeout_seconds: number
+            per_run_timeout_tiers?: { lightweight?: number; standard?: number; heavy?: number }
+          }
+        }
+        matrix.limits.per_run_timeout_tiers = { lightweight: 300, heavy: 1500 }
+        await writeFile(matrixPath, JSON.stringify(matrix), "utf8")
+
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+          makePlanEntry({ agent: "divisor-architect", tier: "lightweight", sequence: 2 }),
+          makePlanEntry({ agent: "divisor-testing", tier: "heavy", sequence: 3 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(3)
+
+        const correlationId = meta.correlation_id as string
+        trackDispatchDir(correlationId)
+        const readTimeout = async (agent: string): Promise<Record<string, unknown>> => {
+          const run = JSON.parse(
+            await readFile(join(dispatchDir(correlationId), `run-${agent}.json`), "utf8"),
+          ) as { timeout?: Record<string, unknown> }
+          expect(run.timeout).toBeDefined()
+          return run.timeout!
+        }
+
+        // Standard (no override): the scalar 600 s base and its 120 s
+        // profile term.
+        const standard = await readTimeout("divisor-guard")
+        expect(standard.source).toBe("derived")
+        expect(standard.base_ms).toBe(600_000)
+        expect(standard.resolved_tier).toBe("standard")
+        expect(standard.profile_term_ms).toBe(120_000)
+
+        // Lightweight override wins for its tier; zero profile term.
+        const lightweight = await readTimeout("divisor-architect")
+        expect(lightweight.source).toBe("derived")
+        expect(lightweight.base_ms).toBe(300_000)
+        expect(lightweight.resolved_tier).toBe("lightweight")
+        expect(lightweight.profile_term_ms).toBe(0)
+
+        // Heavy override wins for its tier: base 1500 s plus the 300 s
+        // heavy profile term, expanded by the 1.45 contention multiplier
+        // (4-way batching), exceeds the 1,800,000 ms ceiling and clamps
+        // there (D1 floor/ceiling composition).
+        const heavy = await readTimeout("divisor-testing")
+        expect(heavy.source).toBe("derived")
+        expect(heavy.base_ms).toBe(1_500_000)
+        expect(heavy.resolved_tier).toBe("heavy")
+        expect(heavy.profile_term_ms).toBe(300_000)
+        expect(heavy.ceiling_ms).toBe(1_800_000)
+        expect(heavy.effective_ms).toBe(1_800_000)
+        expect(heavy.clamped).toBe(true)
+      })
+    })
+
+    it("records explicit timeout provenance when per_run_timeout_ms is provided", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+        // Explicit argument wins over derivation (RD-FR-028) and the
+        // 1_800_000 executor bound is inclusive (D4).
+        input.per_run_timeout_ms = 1_800_000
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+
+        const correlationId = meta.correlation_id as string
+        trackDispatchDir(correlationId)
+        const run = JSON.parse(
+          await readFile(join(dispatchDir(correlationId), "run-divisor-guard.json"), "utf8"),
+        ) as { timeout?: Record<string, unknown> }
+
+        expect(run.timeout).toBeDefined()
+        expect(run.timeout!.source).toBe("explicit")
+        expect(run.timeout!.effective_ms).toBe(1_800_000)
+      })
+    })
+
+    it("rejects an explicit per_run_timeout_ms above the 1_800_000 executor bound", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+        input.per_run_timeout_ms = 1_800_001
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("error")
+        expect(meta.runs_completed).toBe(0)
+        expect(meta.runs_failed).toBe(0)
+        expect(meta.runs_skipped).toBe(0)
+        expect(typeof meta.message).toBe("string")
+        expect((meta.message as string).toLowerCase()).toContain("validation")
+        expect(meta.retryable).toBe(false)
+      })
+    })
+  })
+
+  it("records its operation window on successful dispatch (RD-FR-031)", async () => {
+    await withBun(async () => {
+      const { directory, diffPath } = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: fakeClient(),
+        directory,
+        worktree: directory,
+      } as unknown as PluginInput)
+
+      const input = makeBaseInput(diffPath, [
+        makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        makePlanEntry({ agent: "divisor-architect", decision: "skip", sequence: 2 }),
+      ])
+
+      const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+      const meta = response.metadata as Record<string, unknown>
+      const correlationId = meta.correlation_id as string
+      trackDispatchDir(correlationId)
+      const sessionDir = dispatchDir(correlationId)
+      const opFiles = (await readdir(sessionDir)).filter((name) => /^operation-.*\.json$/.test(name))
+      expect(opFiles).toHaveLength(1)
+      const record = JSON.parse(
+        await readFile(join(sessionDir, opFiles[0]), "utf8"),
+      ) as Record<string, unknown>
+      expect(record.kind).toBe("dispatch")
+      expect(typeof record.operation_id).toBe("string")
+      expect(typeof record.started_at).toBe("string")
+      expect(typeof record.completed_at).toBe("string")
+      expect(record.status).toBe("ok")
+      // TC-001: expected counts are literals, not values sourced from the
+      // production output being verified — self-sourced expectations
+      // verify themselves and cannot catch a counting drift.
+      expect(record.run_counts).toMatchObject({
+        total: 2,
+        success: 1,
+        failed: 0,
+        skipped: 1,
+        budget_skipped: 0,
+        limit_skipped: 0,
+        cancelled: 0,
       })
     })
   })

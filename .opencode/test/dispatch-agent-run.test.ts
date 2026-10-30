@@ -4,10 +4,12 @@ import { join } from "node:path"
 import { describe, expect, it, vi, afterEach } from "vitest"
 
 import type { InvokeAgentResult } from "../lib/agent-executor.js"
+import type { TimeoutProvenanceRecord } from "../lib/run-timeout.js"
 import ReviewDispatchPlugin from "../plugins/review-dispatch/index.js"
 import {
   createDispatchAgentRunTool,
   dispatchAgentRun,
+  executeDispatchRun,
   shouldReclassifyToSuccess,
   _getSessionCorrelationMap,
   _getSubmissionStore,
@@ -1220,6 +1222,83 @@ describe("dispatch_agent_run", () => {
         "timeout",
         "variant",
       ])
+    })
+  })
+
+  describe("run-record timeout provenance (RD-FR-030)", () => {
+    it("persists timeout provenance in the run file when resolved", async () => {
+      // RD-FR-030 / design D5: dispatch_review_runs and redispatch_failed_runs
+      // resolve each run's timeout through derivation and hand the provenance
+      // record to executeDispatchRun, which persists it in the run file.
+      const derivedTimeout: TimeoutProvenanceRecord = {
+        effective_ms: 1_800_000,
+        source: "derived",
+        base_ms: 1_200_000,
+        prompt_bytes: 179_200,
+        prompt_term_ms: 166_500,
+        profile_term_ms: 120_000,
+        resolved_tier: "standard",
+        session_profile_tier: "standard",
+        contention_multiplier: 1.45,
+        max_parallel_runs: 4,
+        ceiling_ms: 1_800_000,
+        clamped: true,
+      }
+      const outcome = await executeDispatchRun(
+        {
+          agent: "divisor-guard",
+          promptText: "Review this change.",
+          correlationId: "1b0f6c2e-6f4a-4d21-9a77-3c9f1d2e4b5c",
+          sequence: 1,
+          readOnly: true,
+          timeoutMilliseconds: 600_000,
+          timeoutProvenance: derivedTimeout,
+          source: "explicit",
+          model: "provider/standard",
+          tier: "standard",
+          variant: null,
+        },
+        toolContext(),
+        makeDeps(),
+      )
+      trackForCleanup(outcome.correlation_id)
+
+      expect(outcome.result.status).toBe("success")
+      expect(outcome.persisted).toBe(true)
+      expect(outcome.runData?.timeout).toMatchObject(derivedTimeout)
+
+      const run = await readRunFile(outcome.correlation_id, "divisor-guard")
+      expect(run.timeout).toMatchObject(derivedTimeout)
+    })
+
+    it("omits the timeout key when no provenance was resolved", async () => {
+      // dispatch_agent_run keeps explicit-arg-or-flat-default semantics
+      // (design non-goals): when the calling tool did not resolve a timeout,
+      // the run file carries no timeout key at all — un-resolved runs stay
+      // byte-compatible with older run files.
+      const outcome = await executeDispatchRun(
+        {
+          agent: "divisor-guard",
+          promptText: "Review this change.",
+          correlationId: "2c1f7d3f-7a5b-4e32-8b88-4d0a2e3f5c6d",
+          sequence: 1,
+          readOnly: true,
+          timeoutMilliseconds: 600_000,
+          source: "explicit",
+          model: "provider/standard",
+          tier: "standard",
+          variant: null,
+        },
+        toolContext(),
+        makeDeps(),
+      )
+      trackForCleanup(outcome.correlation_id)
+
+      expect(outcome.persisted).toBe(true)
+      expect(outcome.runData?.timeout).toBeUndefined()
+
+      const run = await readRunFile(outcome.correlation_id, "divisor-guard")
+      expect("timeout" in run).toBe(false)
     })
   })
 })
