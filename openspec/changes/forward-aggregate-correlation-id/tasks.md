@@ -28,7 +28,7 @@
 
 ## 2. Command prose forwarding (RD-CF-001)
 
-- [ ] 2.1 Edit `.opencode/commands/uf.review-pr.md` (primary
+- [x] 2.1 Edit `.opencode/commands/uf.review-pr.md` (primary
       pattern-setter, issue #872's failing caller): Section 4c
       gains capture prose for the correlation ID reported in
       the one-line summary (design D2); Section 5a retrieval,
