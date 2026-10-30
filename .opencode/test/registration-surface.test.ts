@@ -219,3 +219,71 @@ for (const plugin of PLUGINS) {
     })
   })
 }
+
+// ---------------------------------------------------------------------------
+// Tool-specific lock — consolidate_dispatch correlation_id exposure
+// (RD-CF-003, forward-aggregate-correlation-id task 3.2)
+//
+// RD-CF-001's forwarding pattern depends on the consolidation tool's
+// model-facing schema carrying correlation_id as an optional parameter
+// (the RD-FR-027 contract, landed with #751): orchestration commands
+// capture the correlation ID dispatch_review_runs reports and pass it on
+// every subsequent consolidation call, including from a different tool
+// session after a restart. The per-plugin loop above never inspects an
+// individual parameter, so a schema regression silently dropping the
+// parameter — or making it required, which would reject the ID-less
+// same-session calls the session map resolves — would leave every loop
+// test green while breaking every forwarding caller (issue #872). This
+// block locks the exposure at the registration surface.
+// ---------------------------------------------------------------------------
+
+describe("registration surface: consolidate_dispatch correlation_id exposure (RD-CF-003)", () => {
+  /** The consolidate_dispatch definition, from the registry loaded once in beforeAll. */
+  function consolidateDispatchTool(): RegisteredTool | undefined {
+    return registries.get("review-dispatch")?.["consolidate_dispatch"]
+  }
+
+  it("declares correlation_id in its model-facing args", () => {
+    const toolDef = consolidateDispatchTool()
+    expect(
+      toolDef,
+      "review-dispatch.consolidate_dispatch must be present in the registry",
+    ).toBeDefined()
+    expect(
+      [...declaredParameterKeys(toolDef as RegisteredTool)],
+      "consolidate_dispatch must expose correlation_id — orchestration callers " +
+        "forward the dispatch-minted ID through it (RD-CF-001, issue #872)",
+    ).toContain("correlation_id")
+  })
+
+  it("declares correlation_id as optional while still accepting a forwarded ID", () => {
+    const toolDef = consolidateDispatchTool()
+    expect(
+      toolDef,
+      "review-dispatch.consolidate_dispatch must be present in the registry",
+    ).toBeDefined()
+    const correlationIdSchema = (toolDef as RegisteredTool).args?.["correlation_id"] as z.ZodType
+    expect(
+      correlationIdSchema,
+      "consolidate_dispatch args must carry the correlation_id zod schema — the " +
+        "raw shape the host converts into the model-facing parameter schema",
+    ).toBeInstanceOf(z.ZodType)
+
+    // Optionality, behaviorally: the exposed parameter accepts omission,
+    // because ID-less consolidation calls from the dispatching session
+    // stay valid through the in-process session map (RD-FR-027).
+    expect(
+      correlationIdSchema.safeParse(undefined).success,
+      "correlation_id must be optional — a required parameter would reject the " +
+        "same-session map-fallback consolidation RD-FR-027 preserves",
+    ).toBe(true)
+
+    // Usability: the parameter still accepts a well-formed dispatch
+    // correlation ID, the value RD-CF-001's forwarding callers pass.
+    expect(
+      correlationIdSchema.safeParse("123e4567-e89b-42d3-a456-426614174000").success,
+      "correlation_id must accept a well-formed dispatch correlation ID — the " +
+        "forwarded UUID is the cross-session consolidation key (RD-CF-001)",
+    ).toBe(true)
+  })
+})
