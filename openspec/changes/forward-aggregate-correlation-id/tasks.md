@@ -83,13 +83,13 @@
 
 ## 4. Go contract locks and verification
 
-- [ ] 4.1 Add presence-only phrase assertions to
+- [x] 4.1 Add presence-only phrase assertions to
       `internal/scaffold/command_contract_test.go` locking the
       forwarding instruction in each of the five commands;
       preserve all existing asserted phrases, updating one only
       where the prose edit necessarily touches it (contract
       refresh, never gate weakening).
-- [ ] 4.2 Run `go test -race -count=1 ./internal/scaffold/...`
+- [x] 4.2 Run `go test -race -count=1 ./internal/scaffold/...`
       and confirm drift and contract tests pass with the new
       assertions.
 
