@@ -62,12 +62,23 @@ are ready to implement.
      are not configured), skip this step and proceed
      with standard research.
 
-2. **Extract unknowns from Technical Context** above:
+2. **Sibling repository references**: Before filesystem or
+   web search for cross-repo reference material, check
+   `.uf/sibling-repos.yaml`. When the repo declares
+   siblings, use `acquire_sibling_evidence` (or read the
+   in-repo `.uf/sibling-clones/<name>/` or
+   `.uf/sibling-cache/<name>/` copies) for their contract
+   files. NEVER read sibling repositories from
+   outside-workspace paths — out-of-workspace reads trigger
+   permission asks that parented child sessions cannot
+   answer.
+
+3. **Extract unknowns from Technical Context** above:
    - For each NEEDS CLARIFICATION → research task
    - For each dependency → best practices task
    - For each integration → patterns task
 
-3. **Generate and dispatch research agents**:
+4. **Generate and dispatch research agents**:
 
    ```text
    For each unknown in Technical Context:
@@ -76,7 +87,7 @@ are ready to implement.
      Task: "Find best practices for {tech} in {domain}"
    ```
 
-4. **Consolidate findings** in `research.md` using format:
+5. **Consolidate findings** in `research.md` using format:
    - Decision: [what was chosen]
    - Rationale: [why chosen]
    - Alternatives considered: [what else evaluated]

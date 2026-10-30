@@ -116,9 +116,20 @@ Given that feature description, do this:
      are not configured), skip this step and proceed
      without cross-repo context.
 
-5. Load `.specify/templates/spec-template.md` to understand required sections.
+5. **Sibling repository references**: Before filesystem or
+   web search for cross-repo reference material, check
+   `.uf/sibling-repos.yaml`. When the repo declares
+   siblings, use `acquire_sibling_evidence` (or read the
+   in-repo `.uf/sibling-clones/<name>/` or
+   `.uf/sibling-cache/<name>/` copies) for their contract
+   files. NEVER read sibling repositories from
+   outside-workspace paths — out-of-workspace reads trigger
+   permission asks that parented child sessions cannot
+   answer.
 
-6. Follow this execution flow:
+6. Load `.specify/templates/spec-template.md` to understand required sections.
+
+7. Follow this execution flow:
 
     1. Parse user description from Input
        If empty: ERROR "No feature description provided"
@@ -146,9 +157,9 @@ Given that feature description, do this:
     7. Identify Key Entities (if data involved)
     8. Return: SUCCESS (spec ready for planning)
 
-7. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
+8. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
 
-8. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
+9. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
 
    a. **Create Spec Quality Checklist**: Generate a checklist file at `FEATURE_DIR/checklists/requirements.md` using the checklist template structure with these validation items:
 
@@ -195,7 +206,7 @@ Given that feature description, do this:
 
    c. **Handle Validation Results**:
 
-       - **If all items pass**: Mark checklist complete and proceed to step 8
+       - **If all items pass**: Mark checklist complete and proceed to step 10
 
       - **If items fail (excluding [NEEDS CLARIFICATION])**:
         1. List the failing items and specific issues
@@ -240,7 +251,7 @@ Given that feature description, do this:
 
    d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
 
-9. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
+10. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
 
 **NOTE:** The script creates and checks out the new branch and initializes the spec file before writing.
 

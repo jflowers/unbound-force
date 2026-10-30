@@ -1519,6 +1519,9 @@ describe("uf_delegate_command child-session propagation", () => {
       expect(result.code).toBe("DELEGATE_FAILED")
       expect(result.retryable).toBe(true)
       expect(result.message).toBe("timeout: invoke_agent run timed out")
+      // The failure envelope threads the child session id so the timed-out
+      // child subtree can be inspected directly from the delegation result.
+      expect(result.child_session_id).toBe("child-session")
     }
     // The executor aborted the hanging child session.
     expect(fake.calls.aborts).toHaveLength(1)
@@ -1550,6 +1553,9 @@ describe("uf_delegate_command child-session propagation", () => {
       expect(result.code).toBe("DELEGATE_CANCELLED")
       expect(result.retryable).toBe(false)
       expect(result.message).toBe("cancelled: invoke_agent run was cancelled")
+      // DELEGATE_CANCELLED carries the child session id too: the child
+      // existed before the parent abort reached it.
+      expect(result.child_session_id).toBe("child-session")
     }
     // Cancellation reached the child session with an independent cleanup
     // signal (invoke-agent precedent).
@@ -1584,6 +1590,8 @@ describe("uf_delegate_command child-session propagation", () => {
       expect(result.code).toBe("DELEGATE_CANCELLED")
       expect(result.retryable).toBe(false)
       expect(result.message).toBe("uf_delegate_command run was cancelled")
+      // No child session ever existed, so the envelope omits the field.
+      expect(result.child_session_id).toBeUndefined()
     }
     // Cancelled before any child session existed.
     expect(fake.calls.messages).toHaveLength(1)
@@ -1614,6 +1622,9 @@ describe("uf_delegate_command child-session propagation", () => {
       expect(result.code).toBe("DELEGATE_FAILED")
       expect(result.retryable).toBe(true)
       expect(result.message).toContain("child_create_failed:")
+      // No child session ever existed, so the envelope omits the field
+      // (the DELEGATE_FAILED counterpart of the cancelled-before-child case).
+      expect(result.child_session_id).toBeUndefined()
       // The executor's sanitizer redacted the credential and home path.
       expect(result.message).not.toMatch(/abc|\/home\/alice/)
     }
