@@ -2226,14 +2226,21 @@ export function createDelegateCommandTool(
 
         if (result.status !== "success" || result.error !== null) {
           const code = result.status === "cancelled" ? "DELEGATE_CANCELLED" : "DELEGATE_FAILED"
+          const envelope = failure(
+            result.error !== null
+              ? `${result.error.code}: ${result.error.message}`
+              : `delegated run ended with status "${result.status}"`,
+            { retryable: result.error?.retryable ?? false, code },
+          )
+          // Thread the child session id into the failure envelope when the
+          // executor created one, so callers can inspect the failed or
+          // wedged child subtree directly from the delegation result
+          // (the field is omitted when no child session ever existed).
           return {
             output: JSON.stringify(
-              failure(
-                result.error !== null
-                  ? `${result.error.code}: ${result.error.message}`
-                  : `delegated run ended with status "${result.status}"`,
-                { retryable: result.error?.retryable ?? false, code },
-              ),
+              result.childSessionID !== undefined
+                ? { ...envelope, child_session_id: result.childSessionID }
+                : envelope,
             ),
           }
         }

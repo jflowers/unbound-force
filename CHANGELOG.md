@@ -6,6 +6,31 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- sibling-evidence-agent-guidance: Pointed agents at declared,
+  in-repo, permission-safe sibling-repo resources after a
+  deployed /uf.unleash pipeline wedged 26 minutes on an
+  out-of-workspace sibling read (parented child sessions
+  cannot answer permission asks). Added MUST rule FA-005 to
+  the content convention pack (consult `.uf/sibling-repos.yaml`,
+  use `acquire_sibling_evidence` or the in-repo
+  `.uf/sibling-clones/<name>/` / `.uf/sibling-cache/<name>/`
+  copies, never read sibling repos from outside-workspace
+  paths); added "Sibling repository references" research steps
+  to `speckit.specify`, `speckit.plan`, `opsx-propose`, and
+  `uf.run-pipeline-plan`; added a "Sibling Repositories"
+  section to AGENTS.md plus a new `uf init` behavior
+  (`ensureAGENTSmdSiblingSection`) that appends the same
+  section to deployed repos' AGENTS.md when
+  `.uf/sibling-repos.yaml` exists (stealth-gated,
+  pattern-matched to the Convention Packs append, with nine
+  new scaffold tests); and threaded `child_session_id` into
+  `uf_delegate_command` DELEGATE_FAILED / DELEGATE_CANCELLED
+  envelopes (declared on `ToolFailure`, omitted when no child
+  session existed) so failed delegations name their child
+  session for direct forensics. (Docs-issue exemption:
+  jflowers recorded the human decision at the review-council
+  curation gate on 2026-10-30 to defer the in-repo docs,
+  website, and tutorial issues rather than file them.)
 - extend-fetch-pr-review-context: Extended the review-dispatch
   plugin tool `fetch_pr_review_context` with five PR-repair
   output fields — `state`, `mergeable`, `merge_state_status`,

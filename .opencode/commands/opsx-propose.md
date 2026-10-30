@@ -103,6 +103,15 @@ relevant prior decisions.
 If Dewey is unavailable, proceed without cross-repo context —
 use direct file reads of local specs and backlog items instead.
 
+**Sibling repository references**: Before filesystem or web search
+for cross-repo reference material, check `.uf/sibling-repos.yaml`.
+When the repo declares siblings, use `acquire_sibling_evidence`
+(or read the in-repo `.uf/sibling-clones/<name>/` or
+`.uf/sibling-cache/<name>/` copies) for their contract files.
+NEVER read sibling repositories from outside-workspace paths —
+out-of-workspace reads trigger permission asks that wedge
+parented child sessions.
+
 4. **Get the artifact build order**
    ```bash
    openspec status --change "<name>" --json

@@ -7956,6 +7956,352 @@ func TestEnsureAGENTSmdPackSection_Idempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureAGENTSmdSiblingSection_NoAGENTSmd(t *testing.T) {
+	dir := t.TempDir()
+
+	// Sibling declaration exists, but there is no AGENTS.md to append to.
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: os.WriteFile,
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "skipped (no AGENTS.md)" {
+		t.Errorf("expected action 'skipped (no AGENTS.md)', got %q", result.action)
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_NoSiblingReposYaml(t *testing.T) {
+	dir := t.TempDir()
+
+	existing := "# My Project\n\nSome content.\n"
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: os.WriteFile,
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "skipped (no sibling-repos.yaml)" {
+		t.Errorf("expected action 'skipped (no sibling-repos.yaml)', got %q", result.action)
+	}
+
+	after, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if string(after) != existing {
+		t.Error("AGENTS.md should be unchanged when no sibling-repos.yaml exists")
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_ExistingWithoutSection(t *testing.T) {
+	dir := t.TempDir()
+
+	existing := "# My Project\n\nSome content.\n"
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: os.WriteFile,
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "configured" {
+		t.Errorf("expected action 'configured', got %q", result.action)
+	}
+
+	content, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	text := string(content)
+
+	if !strings.HasPrefix(text, existing) {
+		t.Error("existing content not preserved")
+	}
+	if !strings.Contains(text, agentsmdSiblingMarker) {
+		t.Error("expected Sibling Repositories heading")
+	}
+	for _, phrase := range []string{
+		".uf/sibling-repos.yaml",
+		".uf/sibling-clones/<name>/",
+		".uf/sibling-cache/<name>/",
+		"acquire_sibling_evidence",
+		"MUST NOT read sibling repositories",
+	} {
+		if !strings.Contains(text, phrase) {
+			t.Errorf("expected sibling section to mention %q", phrase)
+		}
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_AlreadyConfigured(t *testing.T) {
+	dir := t.TempDir()
+
+	existing := "# My Project\n\n## Sibling Repositories\n\nAlready here.\n"
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: os.WriteFile,
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "already configured" {
+		t.Errorf("expected action 'already configured', got %q", result.action)
+	}
+
+	after, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if string(after) != existing {
+		t.Error("AGENTS.md should be unchanged when section already present")
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_Idempotent(t *testing.T) {
+	dir := t.TempDir()
+
+	existing := "# My Project\n"
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: os.WriteFile,
+	}
+
+	r1 := ensureAGENTSmdSiblingSection(opts)
+	if r1.action != "configured" {
+		t.Errorf("first call: expected 'configured', got %q", r1.action)
+	}
+
+	content1, _ := os.ReadFile(agentsPath)
+
+	r2 := ensureAGENTSmdSiblingSection(opts)
+	if r2.action != "already configured" {
+		t.Errorf("second call: expected 'already configured', got %q", r2.action)
+	}
+
+	content2, _ := os.ReadFile(agentsPath)
+	if !bytes.Equal(content1, content2) {
+		t.Error("content should be identical after second call")
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_ReadFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte("# My Project\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile: func(string) ([]byte, error) {
+			return nil, fmt.Errorf("disk unavailable")
+		},
+		WriteFile: os.WriteFile,
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "failed" {
+		t.Errorf("expected action 'failed', got %q", result.action)
+	}
+	if !strings.Contains(result.detail, "read failed") {
+		t.Errorf("expected 'read failed' detail, got %q", result.detail)
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_WriteFailure(t *testing.T) {
+	dir := t.TempDir()
+
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte("# My Project\n"), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: func(string, []byte, os.FileMode) error {
+			return fmt.Errorf("disk full")
+		},
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "failed" {
+		t.Errorf("expected action 'failed', got %q", result.action)
+	}
+	if !strings.Contains(result.detail, "write failed") {
+		t.Errorf("expected 'write failed' detail, got %q", result.detail)
+	}
+}
+
+func TestEnsureAGENTSmdSiblingSection_NoTrailingNewline(t *testing.T) {
+	dir := t.TempDir()
+
+	existing := "# My Project"
+	agentsPath := filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(agentsPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("write AGENTS.md: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".uf"), 0o755); err != nil {
+		t.Fatalf("mkdir .uf: %v", err)
+	}
+	siblingPath := filepath.Join(dir, ".uf", "sibling-repos.yaml")
+	if err := os.WriteFile(siblingPath, []byte("version: 1\nsiblings: []\n"), 0o644); err != nil {
+		t.Fatalf("write sibling-repos.yaml: %v", err)
+	}
+
+	opts := &Options{
+		TargetDir: dir,
+		ReadFile:  os.ReadFile,
+		WriteFile: os.WriteFile,
+	}
+
+	result := ensureAGENTSmdSiblingSection(opts)
+
+	if result.action != "configured" {
+		t.Errorf("expected action 'configured', got %q", result.action)
+	}
+
+	content, err := os.ReadFile(agentsPath)
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	text := string(content)
+	// The missing trailing newline must be synthesized so the section
+	// heading starts on its own line instead of gluing onto the last
+	// existing line ("# My Project## Sibling Repositories").
+	if !strings.Contains(text, "# My Project\n\n## Sibling Repositories") {
+		t.Errorf("expected section to start on its own line after newline synthesis, got:\n%s", text)
+	}
+}
+
+// TestEnsureAGENTSmdSiblingSection_StealthModeNonModification asserts the
+// Run()-level stealth gating: stealth mode must not modify AGENTS.md even
+// when a sibling declaration exists, while a normal run appends the
+// section (stealth-test fake precedent from TestStealthInit_LeavesTracked-
+// FilesUnmodified).
+func TestEnsureAGENTSmdSiblingSection_StealthModeNonModification(t *testing.T) {
+	cases := []struct {
+		name    string
+		stealth bool
+		wantMod bool
+	}{
+		{"stealth", true, false},
+		{"normal", false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			initGitDir(t, dir)
+			writeFile(t, filepath.Join(dir, ".gitignore"), "existing-ignore\n", 0o644)
+			writeFile(t, filepath.Join(dir, "AGENTS.md"), "# AGENTS\n", 0o644)
+			writeFile(t, filepath.Join(dir, ".uf", "sibling-repos.yaml"), "version: 1\nsiblings: []\n", 0o644)
+
+			var buf bytes.Buffer
+			g := newStealthGitFake()
+			opts := Options{
+				TargetDir: dir,
+				Stealth:   c.stealth,
+				Version:   "1.2.3-test",
+				Stdout:    &buf,
+				ExecCmd:   g.exec,
+				ReadFile:  os.ReadFile,
+				WriteFile: os.WriteFile,
+			}
+			if _, err := Run(opts); err != nil {
+				t.Fatalf("Run() error: %v", err)
+			}
+
+			ag, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+			if err != nil {
+				t.Fatalf("read AGENTS.md: %v", err)
+			}
+			if c.wantMod {
+				if !strings.Contains(string(ag), agentsmdSiblingMarker) {
+					t.Errorf("normal mode: AGENTS.md missing sibling section:\n%s", ag)
+				}
+			} else {
+				if string(ag) != "# AGENTS\n" {
+					t.Errorf("stealth mode modified AGENTS.md:\n%s", ag)
+				}
+			}
+		})
+	}
+}
+
 func TestCollectDeployedPacks_Go(t *testing.T) {
 	packs := collectDeployedPacks("go", "")
 
