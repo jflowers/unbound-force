@@ -95,13 +95,13 @@
 
 ## 5. Full validation, docs gate, and constitution check
 
-- [ ] 5.1 Run `make plugin-test` and confirm the TypeScript
+- [x] 5.1 Run `make plugin-test` and confirm the TypeScript
       suite passes including the 94 percent statements coverage
       floor.
-- [ ] 5.2 Run `make check` (CI parity: lint, test, build,
+- [x] 5.2 Run `make check` (CI parity: lint, test, build,
       coverage gate, plugin tests) and confirm every gate
       passes without modification.
-- [ ] 5.3 Documentation gate: assess impact — command prose
+- [x] 5.3 Documentation gate: assess impact — command prose
       and its scaffold mirrors are the user-facing surface and
       are updated in place; determine whether a documentation
       issue is required or the internal-tooling exemption

@@ -955,6 +955,29 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/command-prose-pilot/)
 
 ### Fixed
+- forward-aggregate-correlation-id: all five review
+  orchestration commands (`/uf.review-pr`,
+  `/uf.review-council`, `/uf.triage-issue`,
+  `/uf.address-feedback`, `/uf.unleash` at both dispatch
+  sites) now capture the `correlation_id` reported by
+  `dispatch_review_runs` and pass it as the explicit
+  `correlation_id` on every subsequent
+  `consolidate_dispatch` call (no-provenance retrieval,
+  provenance finalization, retries), so cross-session
+  consolidation (process restart mid-workflow, session
+  handoff) succeeds instead of failing closed with
+  `not_found`; the in-memory session map remains only
+  as a same-session fallback. With the ID forwarded, a
+  `not_found` for a dispatch that executed runs is
+  reclassified as a permanent failure (design D5). The
+  `dispatch_review_runs` tool description gained the
+  forwarding guidance (RD-CF-002), and the behavior is
+  locked by a cross-session consolidation test suite,
+  a registration-surface schema lock, and Go command
+  phrase contracts; scaffold mirrors synced
+  byte-identical. (Spec:
+  openspec/changes/forward-aggregate-correlation-id/,
+  Fixes: #872, Docs: #879, unbound-force/website#348)
 - fix-init-speckit-sentinel: `uf init` no longer silently skips
   the Speckit delegation on a fresh run. Since the
   starter-constitution asset landed (an embedded
