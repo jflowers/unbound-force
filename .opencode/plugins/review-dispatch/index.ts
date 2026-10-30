@@ -5615,7 +5615,9 @@ function createDispatchReviewRunsTool(
       "Aggregate evidence-acquisition, prompt-building, and agent-dispatching into a single deterministic tool call. " +
       "Replaces sequential calls to acquire_sibling_evidence, build_review_prompts, and dispatch_agent_run. " +
       "When per_run_timeout_ms is omitted, each run's timeout is derived from the work being dispatched " +
-      "(review-matrix base window, prompt size, plan tier, and parallelism), bounded by 1,800,000 ms.",
+      "(review-matrix base window, prompt size, plan tier, and parallelism), bounded by 1,800,000 ms. " +
+      "Capture the correlation_id this tool reports (in the one-line summary and machine-readable metadata) " +
+      "and pass it as correlation_id on every subsequent consolidate_dispatch call in the same workflow.",
     args: DispatchReviewRunsInputSchema.shape,
     async execute(
       args,
