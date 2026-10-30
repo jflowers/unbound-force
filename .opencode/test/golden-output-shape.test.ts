@@ -36,34 +36,34 @@ import { withBun } from "./helpers/bun-runtime.js"
 // documented fields on the returned envelope.
 //
 // Coverage: 44 of the 48 documented sites. The four dispatch_review_runs
-// sites (uf.triage-issue.md:263, uf.review-council.md:276,
-// uf.review-pr.md:394, uf.address-feedback.md:363) belong to task 2.3
+// sites (uf.triage-issue.md:238, uf.review-council.md:260,
+// uf.review-pr.md:421, uf.address-feedback.md:363) belong to task 2.3
 // and are pinned in dispatch-review-runs.test.ts instead — one golden
 // per documented input variant (triage, code, feedback).
 //
 // Per-plugin site counts (registered-tool attribution):
-// - uf-workflow: 21 sites -- get_progress x4 (uf.unleash.md:55,
+// - uf-workflow: 21 sites -- get_progress x4 (uf.unleash.md:87,
 //   uf.finale.md:42, uf.review-council.md:51, uf.address-feedback.md:71),
-//   uf_unleash_branch_gate (uf.unleash.md:81), uf_unleash_detect_resume
-//   (uf.unleash.md:104), scan_clarifications (uf.unleash.md:169),
-//   format_unleash_exit x8 (uf.unleash.md:235, 423, 558, 610, 666, 733,
-//   862, 892), parse_tasks (uf.unleash.md:458), mark_task_complete
-//   (uf.unleash.md:515), scan_conflict_markers (uf.unleash.md:598),
-//   format_unleash_demo (uf.unleash.md:1010), resolve_base_ref
-//   (uf.review-council.md:126), normalize_model_name
-//   (uf.address-feedback.md:801)
+//   uf_unleash_branch_gate (uf.unleash.md:114), uf_unleash_detect_resume
+//   (uf.unleash.md:285), scan_clarifications (uf.unleash.md:374),
+//   format_unleash_exit x8 (uf.unleash.md:513, 794, 1210, 1262, 1366, 1443,
+//   1632, 1662), parse_tasks (uf.unleash.md:924), mark_task_complete
+//   (uf.unleash.md:1146), scan_conflict_markers (uf.unleash.md:1250),
+//   format_unleash_demo (uf.unleash.md:1790), resolve_base_ref
+//   (uf.review-council.md:132), normalize_model_name
+//   (uf.address-feedback.md:908)
 // - uf-finale: 9 sites -- uf_finale_startup (uf.finale.md:51),
 //   uf_finale_stage (72), uf_finale_commit_context (83),
 //   uf_finale_base_state (132), uf_finale_push_state (172),
 //   uf_finale_pr_context (212), uf_finale_create_pr (270),
 //   uf_finale_ci_poll (278), uf_finale_return_to_main (357)
-// - review-dispatch: 14 sites -- plan_review_dispatch x7 (uf.unleash.md:353
-//   and 799, uf.review-council.md:231, uf.review-pr.md:353,
+// - review-dispatch: 14 sites -- plan_review_dispatch x7 (uf.unleash.md:665
+//   and 1532, uf.review-council.md:235, uf.review-pr.md:402,
 //   uf.triage-issue.md:190, uf.address-feedback.md:339,
 //   speckit.testreview.md:154), consolidate_dispatch x3
-//   (uf.review-council.md:361, uf.triage-issue.md:780,
-//   uf.address-feedback.md:541), finalize_review_dispatch x2
-//   (uf.review-pr.md:442, speckit.testreview.md:278),
+//   (uf.review-council.md:422, uf.triage-issue.md:1089,
+//   uf.address-feedback.md:559), finalize_review_dispatch x2
+//   (uf.review-pr.md:541, speckit.testreview.md:278),
 //   acquire_sibling_evidence (speckit.testreview.md:134),
 //   prepare_lesson_learning (speckit.testreview.md:268)
 //
@@ -449,7 +449,7 @@ async function setupGoldenDispatchSession(
 // ---------------------------------------------------------------------------
 
 describe("golden output shapes -- uf-workflow registry (21 documented sites)", () => {
-  it("get_progress [uf.unleash.md:55, uf.finale.md:42, uf.review-council.md:51, uf.address-feedback.md:71] returns completed_steps and current_step", async () => {
+  it("get_progress [uf.unleash.md:87, uf.finale.md:42, uf.review-council.md:51, uf.address-feedback.md:71] returns completed_steps and current_step", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
 
@@ -474,7 +474,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     }
   })
 
-  it("uf_unleash_branch_gate [uf.unleash.md:81] returns the ok payload with workflow_tier, feature_dir, and change_name", async () => {
+  it("uf_unleash_branch_gate [uf.unleash.md:114] returns the ok payload with workflow_tier, feature_dir, and change_name", async () => {
     const directory = await makeScratch()
     await writeProjectFile(directory, "openspec/changes/golden/tasks.md", "- [x] 1.1 Done\n")
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
@@ -496,7 +496,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     })
   })
 
-  it("uf_unleash_branch_gate [uf.unleash.md:81] carries the ON_MAIN, NO_TASKS, NO_SPEC, and UNRECOGNIZED_BRANCH failure codes", async () => {
+  it("uf_unleash_branch_gate [uf.unleash.md:114] carries the ON_MAIN, NO_TASKS, NO_SPEC, and UNRECOGNIZED_BRANCH failure codes", async () => {
     const directory = await makeScratch()
     await writeProjectFile(directory, "openspec/changes/golden/tasks.md", "- [x] 1.1 Done\n")
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
@@ -515,7 +515,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     }
   })
 
-  it("uf_unleash_detect_resume [uf.unleash.md:104] returns step_statuses, resume_from, all_complete, unchecked_count, and checkpoint_claims", async () => {
+  it("uf_unleash_detect_resume [uf.unleash.md:285] returns step_statuses, resume_from, all_complete, unchecked_count, and checkpoint_claims", async () => {
     const directory = await makeScratch()
     await writeProjectFile(directory, "openspec/changes/golden/tasks.md", "## Phase 1\n\n- [x] 1.1 Done\n")
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
@@ -547,7 +547,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     expect(data.checkpoint_claims).toEqual({ spec_review: false, code_review: false })
   })
 
-  it("scan_clarifications [uf.unleash.md:169] returns questions with question, context, and line plus count", async () => {
+  it("scan_clarifications [uf.unleash.md:374] returns questions with question, context, and line plus count", async () => {
     const directory = await makeScratch()
     await writeProjectFile(
       directory,
@@ -612,7 +612,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     },
   )
 
-  it("parse_tasks [uf.unleash.md:458] returns phases, total_tasks, done_count, and all_done", async () => {
+  it("parse_tasks [uf.unleash.md:924] returns phases, total_tasks, done_count, and all_done", async () => {
     const directory = await makeScratch()
     await writeProjectFile(
       directory,
@@ -661,7 +661,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     ])
   })
 
-  it("mark_task_complete [uf.unleash.md:515] flips the first checkbox and reports already_complete on the no-op rerun", async () => {
+  it("mark_task_complete [uf.unleash.md:1146] flips the first checkbox and reports already_complete on the no-op rerun", async () => {
     const directory = await makeScratch()
     const tasksPath = "openspec/changes/golden/tasks.md"
     await writeProjectFile(directory, tasksPath, "## Phase 1\n\n- [ ] 1.1 Write the schema\n")
@@ -686,7 +686,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     expect(second.already_complete).toBe(true)
   })
 
-  it("scan_conflict_markers [uf.unleash.md:598] returns conflicts with line and marker, clean, and warnings", async () => {
+  it("scan_conflict_markers [uf.unleash.md:1250] returns conflicts with line and marker, clean, and warnings", async () => {
     const directory = await makeScratch()
     await writeProjectFile(
       directory,
@@ -716,7 +716,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     ])
   })
 
-  it("format_unleash_demo [uf.unleash.md:1010] returns the Demo block text with the two Next Steps options", async () => {
+  it("format_unleash_demo [uf.unleash.md:1790] returns the Demo block text with the two Next Steps options", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
     mockGit({ [GIT_BRANCH]: "opsx/golden" })
@@ -737,7 +737,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     expect(data.text).toContain("openspec/changes/golden-change/")
   })
 
-  it("resolve_base_ref [uf.review-council.md:126] returns the ref, resolved SHA, source label, HEAD sha, and divergence flag", async () => {
+  it("resolve_base_ref [uf.review-council.md:132] returns the ref, resolved SHA, source label, HEAD sha, and divergence flag", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
     // upstream/main is absent from the map, so its probe throws and the
@@ -758,7 +758,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     expect(data).toEqual({ ref: "origin/main", sha: SHA_A, source: "origin/main", head_sha: SHA_HEAD, diverged: false })
   })
 
-  it("normalize_model_name [uf.address-feedback.md:801] returns normalized and the unknown-model fallback", async () => {
+  it("normalize_model_name [uf.address-feedback.md:908] returns normalized and the unknown-model fallback", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
 
@@ -1039,7 +1039,7 @@ describe("golden output shapes -- uf-finale registry (9 documented sites)", () =
 /** plan_review_dispatch inputs for the seven documented call sites. */
 const PLAN_SITES: ReadonlyArray<{ readonly site: string; readonly args: Record<string, unknown> }> = [
   {
-    site: "uf.unleash.md:353",
+    site: "uf.unleash.md:665",
     args: {
       mode: "specs",
       discovered_agents: ["divisor-adversary", "divisor-architect", "divisor-guard"],
@@ -1047,7 +1047,7 @@ const PLAN_SITES: ReadonlyArray<{ readonly site: string; readonly args: Record<s
     },
   },
   {
-    site: "uf.unleash.md:799",
+    site: "uf.unleash.md:1532",
     args: {
       mode: "code",
       discovered_agents: ["divisor-adversary", "divisor-architect", "divisor-guard"],
@@ -1055,7 +1055,7 @@ const PLAN_SITES: ReadonlyArray<{ readonly site: string; readonly args: Record<s
     },
   },
   {
-    site: "uf.review-council.md:231",
+    site: "uf.review-council.md:235",
     args: {
       mode: "code",
       discovered_agents: ["divisor-adversary", "divisor-architect", "divisor-guard"],
@@ -1063,7 +1063,7 @@ const PLAN_SITES: ReadonlyArray<{ readonly site: string; readonly args: Record<s
     },
   },
   {
-    site: "uf.review-pr.md:353",
+    site: "uf.review-pr.md:402",
     args: {
       mode: "code",
       discovered_agents: ["divisor-adversary", "divisor-architect", "divisor-guard"],
@@ -1104,9 +1104,9 @@ const CONSOLIDATE_SITES: ReadonlyArray<{
   readonly mode: "code" | "triage" | "feedback"
   readonly metadataOverrides: Record<string, unknown>
 }> = [
-  { site: "uf.review-council.md:361", command: "review-council", mode: "code", metadataOverrides: {} },
-  { site: "uf.triage-issue.md:780", command: "triage-issue", mode: "triage", metadataOverrides: TRIAGE_METADATA_OVERRIDES },
-  { site: "uf.address-feedback.md:541", command: "address-feedback", mode: "feedback", metadataOverrides: {} },
+  { site: "uf.review-council.md:422", command: "review-council", mode: "code", metadataOverrides: {} },
+  { site: "uf.triage-issue.md:1089", command: "triage-issue", mode: "triage", metadataOverrides: TRIAGE_METADATA_OVERRIDES },
+  { site: "uf.address-feedback.md:559", command: "address-feedback", mode: "feedback", metadataOverrides: {} },
 ]
 
 describe("golden output shapes -- review-dispatch registry (15 documented sites)", () => {
@@ -1204,7 +1204,7 @@ describe("golden output shapes -- review-dispatch registry (15 documented sites)
   )
 
   it.each([
-    { site: "uf.review-pr.md:442", command: "review-council", mode: "code", workflowResult: { kind: "council", value: "APPROVE" } },
+    { site: "uf.review-pr.md:541", command: "review-council", mode: "code", workflowResult: { kind: "council", value: "APPROVE" } },
     { site: "speckit.testreview.md:278", command: "speckit-testreview", mode: "test", workflowResult: { kind: "test-review", value: "APPROVE" } },
   ] as const)(
     "finalize_review_dispatch [$site] persists the artifact and returns canonical review-verdict v2 data",
@@ -1383,7 +1383,7 @@ describe("golden output shapes -- review-dispatch registry (15 documented sites)
     })
   })
 
-  it("capture_review_diff [uf.unleash.md:539] returns mode, base, bounded diff path, per-file counts, and writes a readable patch", async () => {
+  it("capture_review_diff [uf.unleash.md:620] returns mode, base, bounded diff path, per-file counts, and writes a readable patch", async () => {
     const directory = await makeScratchProject()
     const registry = await loadRegistry(ReviewDispatchPlugin, directory)
     await writeProjectFile(directory, "openspec/changes/golden/proposal.md", "alpha\nbeta\n")

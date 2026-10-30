@@ -61,7 +61,7 @@
 
 ## 3. Plugin test suite locks (RD-CF-001, RD-CF-003)
 
-- [ ] 3.1 Add a cross-session aggregate consolidation suite to
+- [x] 3.1 Add a cross-session aggregate consolidation suite to
       `.opencode/test/dispatch-review-runs.test.ts`: dispatch
       via `dispatch_review_runs` under a fixture session S1,
       then (a) consolidate with `{ correlation_id }` from a
@@ -76,7 +76,7 @@
       `.opencode/test/registration-surface.test.ts`: the
       `consolidate_dispatch` tool declares `correlation_id`
       as an optional argument in its model-facing args.
-- [ ] 3.3 Refresh the edited commands' line-number site labels
+- [x] 3.3 Refresh the edited commands' line-number site labels
       and the consolidate-site census comments in
       `.opencode/test/golden-output-shape.test.ts` so the
       documented call sites match the post-edit files.
