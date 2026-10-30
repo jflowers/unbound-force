@@ -106,7 +106,7 @@
       are updated in place; determine whether a documentation
       issue is required or the internal-tooling exemption
       applies, and record the decision in the PR description.
-- [ ] 5.4 Constitution alignment verification: confirm each
+- [x] 5.4 Constitution alignment verification: confirm each
       proposal assessment holds in the implementation —
       artifact-threaded IDs over runtime coupling (I), map
       fallback and standalone tool use preserved (II),
