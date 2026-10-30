@@ -12,17 +12,17 @@
 
 ## 1. Plugin description guidance and mirror (RD-CF-002)
 
-- [ ] 1.1 Add one forwarding-guidance sentence to the
+- [x] 1.1 Add one forwarding-guidance sentence to the
       `dispatch_review_runs` tool description in
       `.opencode/plugins/review-dispatch/index.ts`: direct the
       caller to pass the reported `correlation_id` to
       `consolidate_dispatch`. No schema, precedence, or result
       changes (design D4).
-- [ ] 1.2 Copy the edited plugin source over the scaffold
+- [x] 1.2 Copy the edited plugin source over the scaffold
       mirror at
       `internal/scaffold/assets/opencode/plugins/review-dispatch/index.ts`
       so the two remain byte-identical.
-- [ ] 1.3 Run the Go drift tests (`go test -race -count=1
+- [x] 1.3 Run the Go drift tests (`go test -race -count=1
       ./internal/scaffold/...`) and confirm mirror identity
       holds.
 
