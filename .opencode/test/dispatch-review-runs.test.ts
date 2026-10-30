@@ -62,9 +62,10 @@ function promptResponseWithCost(costUsd: number, request: unknown): unknown {
   }
 }
 
-function toolContext(): ToolContext {
+/** Tool context for a parent session; the sessionID keys the correlation-map lookup. */
+function toolContext(sessionID = "parent-session"): ToolContext {
   return {
-    sessionID: "parent-session",
+    sessionID,
     messageID: "message-parent",
     agent: "build",
     directory: "/workspace",
@@ -810,6 +811,220 @@ describe("dispatch_review_runs", () => {
     })
   })
 
+  // ── RD-CF-001: cross-session consolidation by forwarded ID ──
+
+  // Issue #872: the orchestration commands chain dispatch_review_runs
+  // into consolidate_dispatch but never forwarded the dispatch's
+  // reported correlation_id, relying on the in-process
+  // sessionCorrelationMap — which only bridges calls sharing one plugin
+  // process AND one context.sessionID. These tests lock the
+  // aggregate-minted cross-session path (design D7): the dispatch
+  // session is minted by a real dispatch_review_runs call under fixture
+  // session S1, then consolidated from a DIFFERENT ToolContext (S2)
+  // holding no map entry. Distinct from dispatch-recovery.test.ts,
+  // which hand-writes run files to exercise the recovery tools.
+  describe("cross-session consolidation by forwarded correlation_id (RD-CF-001)", () => {
+    it("forwarded ID consolidates the S1 dispatch from S2 with runs, findings, and the ID echoed", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        // Seed the child session the fake client creates for this
+        // single included run (child-session-0), so the persisted run
+        // file carries a finding the cross-session consolidation must
+        // retrieve.
+        _getSubmissionStore().set("child-session-0", {
+          findings: [
+            {
+              severity: "MEDIUM",
+              category: "documentation",
+              description: "Forwarded correlation IDs must consolidate a dispatch across tool sessions",
+              root_cause: "Orchestration callers relied on the in-process session map alone (issue #872)",
+              file: null,
+              line: null,
+            },
+          ],
+          proposals: [],
+        })
+
+        // S1: the dispatching parent session.
+        const dispatch = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const dispatchMeta = dispatch.metadata as Record<string, unknown>
+        expect(dispatchMeta.status).toBe("ok")
+        expect(dispatchMeta.runs_completed).toBe(1)
+        const correlationId = dispatchMeta.correlation_id as string
+        expect(correlationId).toMatch(UUID_RE)
+        trackDispatchDir(correlationId)
+
+        // S2: a different tool session holding no map entry — the
+        // plugin-process or tool-session split that strands a no-ID
+        // consolidation. The forwarded ID must bridge it.
+        const s2 = toolContext("other-tool-session")
+        expect(_getSessionCorrelationMap().has("other-tool-session")).toBe(false)
+
+        const consolidated = await hooks.tool.consolidate_dispatch.execute({ correlation_id: correlationId }, s2)
+        const payload = JSON.parse(consolidated.output) as Record<string, unknown>
+
+        // RD-CF-001 "Forwarded ID consolidates from a different
+        // session": C resolves, is echoed in the payload, and returns
+        // the dispatch's run records and deduplicated findings.
+        expect(payload.status).not.toBe("not_found")
+        expect(payload.correlation_id).toBe(correlationId)
+        const runs = payload.runs as Array<{ agent: string; run_id: string; status: string }>
+        expect(runs).toHaveLength(1)
+        expect(runs[0].agent).toBe("divisor-guard")
+        expect(runs[0].status).toBe("success")
+        expect(typeof runs[0].run_id).toBe("string")
+        const counts = payload.run_counts as Record<string, number>
+        expect(counts.total).toBe(1)
+        expect(counts.success).toBe(1)
+        const findings = payload.findings as Array<Record<string, unknown>>
+        expect(findings).toHaveLength(1)
+        expect(findings[0]?.description).toBe(
+          "Forwarded correlation IDs must consolidate a dispatch across tool sessions",
+        )
+      })
+    })
+
+    it("no-ID consolidation from S2 fails closed as not_found without reading S1's state", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const dispatch = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const dispatchMeta = dispatch.metadata as Record<string, unknown>
+        expect(dispatchMeta.status).toBe("ok")
+        expect(dispatchMeta.runs_completed).toBe(1)
+        const correlationId = dispatchMeta.correlation_id as string
+        trackDispatchDir(correlationId)
+
+        // S2 holds no map entry, so no correlation resolves.
+        const s2 = toolContext("other-tool-session")
+        expect(_getSessionCorrelationMap().has("other-tool-session")).toBe(false)
+
+        const consolidated = await hooks.tool.consolidate_dispatch.execute({}, s2)
+        const payload = JSON.parse(consolidated.output) as Record<string, unknown>
+
+        // RD-CF-001 "No-ID consolidation from a different session fails
+        // closed": the map-miss envelope, with no dispatch session read.
+        expect(payload.status).toBe("not_found")
+        expect(payload.message).toBe("no dispatch session for this session")
+        expect(payload.runs).toEqual([])
+        expect(payload.correlation_id).toBeUndefined()
+        // No cross-session leakage: S1's correlation never appears.
+        expect(consolidated.output).not.toContain(correlationId)
+      })
+    })
+
+    it("same-session no-ID consolidation from S1 still resolves via the map fallback", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        _getSubmissionStore().set("child-session-0", {
+          findings: [
+            {
+              severity: "MEDIUM",
+              category: "documentation",
+              description: "Same-session map fallback must keep consolidating ID-less calls",
+              root_cause: "RD-CF-001 keeps the map as a same-session convenience fallback",
+              file: null,
+              line: null,
+            },
+          ],
+          proposals: [],
+        })
+
+        const dispatch = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const dispatchMeta = dispatch.metadata as Record<string, unknown>
+        expect(dispatchMeta.status).toBe("ok")
+        expect(dispatchMeta.runs_completed).toBe(1)
+        const correlationId = dispatchMeta.correlation_id as string
+        trackDispatchDir(correlationId)
+        // The map resolves S1 to the minted correlation.
+        expect(_getSessionCorrelationMap().get("parent-session")).toBe(correlationId)
+
+        const consolidated = await hooks.tool.consolidate_dispatch.execute({}, toolContext())
+        const payload = JSON.parse(consolidated.output) as Record<string, unknown>
+
+        // RD-CF-001 "Same-session no-ID consolidation still resolves":
+        // the map fallback succeeds exactly as before the requirement,
+        // returning the same substance the forwarded path returns.
+        expect(payload.status).not.toBe("not_found")
+        expect(payload.correlation_id).toBe(correlationId)
+        const runs = payload.runs as Array<{ agent: string }>
+        expect(runs).toHaveLength(1)
+        expect(runs[0].agent).toBe("divisor-guard")
+        const counts = payload.run_counts as Record<string, number>
+        expect(counts.total).toBe(1)
+        expect(counts.success).toBe(1)
+        const findings = payload.findings as Array<Record<string, unknown>>
+        expect(findings).toHaveLength(1)
+        expect(findings[0]?.description).toBe("Same-session map fallback must keep consolidating ID-less calls")
+      })
+    })
+
+    it("forwarded but unknown well-formed ID fails closed as not_found with the ID echoed", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const dispatch = await hooks.tool.dispatch_review_runs.execute(
+          makeBaseInput(diffPath, [makePlanEntry({ agent: "divisor-guard", sequence: 1 })]),
+          toolContext(),
+        )
+        const dispatchMeta = dispatch.metadata as Record<string, unknown>
+        expect(dispatchMeta.status).toBe("ok")
+        const correlationId = dispatchMeta.correlation_id as string
+        trackDispatchDir(correlationId)
+
+        // A well-formed UUID that resolves to no persisted dispatch
+        // session; the premise is pinned — it validates against the
+        // tool's UUIDSchema and no session directory exists under it.
+        const unknownId = "00000000-1111-4222-8333-444444444444"
+        expect(unknownId).toMatch(UUID_RE)
+        expect(await pathExists(dispatchDir(unknownId))).toBe(false)
+
+        const s2 = toolContext("other-tool-session")
+        const consolidated = await hooks.tool.consolidate_dispatch.execute({ correlation_id: unknownId }, s2)
+        const payload = JSON.parse(consolidated.output) as Record<string, unknown>
+
+        // RD-CF-001 "Forwarded but unknown ID fails closed": not_found
+        // with the supplied ID echoed and no message key — the envelope
+        // that makes a forwarded not_found permanent (design D5).
+        expect(payload.status).toBe("not_found")
+        expect(payload.correlation_id).toBe(unknownId)
+        expect(payload.runs).toEqual([])
+        expect(payload.message).toBeUndefined()
+      })
+    })
+  })
+
   describe("handles evidence acquisition failure gracefully (FR-010)", () => {
     it("proceeds with runs and adds warning when sibling repos YAML is invalid", async () => {
       await withBun(async () => {
@@ -1116,7 +1331,7 @@ describe("dispatch_review_runs", () => {
   // The #735 golden above pins the triage input variant
   // (uf.triage-issue.md). The same seven-field contract sentence is
   // documented at three more sites with two more input variants: code
-  // mode (uf.review-council.md:256 and uf.review-pr.md:372 — review-pr
+  // mode (uf.review-council.md:260 and uf.review-pr.md:421 — review-pr
   // also routes command review-council per its documented inputs) and
   // feedback mode (uf.address-feedback.md:363). These goldens execute
   // each remaining variant through the plugin tool registry with its
@@ -1124,7 +1339,7 @@ describe("dispatch_review_runs", () => {
   // dispatch_review_runs sites are pinned under their documented input
   // variants (metrics.md drift baseline 47/47/0).
   describe("#735 golden contract: remaining documented input variants", () => {
-    it("returns the seven documented envelope fields for documented code-mode inputs (uf.review-council.md:256, uf.review-pr.md:372)", async () => {
+    it("returns the seven documented envelope fields for documented code-mode inputs (uf.review-council.md:260, uf.review-pr.md:421)", async () => {
       await withBun(async () => {
         const { directory, diffPath } = await scratchProject()
         const hooks = await ReviewDispatchPlugin.server({
@@ -1151,8 +1366,8 @@ describe("dispatch_review_runs", () => {
           proposals: [{ information: "Pin every documented input variant with golden tests", tag: "review-dispatch" }],
         })
 
-        // Documented inputs per uf.review-council.md:256 and
-        // uf.review-pr.md:372: mode code, command review-council,
+        // Documented inputs per uf.review-council.md:260 and
+        // uf.review-pr.md:421: mode code, command review-council,
         // diff_path, changed_files, input_context, plan_entries,
         // session_metadata, max_parallel_runs, budget_usd,
         // per_run_timeout_ms, and — when available — pre_flight_results,
