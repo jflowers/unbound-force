@@ -670,8 +670,11 @@ func isToolOwned(relPath string) bool {
 		relPath == "opencode/lib/unleash-templates.ts" {
 		return true
 	}
+	// The capabilities manifest is a project-owned extension point:
+	// generated repositories may register custom Divisor agents without
+	// a plain uf init re-run reverting their reviewers entries.
 	if relPath == "uf/reviewer-capabilities.yaml" {
-		return true
+		return false
 	}
 	// The matrix is a project-owned extension point: generated repositories
 	// may customize model selection without --force replacing their policy.

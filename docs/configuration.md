@@ -271,10 +271,21 @@ defaults.
 
 | File | Purpose |
 |------|---------|
-| `.uf/review-matrix.yaml` | Named model profiles and ordered per-mode, per-agent run arrays, plus `limits` (persona/run/timeout/cost). |
-| `.uf/review-matrix.override.yaml` | Per-developer model/variant overrides for specific profile tiers. Only `profiles.<tier>.[model, variant]` paths are permitted (whitelist). Gitignored — each developer maintains their own. |
-| `.uf/reviewer-capabilities.yaml` | Classifies each Divisor persona as review or content and declares its ordered review scopes. |
+| `.uf/review-matrix.yaml` | Named model profiles and ordered per-mode, per-agent run arrays, plus `limits` (persona/run/timeout/cost). Project-owned: seeded once on first deploy, survives plain `uf init` re-runs, reset to canonical only by `--force`. |
+| `.uf/review-matrix.override.yaml` | Per-developer model/variant overrides for specific profile tiers. Only `profiles.<tier>.[model, variant]` paths are permitted (whitelist). Gitignored — each developer maintains their own; never seeded or reset by `uf init`. |
+| `.uf/reviewer-capabilities.yaml` | Classifies each Divisor persona as review or content and declares its ordered review scopes. Project-owned: seeded once on first deploy, survives plain `uf init` re-runs, reset to canonical only by `--force`. |
 | `.uf/sibling-repos.yaml` | Declares the sibling repositories eligible for bounded evidence acquisition. |
+
+`.uf/review-matrix.yaml` and `.uf/reviewer-capabilities.yaml` are the
+review-config files and share identical scaffold ownership semantics:
+each is a project-owned extension point, seeded once on first deploy
+from the embedded canonical asset, skipped on plain `uf init` re-runs
+(locally added `reviewers:` entries and matrix customizations survive
+byte-for-byte), and reset to the canonical asset only by
+`uf init --force` -- a destructive reset for both files that discards
+local entries. `.uf/review-matrix.override.yaml` is deliberately
+different: it is gitignored, per-developer, and never seeded or reset
+by `uf init`.
 
 Each file has a corresponding JSON Schema under `schemas/` (and a
 scaffold mirror under `internal/scaffold/assets/uf/schemas/`), so invalid
