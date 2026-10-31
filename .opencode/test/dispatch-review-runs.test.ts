@@ -187,6 +187,22 @@ describe("dispatch_review_runs", () => {
     })
   })
 
+  it("locks the dispatch_review_runs description forwarding guidance (RD-CF-002)", async () => {
+    await withBun(async () => {
+      const { directory } = await scratchProject()
+      const hooks = await ReviewDispatchPlugin.server({
+        client: fakeClient(),
+        directory,
+        worktree: directory,
+      } as unknown as PluginInput)
+
+      const toolDef = hooks.tool.dispatch_review_runs
+      expect(toolDef.description).toContain(
+        "pass it as correlation_id on every subsequent consolidate_dispatch call",
+      )
+    })
+  })
+
   describe("dispatches all included plan entries and returns compact summary", () => {
     it("dispatches 2 included entries and skips 1, reports correct counts", async () => {
       await withBun(async () => {
