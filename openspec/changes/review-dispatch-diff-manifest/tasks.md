@@ -3,7 +3,7 @@
 
 ## 1. Manifest lib module (RD-FR-033)
 
-- [ ] 1.1 [P] Create `.opencode/lib/review-diff-manifest.ts`:
+- [x] 1.1 [P] Create `.opencode/lib/review-diff-manifest.ts`:
   export the shared `DIFF_THRESHOLD` constant (value 1500,
   moved from `index.ts` as the single definition) and the
   shared `countDiffLines(diffContent)` counting function that
@@ -28,7 +28,7 @@
   clock, or zod access (design D3/D4/D10).
   Files: `.opencode/lib/review-diff-manifest.ts`
 
-- [ ] 1.2 [P] Manifest unit tests
+- [x] 1.2 [P] Manifest unit tests
   (`.opencode/test/review-diff-manifest.test.ts`): determinism
   (identical patch → identical manifest, run twice);
   hunk-aligned boundaries (multi-hunk file exceeding the
@@ -45,7 +45,7 @@
 
 ## 2. build_review_prompts mode switch (RD-FR-032, RD-FR-035)
 
-- [ ] 2.1 Import `DIFF_THRESHOLD` and `countDiffLines` from
+- [x] 2.1 Import `DIFF_THRESHOLD` and `countDiffLines` from
   the manifest module in `index.ts` (delete the local
   duplicate; value unchanged); in `buildReviewPrompts`, count
   diff lines with the shared `countDiffLines` from the read
@@ -61,7 +61,7 @@
   every assembled prompt (design D1/D5/D9).
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 2.2 In manifest mode, replace the inline `## Diff`
+- [x] 2.2 In manifest mode, replace the inline `## Diff`
   section with `## Diff Manifest`: rendered entry table (path,
   +/- counts, flags, chunk ids, hints) wrapped in untrusted
   delimiters via the existing `wrapUntrusted(diff-rendered,
@@ -79,7 +79,7 @@
   untouched (design D7).
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 2.3 Update `fetch_pr_review_context`'s
+- [x] 2.3 Update `fetch_pr_review_context`'s
   above-threshold warning to state that manifest delivery is
   engaged for the dispatch while preserving the pinned "Diff
   exceeds size advisory threshold" substring; compute
@@ -91,7 +91,7 @@
   document the delivery-mode switch.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 2.4 [P] build_review_prompts tests (additions to
+- [x] 2.4 [P] build_review_prompts tests (additions to
   `.opencode/test/build-review-prompts.test.ts` and
   `.opencode/test/fetch-pr-review-context.test.ts`):
   below-threshold prompts byte-for-byte identical to the
@@ -114,7 +114,7 @@
 
 ## 3. read_diff_chunk tool (RD-FR-034)
 
-- [ ] 3.1 Implement `createReadDiffChunkTool(projectRoot)` in
+- [x] 3.1 Implement `createReadDiffChunkTool(projectRoot)` in
   `index.ts` with zod-validated input (`diff_path`, optional
   `chunk_id`, optional `file`; exactly one selector required):
   reuse `validateDiffPath`; load `<diff_path>.manifest.json`;
@@ -132,7 +132,7 @@
   `ReviewDispatchPlugin.server()`.
   Files: `.opencode/plugins/review-dispatch/index.ts`
 
-- [ ] 3.2 [P] read_diff_chunk tests (new
+- [x] 3.2 [P] read_diff_chunk tests (new
   `.opencode/test/read-diff-chunk.test.ts`, plus
   registration coverage in
   `.opencode/test/registration-surface.test.ts` if the
@@ -150,7 +150,7 @@
 
 ## 4. Retrieval allowance in timeout derivation (RD-FR-036)
 
-- [ ] 4.1 Extend `.opencode/lib/run-timeout.ts`: add
+- [x] 4.1 Extend `.opencode/lib/run-timeout.ts`: add
   `MANIFEST_RETRIEVAL_ALLOWANCE_MS` (default 300_000) and an
   optional `manifestMode` signal to
   `TimeoutDerivationSignals`; apply the allowance additively
@@ -164,7 +164,7 @@
   (design D8).
   Files: `.opencode/lib/run-timeout.ts`
 
-- [ ] 4.2 Wire the delivery-mode signal from the
+- [x] 4.2 Wire the delivery-mode signal from the
   `buildReviewPrompts` result through `dispatchReviewRuns`
   into each run's derivation inputs (manifest-mode prompts →
   `manifestMode: true`) and persist it among the run's
@@ -187,7 +187,7 @@
 
 ## 5. Consolidation attestation advisory (RD-FR-035)
 
-- [ ] 5.1 In `consolidate_dispatch`, read each successful
+- [x] 5.1 In `consolidate_dispatch`, read each successful
   manifest-mode run's persisted final text (the
   `read_assessment_fields` mechanism) and emit an advisory
   warning identifying runs whose attestation is missing or
@@ -201,7 +201,7 @@
 
 ## 6. Scaffold sync and drift
 
-- [ ] 6.1 Sync every modified canonical asset byte-identical
+- [x] 6.1 Sync every modified canonical asset byte-identical
   to its embedded copy under
   `internal/scaffold/assets/opencode/`: `index.ts`,
   `run-timeout.ts`, and the new `review-diff-manifest.ts`
@@ -220,7 +220,7 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 [P] Document the delivery-mode behavior in the
+- [x] 7.1 [P] Document the delivery-mode behavior in the
   command files that describe the dispatch workflow. First
   verify which files need edits by searching the commands
   directory for dispatch-workflow descriptions — no current
@@ -239,7 +239,7 @@
   `.opencode/commands/uf.review-pr.md` (as verified) +
   scaffold mirrors
 
-- [ ] 7.2 [P] Add the `CHANGELOG.md` entry (user-facing:
+- [x] 7.2 [P] Add the `CHANGELOG.md` entry (user-facing:
   large changesets now review via manifest + on-demand
   retrieval; below-threshold behavior unchanged) and file the
   in-repo documentation issue for the user-facing behavior
@@ -263,7 +263,7 @@
   unchanged below-threshold behavior.
   Files: `CHANGELOG.md`
 
-- [ ] 7.3 [P] File the unbound-force/website documentation
+- [x] 7.3 [P] File the unbound-force/website documentation
   issue before PR merge (constitution v1.4.0 Cross-Repo
   Documentation — the trigger applies: the change alters the
   /uf.review-council workflow and the scaffolded
@@ -281,7 +281,7 @@
 
 ## 8. Verification
 
-- [ ] 8.1 CI parity: run `make plugin-test` (full TypeScript
+- [x] 8.1 CI parity: run `make plugin-test` (full TypeScript
   plugin suite; the 94 percent statements coverage floor in
   `.opencode/vitest.config.ts` is governance-controlled and
   MUST NOT be modified — new code ships with tests that
@@ -289,13 +289,13 @@
   coverage gate, plugin tests). All green before any task in
   this phase is marked complete.
 
-- [ ] 8.2 Validate the change: `openspec validate
+- [x] 8.2 Validate the change: `openspec validate
   review-dispatch-diff-manifest --type change --strict`
   (expect zero ERROR items; the known benign
   `originating_issue` unrecognized-key warning is documented
   in prior changes and acceptable).
 
-- [ ] 8.3 Constitution alignment verification: confirm each
+- [x] 8.3 Constitution alignment verification: confirm each
   PASS assessment in the proposal against the implemented
   code — I (artifact-driven manifest, no runtime coupling),
   II (pure lib module, independently usable tools), III

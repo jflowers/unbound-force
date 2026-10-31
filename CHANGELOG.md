@@ -6,6 +6,44 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- review-dispatch-diff-manifest: Large changesets now review via a
+  diff manifest plus on-demand retrieval instead of inlining the full
+  diff into every reviewer prompt. `build_review_prompts` selects the
+  delivery mode from the diff's line count using the single shared
+  `DIFF_THRESHOLD` (1500 lines) and counting function (`.opencode/lib/
+  review-diff-manifest.ts`): inline delivery at or below the
+  threshold — byte-for-byte identical to the previous assembly,
+  including the 2 MiB inline diff cap — and manifest delivery strictly
+  above it. In manifest mode no prompt inlines the diff; each carries a
+  `## Diff Manifest` section (rendered entry table with paths, +/-
+  counts, flags, chunk ids, and persona-relevance hints inside
+  untrusted-content delimiters) plus retrieval instructions. The new
+  `read_diff_chunk` tool serves chunks on demand, confined to
+  manifest-declared byte coordinates from the path-validated diff,
+  bounded to 256 KiB per response in untrusted-evidence delimiters,
+  and fails closed on any validation or manifest-to-diff SHA-256
+  integrity mismatch. The manifest-mode response contract adds a
+  `**Files Reviewed**:` attestation field (one repo-relative path per
+  line); `consolidate_dispatch` emits an advisory
+  `empty_coverage_attestation` warning for successful runs whose
+  attestation is missing or empty (quality signal only — no finding,
+  no verdict change). Manifest-mode runs gain a fixed additive
+  retrieval timeout allowance (default 300 s, recorded in timeout
+  provenance) that `redispatch_failed_runs` also grants on the
+  recovery path. Per the build-review-prompts FR-013 delta, an
+  over-2 MiB over-threshold diff now proceeds through manifest
+  delivery instead of failing `prompt_size_exceeded` (the 4 MiB
+  prompt cap still applies to every assembled prompt in both modes);
+  `fetch_pr_review_context`'s threshold warning now states that
+  manifest delivery is engaged, preserving the pinned "Diff exceeds
+  size advisory threshold" substring. Triage mode (no diff) is
+  unaffected. Scaffold mirrors synced byte-identical
+  (`review-diff-manifest.ts` registered across all four asset-surface
+  enumerations; 79 embedded assets) with drift tests green; delivery-
+  mode behavior documented in `uf.review-council.md`,
+  `uf.unleash.md`, `uf.review-pr.md`, and `uf.address-feedback.md`
+  (canonical plus mirrors). Plugin suite: 44 files / 1462 tests
+  passing under the unchanged 94 percent statements coverage floor.
 - sibling-evidence-agent-guidance: Pointed agents at declared,
   in-repo, permission-safe sibling-repo resources after a
   deployed /uf.unleash pipeline wedged 26 minutes on an

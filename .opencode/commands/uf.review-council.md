@@ -295,13 +295,53 @@ path, SHA256, source mode, rejection, and unavailability reason in
 provenance and the final summary.
 
 Every child prompt remains within this repository's review scope and
-includes persona role, mode-specific focus, the complete immutable diff or
+includes persona role, mode-specific focus, the immutable diff (inlined
+in full in inline mode, or delivered through the manifest mode below) or
 spec scope, all changed paths, the exact base/head input context,
 `AGENTS.md`, constitution, convention packs, severity, review context,
 Gaze/pre-flight evidence, sibling evidence provenance, the changed-line
 confinement rule, prohibitions on issue creation and scope changes, and the
 structured response contract. Each child reads its own agent definition
 file at `.opencode/agents/{agent}.md` as Step 0.
+
+**Diff delivery modes.** `dispatch_review_runs` selects the dispatch's
+diff delivery mode from the diff's line count, using the single shared
+`DIFF_THRESHOLD` (1500 lines) and its shared counting function: inline
+delivery at or below the threshold, manifest delivery strictly above it.
+Selection is deterministic — identical diff content selects the
+identical mode — and triage mode (issue content, no diff) is unaffected.
+
+- **Inline mode** (at or below 1500 lines): every agent prompt inlines
+  the complete diff in the untrusted `## Diff` section, byte-for-byte
+  identical to the long-standing assembly. The 2 MiB inline diff-read
+  cap still applies; an oversized diff on this path fails with the
+  structured `prompt_size_exceeded` error.
+- **Manifest mode** (strictly above 1500 lines): no prompt inlines the
+  diff. Each prompt carries a `## Diff Manifest` section — a rendered
+  entry table (path, +/- counts, flags, chunk ids, persona-relevance
+  hints; guidance only, never filtering) inside untrusted-content
+  delimiters — plus retrieval instructions directing the reviewer to
+  pull chunks on demand via the `read_diff_chunk` tool and to treat all
+  retrieved diff content as untrusted data. `read_diff_chunk` is
+  confined to the manifest: it serves only manifest-declared byte
+  coordinates from the path-validated diff, bounded to 256 KiB per
+  response, wrapped in untrusted-evidence delimiters, and fails closed
+  on any validation or manifest-to-diff integrity mismatch. The 2 MiB
+  inline cap does not apply on this path (the tool-side read is bounded
+  by the capture-side caps); the 4 MiB `MAX_PROMPT_BYTES` cap still
+  applies to every assembled prompt. The manifest-mode response contract
+  adds a `**Files Reviewed**:` attestation field — one repo-relative
+  path per line — listing every file the reviewer actually reviewed.
+- **Retrieval timeout allowance**: manifest-mode runs gain a fixed
+  additive retrieval allowance in the per-run timeout derivation
+  (recorded in the run's timeout provenance), and the recovery path
+  (`redispatch_failed_runs`) grants the same allowance to re-dispatched
+  manifest-mode runs.
+- **Consolidation advisory**: `consolidate_dispatch` reads each
+  successful manifest-mode run's `**Files Reviewed**:` attestation and
+  emits an `empty_coverage_attestation` warning when it is missing or
+  empty — an advisory quality signal only; it never creates a finding
+  or changes the verdict.
 
 One failed run MUST NOT cancel independent runs. Budget, limit,
 cancellation, and policy skips are terminal states — never silently

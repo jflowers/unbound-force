@@ -31,6 +31,8 @@ function runFixture(overrides: {
     line: number | null
   }>
   proposals?: Array<{ information: string; tag: string; category?: string }>
+  manifestMode?: boolean
+  text?: string
 }) {
   return {
     correlation_id: randomUUID(),
@@ -56,8 +58,12 @@ function runFixture(overrides: {
     workflow_verdict: null,
     findings: overrides.findings ?? [],
     proposals: overrides.proposals ?? [],
-    text: "review output",
+    text: overrides.text ?? "review output",
     read_only: true,
+    // Delivery-mode work signal (RD-FR-036): omitted unless explicitly
+    // requested — run files that predate the field carry no manifest_mode
+    // key, which is the inline fixture shape.
+    ...(overrides.manifestMode === undefined ? {} : { manifest_mode: overrides.manifestMode }),
   }
 }
 
@@ -570,6 +576,85 @@ describe("consolidate_dispatch", () => {
     expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
     expect(payload.findings).toHaveLength(1)
     expect(payload.warnings).toBeUndefined()
+  })
+
+  // RD-FR-035 advisory tests. tasks.md names review-dispatch-consolidation.test.ts,
+  // but that suite drives finalizeReviewDispatch with payload fixtures only (no run
+  // files, no consolidate_dispatch invocation) and the advisory is consolidate-result
+  // observability that never reaches the finalizer — so the tool-level tests live
+  // here, beside the orphaned_submissions_excluded precedent they extend, and the
+  // parser unit tests live in review-dispatch-read-assessment-fields.test.ts beside
+  // the parseAssessmentFields precedent the parser reuses.
+  it("emits an empty_coverage_attestation advisory for manifest-mode runs with missing or empty attestations (RD-FR-035)", async () => {
+    const guardRunId = randomUUID()
+    const architectRunId = randomUUID()
+    await setupDispatchSession([
+      // Missing attestation: the default fixture text carries no marker.
+      runFixture({
+        agent: "divisor-guard",
+        run_id: guardRunId,
+        manifestMode: true,
+        findings: [
+          { severity: "MEDIUM", category: "style", description: "Docs gap", root_cause: "No jsdoc", file: "lib.ts", line: 5 },
+        ],
+      }),
+      // Empty attestation: the marker is present but lists no files.
+      runFixture({ agent: "divisor-architect", run_id: architectRunId, manifestMode: true, text: "**Files Reviewed**:" }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const payload = JSON.parse(result.output)
+    // One advisory per affected run, naming each — readRunFiles sorts by
+    // filename, so the architect entry precedes the guard entry.
+    expect(payload.warnings).toEqual([
+      { type: "empty_coverage_attestation", agent: "divisor-architect", run_id: architectRunId },
+      { type: "empty_coverage_attestation", agent: "divisor-guard", run_id: guardRunId },
+    ])
+    // The advisory is a quality signal only: the verdict derivation and
+    // finding set are unchanged — the APPROVE WITH ADVISORIES verdict comes
+    // from the MEDIUM finding, exactly as it would without the advisory,
+    // and no finding was added for the missing attestation.
+    expect(payload.verdict).toBe("APPROVE WITH ADVISORIES")
+    expect(payload.findings).toHaveLength(1)
+  })
+
+  it("emits no attestation advisory when the manifest-mode run's attestation is populated (RD-FR-035)", async () => {
+    await setupDispatchSession([
+      runFixture({
+        agent: "divisor-guard",
+        manifestMode: true,
+        text: "Review complete.\n\n**Files Reviewed**:\nsrc/foo.ts\nlib/bar.ts",
+      }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const payload = JSON.parse(result.output)
+    // Populated attestation: no advisory, and with no other warnings the
+    // key is omitted entirely — mirroring proposals (PR #776).
+    expect(payload.warnings).toBeUndefined()
+    expect(payload.verdict).toBe("APPROVE")
+  })
+
+  it("never checks inline-mode runs for a coverage attestation (RD-FR-035)", async () => {
+    await setupDispatchSession([
+      // Inline run (no manifest_mode signal) with no attestation in its
+      // text: the prompt carried the full diff inline, so no attestation
+      // contract applies.
+      runFixture({ agent: "divisor-guard" }),
+      // An explicit inline signal (manifest_mode false) is equally unchecked.
+      runFixture({ agent: "divisor-architect", manifestMode: false }),
+    ])
+
+    const tool = createConsolidateDispatchTool(createFinalizationDependencies(tmpdir()))
+    const result = await tool.execute({}, noopContext())
+
+    const payload = JSON.parse(result.output)
+    expect(payload.warnings).toBeUndefined()
+    expect(payload.verdict).toBe("APPROVE")
   })
 
   it("finalizes a mixed session whose failed run carried accepted submissions (issue #751)", async () => {
