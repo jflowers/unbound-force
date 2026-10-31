@@ -34,21 +34,21 @@
 
 ## 2. Documentation and change record
 
-- [ ] 2.1 [P] Update `docs/architecture.md` File Ownership
+- [x] 2.1 [P] Update `docs/architecture.md` File Ownership
   Model section: state that `.uf/reviewer-capabilities.yaml`
   joins `.uf/review-matrix.yaml` as a project-owned extension
   point — seeded once on first deploy, skipped on plain
   re-runs, reset only by `--force` (destructive).
-- [ ] 2.2 [P] Update `docs/configuration.md` Review Council
+- [x] 2.2 [P] Update `docs/configuration.md` Review Council
   Configuration table: document the seeding and survival
   semantics for `.uf/reviewer-capabilities.yaml` (local
   `reviewers:` entries survive plain `uf init` re-runs;
   `--force` resets to canonical).
-- [ ] 2.3 [P] Add a `CHANGELOG.md` entry under
+- [x] 2.3 [P] Add a `CHANGELOG.md` entry under
   Unreleased → Changed describing the reclassification and
   its user-visible effect (custom agent registrations survive
   re-init; canonical list updates no longer auto-flow).
-- [ ] 2.4 [P] File the documentation issues required by the
+- [x] 2.4 [P] File the documentation issues required by the
   documentation gates: one issue against the current repo for
   this user-facing `uf init` behavior change, and one
   cross-repo issue against `unbound-force/website` per the
