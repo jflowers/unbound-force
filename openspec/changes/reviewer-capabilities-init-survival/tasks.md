@@ -57,7 +57,7 @@
 
 ## 3. Validation and verification
 
-- [ ] 3.1 Run `go test -race -count=1 ./internal/scaffold/...`
+- [x] 3.1 Run `go test -race -count=1 ./internal/scaffold/...`
   and verify green, explicitly confirming: the flipped
   ownership table, the new regression test, the
   drift-detection pairs (embedded ↔ deployed `.uf/` copies
