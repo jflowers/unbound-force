@@ -51,7 +51,7 @@ import { withBun } from "./helpers/bun-runtime.js"
 //   (uf.unleash.md:1146), scan_conflict_markers (uf.unleash.md:1250),
 //   format_unleash_demo (uf.unleash.md:1790), resolve_base_ref
 //   (uf.review-council.md:132), normalize_model_name
-//   (uf.address-feedback.md:908)
+//   (uf.address-feedback.md:910)
 // - uf-finale: 9 sites -- uf_finale_startup (uf.finale.md:51),
 //   uf_finale_stage (72), uf_finale_commit_context (83),
 //   uf_finale_base_state (132), uf_finale_push_state (172),
@@ -61,9 +61,9 @@ import { withBun } from "./helpers/bun-runtime.js"
 //   and 1532, uf.review-council.md:235, uf.review-pr.md:402,
 //   uf.triage-issue.md:190, uf.address-feedback.md:339,
 //   speckit.testreview.md:154), consolidate_dispatch x3
-//   (uf.review-council.md:422, uf.triage-issue.md:1089,
-//   uf.address-feedback.md:559), finalize_review_dispatch x2
-//   (uf.review-pr.md:541, speckit.testreview.md:278),
+//   (uf.review-council.md:424, uf.triage-issue.md:1091,
+//   uf.address-feedback.md:561), finalize_review_dispatch x2
+//   (uf.review-pr.md:543, speckit.testreview.md:278),
 //   acquire_sibling_evidence (speckit.testreview.md:134),
 //   prepare_lesson_learning (speckit.testreview.md:268)
 //
@@ -758,7 +758,7 @@ describe("golden output shapes -- uf-workflow registry (21 documented sites)", (
     expect(data).toEqual({ ref: "origin/main", sha: SHA_A, source: "origin/main", head_sha: SHA_HEAD, diverged: false })
   })
 
-  it("normalize_model_name [uf.address-feedback.md:908] returns normalized and the unknown-model fallback", async () => {
+  it("normalize_model_name [uf.address-feedback.md:910] returns normalized and the unknown-model fallback", async () => {
     const directory = await makeScratch()
     const registry = await loadRegistry(UfWorkflowPlugin, directory)
 
@@ -1104,9 +1104,9 @@ const CONSOLIDATE_SITES: ReadonlyArray<{
   readonly mode: "code" | "triage" | "feedback"
   readonly metadataOverrides: Record<string, unknown>
 }> = [
-  { site: "uf.review-council.md:422", command: "review-council", mode: "code", metadataOverrides: {} },
-  { site: "uf.triage-issue.md:1089", command: "triage-issue", mode: "triage", metadataOverrides: TRIAGE_METADATA_OVERRIDES },
-  { site: "uf.address-feedback.md:559", command: "address-feedback", mode: "feedback", metadataOverrides: {} },
+  { site: "uf.review-council.md:424", command: "review-council", mode: "code", metadataOverrides: {} },
+  { site: "uf.triage-issue.md:1091", command: "triage-issue", mode: "triage", metadataOverrides: TRIAGE_METADATA_OVERRIDES },
+  { site: "uf.address-feedback.md:561", command: "address-feedback", mode: "feedback", metadataOverrides: {} },
 ]
 
 describe("golden output shapes -- review-dispatch registry (15 documented sites)", () => {
@@ -1204,7 +1204,7 @@ describe("golden output shapes -- review-dispatch registry (15 documented sites)
   )
 
   it.each([
-    { site: "uf.review-pr.md:541", command: "review-council", mode: "code", workflowResult: { kind: "council", value: "APPROVE" } },
+    { site: "uf.review-pr.md:543", command: "review-council", mode: "code", workflowResult: { kind: "council", value: "APPROVE" } },
     { site: "speckit.testreview.md:278", command: "speckit-testreview", mode: "test", workflowResult: { kind: "test-review", value: "APPROVE" } },
   ] as const)(
     "finalize_review_dispatch [$site] persists the artifact and returns canonical review-verdict v2 data",

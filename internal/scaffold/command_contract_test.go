@@ -325,7 +325,7 @@ func TestCommandContracts_CorrelationIdForwarding(t *testing.T) {
 				{name: "retrieval forwards the captured id", all: []string{"passing the captured `correlation_id` from Section 4c"}},
 				{name: "retry forwards the same captured id", all: []string{"passing the same captured `correlation_id`"}},
 				{name: "finalization forwards the captured id", all: []string{"the captured `correlation_id` from Section 4c as the payload's `correlation_id`"}},
-				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it"}},
+				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it", "a `not_found` lacking the forwarded `correlation_id` indicates the capture step was skipped"}},
 			},
 		},
 		{
@@ -336,7 +336,7 @@ func TestCommandContracts_CorrelationIdForwarding(t *testing.T) {
 				{name: "retry forwards the same captured id", all: []string{"passing the same captured `correlation_id`"}},
 				{name: "finalization forwards the captured id", all: []string{"with the captured `correlation_id` from Section 2 and provenance as its only arguments"}},
 				{name: "finalization retry forwards the same captured id", all: []string{"same captured `correlation_id`, same provenance, no changes"}},
-				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it"}},
+				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it", "a `not_found` lacking the forwarded `correlation_id` indicates the capture step was skipped"}},
 			},
 		},
 		{
@@ -347,7 +347,7 @@ func TestCommandContracts_CorrelationIdForwarding(t *testing.T) {
 				{name: "retry forwards the same captured id", all: []string{"passing the same captured `correlation_id`"}},
 				{name: "finalization forwards the captured id", all: []string{"with the captured `correlation_id` from the Section 2.3 one-line summary and provenance as its only arguments"}},
 				{name: "finalization retry forwards the same captured id", all: []string{"same provenance, same captured `correlation_id`, no changes"}},
-				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it"}},
+				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it", "a `not_found` lacking the forwarded `correlation_id` indicates the capture step was skipped"}},
 			},
 		},
 		{
@@ -358,7 +358,7 @@ func TestCommandContracts_CorrelationIdForwarding(t *testing.T) {
 				{name: "retry forwards the same captured per-item id", all: []string{"passing the same captured per-item `correlation_id`"}},
 				{name: "finalization forwards the item's captured id", all: []string{"the item's captured `correlation_id` from Section 2.3.4 passed as the `correlation_id` argument"}},
 				{name: "finalization retry forwards the same captured per-item id", all: []string{"same provenance, same captured per-item `correlation_id`, no changes"}},
-				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it"}},
+				{name: "not-found with the forwarded id is permanent", all: []string{"consolidation carrying the forwarded `correlation_id` for a dispatch that executed runs", "with the ID forwarded, `not_found` means no persisted dispatch session exists", "a plugin-process or tool-session split can no longer produce it", "a `not_found` lacking the forwarded `correlation_id` indicates the capture step was skipped"}},
 			},
 		},
 		{
