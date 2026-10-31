@@ -112,4 +112,10 @@
       fallback and standalone tool use preserved (II),
       machine-parseable `not_found` envelopes with echoed
       correlation IDs (III), isolated fixture-context tests
-      with no external services (IV).
+      with no external services (IV), no new security
+      surface; forwarded ID validated by the existing
+      consolidate_dispatch UUID schema (V, PASS), and per
+      design D6, orchestration-level judgment prose with
+      mechanical invariants in executable tests (VI, PASS).
+      V and VI were added post-council per the guard's
+      advisory (fix-loop iteration 1).

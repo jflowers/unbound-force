@@ -157,3 +157,24 @@ Cross-session behavior is verified in isolation with fixture
 sessions, and the existing fake-client plugin harness — no
 external services. Schema exposure is asserted against the
 registration surface.
+
+### V. Security by Default
+
+**Assessment**: PASS
+
+No new security surface is introduced. The forwarded
+`correlation_id` enters `consolidate_dispatch` through its
+existing optional UUID-validated argument (RD-CF-003) — no
+new dependencies, file permissions, CI changes, or exec
+surfaces are touched, and the failure mode stays fail-closed.
+
+### VI. Deterministic Execution
+
+**Assessment**: PASS
+
+Per design D6: the forwarding instruction is orchestration-level
+judgment prose, not mechanical procedural prose — no executable
+tool can chain dispatch to consolidation across processes or
+sessions; that gap is the bug being fixed. The mechanical
+invariants around the prose (mirror identity, phrase contracts,
+schema exposure) remain enforced by executable tests.
