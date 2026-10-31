@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   CONTENTION_FACTOR_PER_PARALLEL_RUN,
+  MANIFEST_RETRIEVAL_ALLOWANCE_MS,
   MAX_CONTENTION_MULTIPLIER,
   MAX_TIMEOUT_MS,
   MS_PER_KIB_ABOVE_FREE,
@@ -235,6 +236,70 @@ describe("derivePerRunTimeoutMs", () => {
     const result = derivePerRunTimeoutMs(signals({ explicitTimeoutMs: 900_000 }))
     expect(result.effectiveMs).toBe(900_000)
     expect(result.provenance).toEqual({ effective_ms: 900_000, source: "explicit" })
+  })
+})
+
+describe("manifest-mode retrieval allowance (RD-FR-036)", () => {
+  it("manifest-mode run gains exactly the allowance (absent clamping)", () => {
+    // Baseline shape: base 1.2M + standard 120k term, no prompt term,
+    // no contention. Inline: 1_320_000. Manifest: +300_000.
+    const inline = derivePerRunTimeoutMs(signals({ manifestMode: false }))
+    const manifest = derivePerRunTimeoutMs(signals({ manifestMode: true }))
+    expect(inline.effectiveMs).toBe(1_320_000)
+    expect(manifest.effectiveMs).toBe(inline.effectiveMs + MANIFEST_RETRIEVAL_ALLOWANCE_MS)
+    expect(manifest.effectiveMs).toBe(1_620_000)
+    expect(manifest.provenance.retrieval_allowance_ms).toBe(MANIFEST_RETRIEVAL_ALLOWANCE_MS)
+  })
+
+  it("allowance applies after the contention multiplier, not inside it", () => {
+    // A smaller base keeps both variants under the ceiling so the
+    // difference is observable unclamped: with multiplier 1.45 the
+    // manifest-vs-inline gap must remain exactly the allowance.
+    const base = { baseMs: 600_000, resolvedTier: "standard" as const, maxParallelRuns: 4 }
+    const inline = derivePerRunTimeoutMs(signals({ ...base, manifestMode: false }))
+    const manifest = derivePerRunTimeoutMs(signals({ ...base, manifestMode: true }))
+    expect(inline.provenance.contention_multiplier).toBe(1.45)
+    // round((600_000 + 0 + 120_000) x 1.45) = 1_044_000.
+    expect(inline.effectiveMs).toBe(1_044_000)
+    expect(manifest.effectiveMs).toBe(1_044_000 + MANIFEST_RETRIEVAL_ALLOWANCE_MS)
+    expect(manifest.provenance.retrieval_allowance_ms).toBe(MANIFEST_RETRIEVAL_ALLOWANCE_MS)
+    expect(manifest.provenance.clamped).toBe(false)
+  })
+
+  it("inline-mode derivation identical to pre-change for the same inputs", () => {
+    // Absent signal, explicit false, and explicit true-with-no-allowance
+    // (undefined) are the pre-change shapes; the derivation result and
+    // the provenance record must match the pre-change byte shape — no
+    // retrieval_allowance_ms key at all.
+    const pre = derivePerRunTimeoutMs(signals({}))
+    const off = derivePerRunTimeoutMs(signals({ manifestMode: false }))
+    expect(off).toEqual(pre)
+    expect(pre.provenance).not.toHaveProperty("retrieval_allowance_ms")
+    expect(off.provenance).not.toHaveProperty("retrieval_allowance_ms")
+  })
+
+  it("explicit argument still wins; the allowance does not modify it", () => {
+    const result = derivePerRunTimeoutMs(signals({ manifestMode: true, explicitTimeoutMs: 900_000 }))
+    expect(result.effectiveMs).toBe(900_000)
+    expect(result.provenance).toEqual({ effective_ms: 900_000, source: "explicit" })
+    expect(result.provenance).not.toHaveProperty("retrieval_allowance_ms")
+  })
+
+  it("allowance participates in ceiling clamping like any derived term", () => {
+    // Inline derivation 1_320_000 fits under a 1_500_000 ceiling; the
+    // manifest-mode 1_620_000 does not and clamps to the ceiling.
+    const inline = derivePerRunTimeoutMs(signals({ configuredCeilingMs: 1_500_000 }))
+    const manifest = derivePerRunTimeoutMs(signals({ configuredCeilingMs: 1_500_000, manifestMode: true }))
+    expect(inline.effectiveMs).toBe(1_320_000)
+    expect(inline.provenance.clamped).toBe(false)
+    expect(manifest.effectiveMs).toBe(1_500_000)
+    expect(manifest.provenance.clamped).toBe(true)
+    expect(manifest.provenance.retrieval_allowance_ms).toBe(MANIFEST_RETRIEVAL_ALLOWANCE_MS)
+  })
+
+  it("derivation stays deterministic with the allowance applied", () => {
+    const input = signals({ promptBytes: 200_000, manifestMode: true, maxParallelRuns: 4 })
+    expect(derivePerRunTimeoutMs(input)).toEqual(derivePerRunTimeoutMs(input))
   })
 })
 

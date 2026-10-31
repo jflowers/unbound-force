@@ -126,6 +126,7 @@ function makeRun(agent: string, overrides?: {
   findings?: number
   proposals?: number
   postSubmissionAbort?: Record<string, unknown>
+  manifestMode?: boolean
 }) {
   const findingsArr = Array.from({ length: overrides?.findings ?? 0 }, (_, i) => ({
     severity: "LOW",
@@ -172,6 +173,10 @@ function makeRun(agent: string, overrides?: {
     // prompt: null omits the key entirely — run files that predate prompt
     // persistence carry no prompt field at all.
     ...(overrides?.prompt === null ? {} : { prompt: overrides?.prompt ?? `Original prompt for ${agent}` }),
+    // Delivery-mode work signal (RD-FR-036): omitted unless explicitly
+    // requested — run files that predate the field carry no manifest_mode
+    // key at all, which is the pre-field fixture shape.
+    ...(overrides?.manifestMode === undefined ? {} : { manifest_mode: overrides.manifestMode }),
   }
 }
 
@@ -1405,6 +1410,70 @@ describe("redispatch_failed_runs", () => {
         source: "explicit",
         effective_ms: 900_000,
       })
+    })
+  })
+
+  it("re-grants the retrieval allowance to a redispatched manifest-mode run (RD-FR-036)", async () => {
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1, manifestMode: true })
+    const { correlationId, dir } = await setupSession([guardRun], [
+      planEntry("divisor-guard", { model: null, tier: "standard" }),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.redispatched_runs).toBe(1)
+
+      // RD-FR-036: the persisted delivery-mode signal re-grants the
+      // allowance on the recovery path without re-running prompt assembly,
+      // and carries into the replacement run file so repeated recoveries
+      // keep granting it. Same inputs as the work-signal derivation test
+      // above (720_000 inline); the manifest-mode replacement derives
+      // exactly the allowance above it (MANIFEST_RETRIEVAL_ALLOWANCE_MS,
+      // a literal per TC-001), unclamped under the 1_800_000 ceiling.
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(replacement.manifest_mode).toBe(true)
+      expect(replacement.timeout).toMatchObject({
+        source: "derived",
+        retrieval_allowance_ms: 300_000,
+        effective_ms: 1_020_000,
+        clamped: false,
+      })
+    })
+  })
+
+  it("treats run files that predate the delivery-mode field as inline (RD-FR-036)", async () => {
+    // No manifestMode override: the run file carries no manifest_mode key,
+    // the shape every run file written before RD-FR-036 has on disk.
+    const guardRun = makeRun("divisor-guard", { status: "failed", findings: 1, sequence: 1 })
+    const { correlationId, dir } = await setupSession([guardRun], [
+      planEntry("divisor-guard", { model: null, tier: "standard" }),
+    ])
+
+    await withBun(async () => {
+      const project = await scratchProject()
+      const hooks = await activate(fakeClient(), project)
+
+      // The pre-field file parses, the re-run executes, and the session
+      // consolidates from the replacement — undefined reads as inline, so
+      // no allowance is granted and the derivation matches the pre-change
+      // work-signal derivation exactly (720_000, the sibling test above).
+      const result = await hooks.tool.redispatch_failed_runs.execute({ correlation_id: correlationId }, noopContext())
+      const data = JSON.parse(result.output)
+      expect(data.status).toBe("ok")
+      expect(data.redispatched_runs).toBe(1)
+
+      const replacement = JSON.parse(await readFile(join(dir, "run-divisor-guard.json"), "utf8"))
+      expect(replacement.manifest_mode).toBe(false)
+      expect(replacement.timeout).toMatchObject({
+        source: "derived",
+        effective_ms: 720_000,
+      })
+      expect(replacement.timeout).not.toHaveProperty("retrieval_allowance_ms")
     })
   })
 

@@ -3,9 +3,11 @@
  *
  * Replaces the flat 600 s omitted-argument default with a
  * deterministic function of the work being dispatched: base window,
- * prompt size, plan-entry tier, and configured parallel contention
+ * prompt size, plan-entry tier, configured parallel contention
  * (OpenSpec change derive-per-run-timeout, design decisions D1/D2/D5,
- * issue #849).
+ * issue #849), and the manifest-mode retrieval allowance (OpenSpec
+ * change review-dispatch-diff-manifest, RD-FR-036, design D8,
+ * issue #877).
  *
  * This module is deliberately free of filesystem, clock, and zod
  * access: derivation is a pure function of scalar signals, testable
@@ -31,6 +33,18 @@ export const TIER_TERM_MS = {
 } as const
 export const CONTENTION_FACTOR_PER_PARALLEL_RUN = 0.15
 export const MAX_CONTENTION_MULTIPLIER = 1.5
+
+/**
+ * Manifest-mode retrieval allowance (RD-FR-036, design D8): a flat
+ * additive constant applied when — and only when — the run's prompt
+ * was assembled in manifest delivery mode. Manifest prompts are
+ * smaller (manifest, not diff) while the run does more work (tool
+ * round-trips plus review); without compensation, manifest-mode runs
+ * would be systematically under-timed. Applied AFTER the contention
+ * multiplier so an otherwise-identical manifest-mode run exceeds its
+ * inline twin by exactly this constant (absent clamping).
+ */
+export const MANIFEST_RETRIEVAL_ALLOWANCE_MS = 300_000
 
 /**
  * Hard ceiling matching the executor `TimeoutSchema` bound
@@ -68,6 +82,13 @@ export interface TimeoutDerivationSignals {
   readonly maxParallelRuns: number
   /** Configured derivation ceiling in milliseconds (design D6). */
   readonly configuredCeilingMs: number
+  /**
+   * True when the run's prompt was assembled in manifest delivery
+   * mode (RD-FR-036): the prompt carries a diff manifest and the
+   * reviewer retrieves diff content on demand via read_diff_chunk.
+   * Absent/false applies no retrieval allowance.
+   */
+  readonly manifestMode?: boolean
   /** Explicit per-run timeout argument; when present it wins outright. */
   readonly explicitTimeoutMs?: number
 }
@@ -90,6 +111,8 @@ export interface TimeoutProvenanceRecord {
   readonly session_profile_tier?: TimeoutTier | null
   readonly contention_multiplier?: number
   readonly max_parallel_runs?: number
+  /** Retrieval allowance applied (RD-FR-036); present only for manifest-mode runs. */
+  readonly retrieval_allowance_ms?: number
   readonly ceiling_ms?: number
   readonly clamped?: boolean
 }
@@ -158,13 +181,17 @@ export function resolveBaseWindowMs(tier: TimeoutTier | null, config: BaseWindow
 /**
  * Derive a reviewer run's timeout from the work being dispatched.
  *
- * Composition (design D1): round((baseMs + promptTermMs +
- * profileTermMs) x contentionMultiplier), clamped to the floor
- * baseMs and the ceiling min(configuredCeilingMs, MAX_TIMEOUT_MS).
- * Floor precedence: a configured ceiling below the base window is
- * raised to the base, so the derivation never reduces a run below
- * its base window. An explicit timeout argument passes through
- * unchanged with source "explicit" (design D2).
+ * Composition (RD-FR-028 as modified by review-dispatch-diff-manifest,
+ * design D1/D8): round((baseMs + promptTermMs + profileTermMs) x
+ * contentionMultiplier), plus the flat manifest-mode retrieval
+ * allowance (RD-FR-036) when the run's prompt was assembled in
+ * manifest mode — added after the multiplier so the manifest-vs-inline
+ * difference is exactly the allowance. Clamped to the floor baseMs and
+ * the ceiling min(configuredCeilingMs, MAX_TIMEOUT_MS). Floor
+ * precedence: a configured ceiling below the base window is raised to
+ * the base, so the derivation never reduces a run below its base
+ * window. An explicit timeout argument passes through unchanged with
+ * source "explicit" (design D2).
  */
 export function derivePerRunTimeoutMs(signals: TimeoutDerivationSignals): DerivedTimeout {
   if (signals.explicitTimeoutMs !== undefined) {
@@ -177,7 +204,8 @@ export function derivePerRunTimeoutMs(signals: TimeoutDerivationSignals): Derive
   const prompt = promptTermMs(signals.promptBytes)
   const profile = profileTermMs(signals.resolvedTier)
   const multiplier = contentionMultiplier(signals.maxParallelRuns)
-  const derived = Math.round((signals.baseMs + prompt + profile) * multiplier)
+  const retrievalAllowance = signals.manifestMode === true ? MANIFEST_RETRIEVAL_ALLOWANCE_MS : 0
+  const derived = Math.round((signals.baseMs + prompt + profile) * multiplier) + retrievalAllowance
 
   const ceilingMs = Math.max(
     Math.min(signals.configuredCeilingMs, MAX_TIMEOUT_MS),
@@ -198,6 +226,7 @@ export function derivePerRunTimeoutMs(signals: TimeoutDerivationSignals): Derive
       session_profile_tier: signals.sessionProfileTier,
       contention_multiplier: multiplier,
       max_parallel_runs: signals.maxParallelRuns,
+      ...(retrievalAllowance > 0 ? { retrieval_allowance_ms: retrievalAllowance } : {}),
       ceiling_ms: ceilingMs,
       clamped: effectiveMs !== derived,
     },

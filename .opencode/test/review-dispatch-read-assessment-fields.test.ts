@@ -13,6 +13,7 @@ import {
   createReadAssessmentFieldsTool,
   dispatchAgentRun,
   parseAssessmentFields,
+  parseCoverageAttestation,
   type DispatchAgentRunDependencies,
 } from "../plugins/review-dispatch/index.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
@@ -406,6 +407,35 @@ describe("parseAssessmentFields", () => {
     expect(parsed.objectivity).toBe("objective")
     expect(parsed.reasoning).toBeNull()
     expect(parsed.split_recommendations).toEqual([])
+  })
+})
+
+describe("parseCoverageAttestation (RD-FR-035)", () => {
+  it("parses one repo-relative path per line after the marker", () => {
+    const text = ["Review complete.", "", "**Files Reviewed**:", "src/foo.ts", "lib/bar.ts", "docs/README.md"].join("\n")
+    expect(parseCoverageAttestation(text)).toEqual(["src/foo.ts", "lib/bar.ts", "docs/README.md"])
+  })
+
+  it("returns null when the marker is absent", () => {
+    expect(parseCoverageAttestation("review output")).toBeNull()
+    expect(parseCoverageAttestation("")).toBeNull()
+  })
+
+  it("returns an empty array when the marker is present but lists no files", () => {
+    expect(parseCoverageAttestation("**Files Reviewed**:")).toEqual([])
+    expect(parseCoverageAttestation(["**Files Reviewed**:", "", "   "].join("\n"))).toEqual([])
+  })
+
+  it("ends the path region at the next labeled-field line", () => {
+    // The read_assessment_fields labeled-field termination keeps the
+    // attestation from swallowing the following contract field — the
+    // same boundary rule the assessment fields rely on.
+    const text = ["**Files Reviewed**:", "src/foo.ts", "", "**Model**: provider/model"].join("\n")
+    expect(parseCoverageAttestation(text)).toEqual(["src/foo.ts"])
+  })
+
+  it("accepts a same-line single path", () => {
+    expect(parseCoverageAttestation("**Files Reviewed**: src/foo.ts")).toEqual(["src/foo.ts"])
   })
 })
 

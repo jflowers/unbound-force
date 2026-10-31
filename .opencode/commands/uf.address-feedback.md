@@ -188,9 +188,13 @@ substitute it later in the flow, even if the PR receives new commits.
 `error: true` with `code` (e.g. `rate_limited`, `timeout`,
 `api_error`), `message`, and `retryable`. Report the error envelope
 verbatim and **STOP**. Do NOT proceed with a missing or incomplete
-diff. Diff size is not pre-checked here: the dispatch path enforces
-its read-time size limit and surfaces oversized diffs as the
-structured `prompt_size_exceeded` error.
+diff. Diff size is not pre-checked here: the dispatch path selects its
+delivery mode from the diff's line count against the shared 1500-line
+threshold — inline at or below (where the 2 MiB read cap surfaces
+oversized diffs as the structured `prompt_size_exceeded` error) and
+manifest delivery strictly above it (diff served to reviewers on demand
+via `read_diff_chunk`; the 4 MiB prompt cap still applies to every
+assembled prompt).
 
 ### 1.5 Determine Reviewer Authority
 

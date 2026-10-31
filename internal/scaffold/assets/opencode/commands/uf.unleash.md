@@ -685,6 +685,13 @@ sections instead of embedding their text.
    attempt with provenance: branch, 40-character head
    SHA, and `workflow_id: "uf.review-council"`.
 
+   The dispatch selects the diff delivery mode per the
+   cited council protocol: inline at or below 1500 diff
+   lines, manifest delivery (diff manifest plus
+   on-demand `read_diff_chunk` retrieval and the
+   `**Files Reviewed**:` attestation) strictly above —
+   below-threshold prompt assembly is unchanged.
+
 **Processing results**:
 
 - If the verdict is APPROVE or APPROVE WITH ADVISORIES:
@@ -1539,6 +1546,13 @@ text.
       finalization attempt with provenance: branch,
       40-character head SHA, and
       `workflow_id: "uf.review-council"`.
+
+   The dispatch selects the diff delivery mode per the
+   cited council protocol: inline at or below 1500 diff
+   lines, manifest delivery (diff manifest plus
+   on-demand `read_diff_chunk` retrieval and the
+   `**Files Reviewed**:` attestation) strictly above —
+   below-threshold prompt assembly is unchanged.
 
 **Processing results**:
 

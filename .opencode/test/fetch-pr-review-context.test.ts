@@ -6,6 +6,10 @@ import type { PluginInput } from "@opencode-ai/plugin"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import ReviewDispatchPlugin, { _getSessionCorrelationMap, parseReviewerManifest } from "../plugins/review-dispatch/index.js"
+import {
+  countDiffLines,
+  DIFF_THRESHOLD,
+} from "../lib/review-diff-manifest.js"
 import manifestFixture from "./fixtures/review-dispatch/manifest.json"
 import {
   mockProcess,
@@ -73,8 +77,6 @@ const MOCK_COMMENTS = [
 ]
 
 const MOCK_DIFF = "diff --git a/src/index.ts b/src/index.ts\n--- a/src/index.ts\n+++ b/src/index.ts\n@@ -1,3 +1,8 @@\n+import { foo } from 'bar'\n"
-
-const DIFF_THRESHOLD = 1500
 
 // ── Mock fixture responses (harness: ./helpers/gh-spawn-mock.ts) ──
 
@@ -513,6 +515,61 @@ describe("fetch_pr_review_context", () => {
         expect(warnings).toHaveLength(2)
         expect(warnings.some((w: string) => w.includes("CI checks are still in progress"))).toBe(true)
         expect(warnings.some((w: string) => w.includes("exceeds size advisory threshold"))).toBe(true)
+      } finally {
+        restore()
+      }
+    })
+  })
+
+  describe("shared line-counting rule (RD-FR-032)", () => {
+    it("computes diff_lines with the shared counting rule: a trailing terminator does not add a line", async () => {
+      // MOCK_DIFF ends with a trailing newline; the legacy
+      // split("\n").length rule counted the empty trailing segment as a
+      // line. The shared countDiffLines rule must not.
+      const { parsed, restore } = await callTool()
+      try {
+        expect(parsed.diff_lines).toBe(countDiffLines(MOCK_DIFF))
+        expect(MOCK_DIFF).toMatch(/\n$/)
+        expect(countDiffLines(MOCK_DIFF)).toBe(MOCK_DIFF.split("\n").length - 1)
+      } finally {
+        restore()
+      }
+    })
+
+    it("boundary agreement: exactly 1500 lines reports exceeds_threshold false and no warning", async () => {
+      const boundaryDiff = Array.from({ length: DIFF_THRESHOLD }, (_, i) => `+line ${i}`).join("\n")
+      const { parsed, restore } = await callTool({ "pr diff": { stdout: boundaryDiff, stderr: "", exitCode: 0 } })
+      try {
+        expect(parsed.diff_lines).toBe(DIFF_THRESHOLD)
+        expect(parsed.exceeds_threshold).toBe(false)
+        expect(parsed.warnings).toHaveLength(0)
+      } finally {
+        restore()
+      }
+    })
+
+    it("boundary agreement: 1501 lines reports exceeds_threshold true", async () => {
+      const boundaryDiff = Array.from({ length: DIFF_THRESHOLD + 1 }, (_, i) => `+line ${i}`).join("\n")
+      const { parsed, restore } = await callTool({ "pr diff": { stdout: boundaryDiff, stderr: "", exitCode: 0 } })
+      try {
+        expect(parsed.diff_lines).toBe(DIFF_THRESHOLD + 1)
+        expect(parsed.exceeds_threshold).toBe(true)
+      } finally {
+        restore()
+      }
+    })
+  })
+
+  describe("manifest-delivery warning (FR-010 delta)", () => {
+    it("states that manifest delivery is engaged while preserving the pinned threshold substring", async () => {
+      const largeDiff = Array.from({ length: DIFF_THRESHOLD + 10 }, (_, i) => `+line ${i}`).join("\n")
+      const { parsed, restore } = await callTool({ "pr diff": { stdout: largeDiff, stderr: "", exitCode: 0 } })
+      try {
+        const warnings = parsed.warnings as string[]
+        const thresholdWarning = warnings.find((w: string) => w.includes("exceeds size advisory threshold"))
+        expect(thresholdWarning).toBeDefined()
+        expect(thresholdWarning).toContain("manifest delivery is engaged")
+        expect(thresholdWarning).toContain("read_diff_chunk")
       } finally {
         restore()
       }

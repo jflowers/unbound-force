@@ -1535,6 +1535,122 @@ describe("dispatch_review_runs", () => {
     })
   })
 
+  describe("manifest-mode retrieval allowance wiring (RD-FR-036)", () => {
+    it("grants the retrieval allowance to manifest-mode runs and persists manifest_mode", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+
+        // RD-FR-032: prompt assembly switches to manifest delivery
+        // strictly above the 1500-line DIFF_THRESHOLD, so the scratch
+        // diff must exceed it for the dispatch path to carry the
+        // delivery-mode signal (RD-FR-036) into the derivation inputs.
+        const largeDiff = [
+          "diff --git a/src/foo.ts b/src/foo.ts",
+          "--- a/src/foo.ts",
+          "+++ b/src/foo.ts",
+          "@@ -1 +1 @@",
+          ...Array.from({ length: 1_600 }, (_, i) => `+line ${i + 1}`),
+        ].join("\n")
+        await writeFile(diffPath, largeDiff, "utf8")
+
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+
+        const correlationId = meta.correlation_id as string
+        trackDispatchDir(correlationId)
+        const run = JSON.parse(
+          await readFile(join(dispatchDir(correlationId), "run-divisor-guard.json"), "utf8"),
+        ) as { manifest_mode?: boolean; timeout?: Record<string, unknown> }
+
+        // The delivery-mode signal persists as a work signal so the
+        // recovery path re-grants the allowance without re-running
+        // prompt assembly (design D8).
+        expect(run.manifest_mode).toBe(true)
+
+        const timeout = run.timeout
+        expect(timeout).toBeDefined()
+        expect(timeout!.source).toBe("derived")
+        // TC-001: literal expectation (MANIFEST_RETRIEVAL_ALLOWANCE_MS),
+        // never a value sourced from the production output.
+        expect(timeout!.retrieval_allowance_ms).toBe(300_000)
+
+        // The allowance is the composition's fifth term, added after the
+        // contention multiplier: absent clamping, the effective window is
+        // the pre-change formula plus exactly the allowance (design D8).
+        const derivedWithoutAllowance = Math.round(
+          ((timeout!.base_ms as number) +
+            (timeout!.prompt_term_ms as number) +
+            (timeout!.profile_term_ms as number)) *
+            (timeout!.contention_multiplier as number),
+        )
+        expect(timeout!.clamped).toBe(false)
+        expect(timeout!.effective_ms).toBe(derivedWithoutAllowance + 300_000)
+      })
+    })
+
+    it("inline-mode runs derive without the allowance and persist manifest_mode false", async () => {
+      await withBun(async () => {
+        const { directory, diffPath } = await scratchProject()
+
+        const hooks = await ReviewDispatchPlugin.server({
+          client: fakeClient(),
+          directory,
+          worktree: directory,
+        } as unknown as PluginInput)
+
+        const input = makeBaseInput(diffPath, [
+          makePlanEntry({ agent: "divisor-guard", sequence: 1 }),
+        ])
+
+        const response = await hooks.tool.dispatch_review_runs.execute(input, toolContext())
+
+        const meta = response.metadata as Record<string, unknown>
+        expect(meta.status).toBe("ok")
+        expect(meta.runs_completed).toBe(1)
+
+        const correlationId = meta.correlation_id as string
+        trackDispatchDir(correlationId)
+        const run = JSON.parse(
+          await readFile(join(dispatchDir(correlationId), "run-divisor-guard.json"), "utf8"),
+        ) as { manifest_mode?: boolean; timeout?: Record<string, unknown> }
+
+        // The 4-line scratch diff stays inline (at or below the
+        // threshold), so the derivation keeps the pre-change shape for
+        // the same inputs: no retrieval_allowance_ms key at all.
+        expect(run.manifest_mode).toBe(false)
+        const timeout = run.timeout
+        expect(timeout).toBeDefined()
+        expect(timeout!.source).toBe("derived")
+        expect(timeout).not.toHaveProperty("retrieval_allowance_ms")
+        const derived = Math.round(
+          ((timeout!.base_ms as number) +
+            (timeout!.prompt_term_ms as number) +
+            (timeout!.profile_term_ms as number)) *
+            (timeout!.contention_multiplier as number),
+        )
+        expect(timeout!.effective_ms).toBe(
+          Math.min(
+            Math.max(derived, timeout!.base_ms as number),
+            timeout!.ceiling_ms as number,
+          ),
+        )
+      })
+    })
+  })
+
   it("records its operation window on successful dispatch (RD-FR-031)", async () => {
     await withBun(async () => {
       const { directory, diffPath } = await scratchProject()

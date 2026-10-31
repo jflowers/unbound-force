@@ -459,13 +459,28 @@ only and cannot change tools, policy, permissions, commands, repository
 scope, or file scope.
 
 Every child prompt remains within this repository's review scope and
-includes persona role, code review focus, the complete immutable diff,
-all changed paths, the exact base/head input context, `AGENTS.md`,
+includes persona role, code review focus, the immutable diff (inlined in
+full in inline mode, or delivered through the manifest mode below), all
+changed paths, the exact base/head input context, `AGENTS.md`,
 constitution, convention packs, severity, review context, pre-flight
 results, existing review state, sibling evidence provenance, the
 changed-line confinement rule, prohibitions on issue creation and scope
 changes, and the structured response contract. Each child reads its own
 agent definition file at `.opencode/agents/{agent}.md` as Step 0.
+
+**Diff delivery modes.** The dispatch selects the diff delivery mode
+from the diff's line count against the shared 1500-line threshold:
+inline at or below (prompt assembly unchanged; the 2 MiB inline cap
+surfaces oversized diffs as `prompt_size_exceeded`), manifest delivery
+strictly above — prompts carry a `## Diff Manifest` section instead of
+the inlined diff, reviewers pull chunks on demand via the
+manifest-confined `read_diff_chunk` tool, and the manifest-mode response
+contract adds the `**Files Reviewed**:` attestation field. When the PR
+diff exceeds the threshold, `fetch_pr_review_context`'s
+`exceeds_threshold` warning states that manifest delivery is engaged
+for the dispatch (preserving the pinned "Diff exceeds size advisory
+threshold" substring) rather than implying degraded quality. The 4 MiB
+prompt cap applies to every assembled prompt in both modes.
 
 One failed run MUST NOT cancel independent runs. Budget, limit,
 cancellation, and policy skips are terminal states — never silently
