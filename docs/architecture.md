@@ -163,12 +163,17 @@ separate binary.
 ## What `uf init` Does
 
 When you run `uf init` in a project directory, it scaffolds
-files organized into two ownership categories:
+files organized into three ownership categories:
 
 **Tool-owned files** are auto-updated when you re-run
 `uf init`. If the upstream content has changed, the file
 is overwritten. These files carry a version marker
 comment.
+
+**Project-owned files** are seeded once from the embedded
+canonical asset on first deploy and skipped when you
+re-run `uf init`, so local entries survive. These are
+extension points you customize per project.
 
 **User-owned files** are created once and never
 overwritten on subsequent runs (unless you pass
@@ -333,7 +338,16 @@ The scaffold engine tracks ownership per file:
 | Ownership | On re-run | Customize? | Examples |
 |-----------|-----------|------------|----------|
 | Tool-owned | Updated if content changed | No (changes are overwritten) | Commands, canonical packs, schemas |
+| Project-owned | Skipped (seeded once on first deploy) | Yes | Review-config files: `.uf/review-matrix.yaml`, `.uf/reviewer-capabilities.yaml` |
 | User-owned | Skipped (never overwritten) | Yes | Agents, custom packs, templates |
+
+`.uf/reviewer-capabilities.yaml` joins `.uf/review-matrix.yaml`
+as a project-owned extension point. Both review-config files
+are seeded once on first deploy from the embedded canonical
+asset, skipped on plain `uf init` re-runs (locally added
+`reviewers:` entries and matrix customizations survive
+byte-for-byte), and reset only by `--force` -- a destructive
+reset for both files that discards local entries.
 
 Use `--force` to overwrite all files regardless of
 ownership (destructive -- resets your customizations).

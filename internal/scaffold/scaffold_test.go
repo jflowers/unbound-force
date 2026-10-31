@@ -2376,6 +2376,99 @@ func TestRun_ConstitutionPreservedOnRerun(t *testing.T) {
 	}
 }
 
+// TestRun_ReviewerCapabilitiesPreservedOnRerun pins the project-owned
+// extension-point contract for uf/reviewer-capabilities.yaml: locally
+// registered reviewers entries must survive a plain re-run (no --force),
+// where the previous tool-owned classification would have reverted them.
+func TestRun_ReviewerCapabilitiesPreservedOnRerun(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+
+	// First run deploys the seeded capabilities manifest.
+	_, err := runScaffoldWithoutExternalTools(t, Options{
+		TargetDir: dir,
+		Version:   "1.0.0",
+		Stdout:    &buf,
+	})
+	if err != nil {
+		t.Fatalf("first Run() error: %v", err)
+	}
+
+	// The generated project registers a custom Divisor agent. The
+	// appended entry follows the seeded reviewers shape; the deployed
+	// file ends with a newline, so the manifest stays well-formed YAML.
+	capsPath := filepath.Join(dir, ".uf", "reviewer-capabilities.yaml")
+	seeded, err := os.ReadFile(capsPath)
+	if err != nil {
+		t.Fatalf("read seeded reviewer-capabilities: %v", err)
+	}
+	customEntry := []byte("  - agent: divisor-custom-example\n" +
+		"    capability: review\n" +
+		"    scopes:\n" +
+		"      - standard\n")
+	// Pin the fixture precondition: the deployed manifest must end with
+	// a newline, otherwise the appended item concatenates onto the last
+	// seeded line and the fixture stops modeling a valid registration.
+	if !bytes.HasSuffix(seeded, []byte("\n")) {
+		t.Fatalf("seeded reviewer-capabilities must end with a newline so the appended entry stays well-formed YAML")
+	}
+	if err := os.WriteFile(capsPath, append(seeded, customEntry...), 0o644); err != nil {
+		t.Fatalf("append custom reviewer entry: %v", err)
+	}
+	customized, err := os.ReadFile(capsPath)
+	if err != nil {
+		t.Fatalf("read customized reviewer-capabilities: %v", err)
+	}
+
+	// Re-run without --force: the local entry must survive.
+	buf.Reset()
+	result, err := runScaffoldWithoutExternalTools(t, Options{
+		TargetDir: dir,
+		Version:   "1.0.0",
+		Stdout:    &buf,
+	})
+	if err != nil {
+		t.Fatalf("second Run() error: %v", err)
+	}
+
+	// The manifest must land in Skipped, not any write disposition.
+	capsOut := ".uf/reviewer-capabilities.yaml"
+	for _, f := range result.Created {
+		if f == capsOut {
+			t.Errorf("expected reviewer-capabilities to be skipped, but found in Created")
+		}
+	}
+	for _, f := range result.Updated {
+		if f == capsOut {
+			t.Errorf("expected reviewer-capabilities to be skipped, but found in Updated")
+		}
+	}
+	for _, f := range result.Overwritten {
+		if f == capsOut {
+			t.Errorf("expected reviewer-capabilities to be skipped, but found in Overwritten")
+		}
+	}
+	foundSkipped := false
+	for _, f := range result.Skipped {
+		if f == capsOut {
+			foundSkipped = true
+			break
+		}
+	}
+	if !foundSkipped {
+		t.Errorf("expected %s in result.Skipped", capsOut)
+	}
+
+	// The locally registered agent must still be present byte-for-byte.
+	got, err := os.ReadFile(capsPath)
+	if err != nil {
+		t.Fatalf("read reviewer-capabilities after re-run: %v", err)
+	}
+	if !bytes.Equal(got, customized) {
+		t.Errorf("reviewer-capabilities content was modified on re-run")
+	}
+}
+
 func TestRun_ConstitutionProtectedWithForce(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
@@ -2799,8 +2892,8 @@ func TestIsToolOwned(t *testing.T) {
 		{"opencode/lib/run-timeout.ts", true},
 		{"opencode/lib/uf-workflow-types.ts", true},
 		{"opencode/lib/unleash-templates.ts", true},
-		// Tool-owned: canonical review policy
-		{"uf/reviewer-capabilities.yaml", true},
+		// User-owned: reviewer eligibility pairs with uf/review-matrix.yaml as a project extension point
+		{"uf/reviewer-capabilities.yaml", false},
 		// User-owned: model policy is a supported project extension point
 		{"uf/review-matrix.yaml", false},
 		// User-owned: active sibling declarations are project-specific

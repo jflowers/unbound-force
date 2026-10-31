@@ -669,6 +669,27 @@ Each entry follows the format: `- <change-name>: <summary>`.
   (Spec: openspec/changes/remove-mutimind-mxf-orchestration/, Fixes: #565, Fixes: #566)
 
 ### Changed
+- reviewer-capabilities-init-survival: Reclassified
+  `.uf/reviewer-capabilities.yaml` from tool-owned to
+  project-owned in the scaffold's `isToolOwned` table,
+  mirroring `.uf/review-matrix.yaml`: seeded once on first
+  deploy, skipped on plain `uf init` re-runs, and reset only
+  by `--force`, which remains a destructive reset for both
+  review-config files. Custom Divisor agent registrations in
+  a generated repository's `reviewers:` list now survive
+  re-init byte-for-byte instead of being silently reverted
+  to the embedded canonical list; canonical capability-list
+  updates no longer auto-flow to generated repositories, so
+  the seeded file stays as deployed until a project edits
+  it, and a manifest missing a newly deployed agent fails
+  closed at dispatch with the remediation message naming
+  the missing agent and file. The ownership split is pinned
+  by the flipped test-table entry and a re-run regression
+  test; `docs/architecture.md` and `docs/configuration.md`
+  state the symmetric seeding and survival semantics for
+  both review-config files.
+  (Spec: openspec/changes/reviewer-capabilities-init-survival/,
+  Fixes: #884)
 - question-tool-presentation-contract: Applied the question-tool
   presentation contract to all 22 human-facing decision gates in
   `/uf.triage-issue` (8), `/uf.address-feedback` (6), and
