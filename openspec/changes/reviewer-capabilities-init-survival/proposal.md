@@ -65,21 +65,17 @@ and fail closed on invalid ones.
 
 ### New Capabilities
 
-- `reviewer-registration-durability`: A generated repository can
-  durably register a custom Divisor agent's capability and
-  scopes in `.uf/reviewer-capabilities.yaml`; the registration
-  survives plain `uf init` re-runs, exactly as its matrix
-  membership and agent file already do.
+- `scaffold-ownership`: The reviewer capabilities manifest
+  (`.uf/reviewer-capabilities.yaml`) is a project-owned
+  extension point. A generated repository can durably
+  register a custom Divisor agent's capability and scopes
+  there, and the registration survives plain `uf init`
+  re-runs, exactly as its matrix membership and agent file
+  already do.
 
 ### Modified Capabilities
 
-- `file-ownership-model`: `uf/reviewer-capabilities.yaml` moves
-  from the tool-owned column (updated on diff) to the
-  project-owned column (seeded once, skipped thereafter,
-  `--force` resets). Generated repositories stop receiving
-  automatic canonical capability-list updates on re-run; the
-  accepted trade-off and its mitigations are recorded in
-  design.md.
+- None.
 
 ### Removed Capabilities
 
@@ -106,7 +102,20 @@ Affected copies, enumerated per the originating issue:
 - `docs/configuration.md` — Review Council Configuration table
   documents that `.uf/reviewer-capabilities.yaml` is seeded once
   and survives re-init (`--force` resets).
+- Tutorial — the three-file registration workflow
+  (`.opencode/agents/divisor-<name>.md` +
+  `.uf/review-matrix.yaml` + `.uf/reviewer-capabilities.yaml`,
+  all project-owned and surviving re-init) is tracked by the
+  cross-repo website docs issue against `unbound-force/website`;
+  task 2.4 files it under this change's documentation gates.
 - `CHANGELOG.md` — Unreleased → Changed entry.
+- File ownership model — `uf/reviewer-capabilities.yaml` moves
+  from the tool-owned column (updated on diff) to the
+  project-owned column (seeded once, skipped thereafter,
+  `--force` resets). Generated repositories stop receiving
+  automatic canonical capability-list updates on re-run; the
+  accepted trade-off and its mitigations are recorded in
+  design.md.
 - Generated repositories — behavioral change on `uf init`
   re-run only: a locally modified capabilities file is skipped
   instead of updated. First-deploy behavior is unchanged.
