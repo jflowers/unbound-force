@@ -1,6 +1,6 @@
 ## 1. Scaffold ownership reclassification
 
-- [ ] 1.1 In `internal/scaffold/scaffold.go`, flip the
+- [x] 1.1 In `internal/scaffold/scaffold.go`, flip the
   `isToolOwned` branch for `uf/reviewer-capabilities.yaml`
   (currently lines 672-674) from `return true` to
   `return false`. Replace the branch with an explicit
@@ -11,7 +11,7 @@
   re-run reverting their `reviewers:` entries. Keep the branch
   explicit (do not rely on the default fallthrough) so the
   classification is documented at the point of decision.
-- [ ] 1.2 In `internal/scaffold/scaffold_test.go`, update the
+- [x] 1.2 In `internal/scaffold/scaffold_test.go`, update the
   `isToolOwned` ownership table entry (currently line 2800)
   from `{"uf/reviewer-capabilities.yaml", true}` to
   `{"uf/reviewer-capabilities.yaml", false}`, and update the
@@ -19,7 +19,7 @@
   to user-owned extension-point wording that names the pairing
   with `uf/review-matrix.yaml`. Leave the
   `uf/schemas/reviewer-capabilities/*` entries tool-owned.
-- [ ] 1.3 In `internal/scaffold/scaffold_test.go`, add
+- [x] 1.3 In `internal/scaffold/scaffold_test.go`, add
   `TestRun_ReviewerCapabilitiesPreservedOnRerun` modeled on
   `TestRun_ConstitutionPreservedOnRerun` (line 2312):
   run the scaffold into `t.TempDir()`, append a local
