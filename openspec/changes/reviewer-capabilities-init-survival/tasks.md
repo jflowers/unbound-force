@@ -63,9 +63,9 @@
   drift-detection pairs (embedded ↔ deployed `.uf/` copies
   remain byte-identical), and the DivisorOnly deployment
   table (both review-config files still deploy).
-- [ ] 3.2 Run `make check` for CI parity (lint, test, build,
+- [x] 3.2 Run `make check` for CI parity (lint, test, build,
   coverage gate, plugin tests) and confirm green.
-- [ ] 3.3 Verify constitution alignment per the proposal:
+- [x] 3.3 Verify constitution alignment per the proposal:
   Principle II (projects extend via config, not tool
   patching), Principle IV (regression test verifies
   observable dispositions with no external services),
