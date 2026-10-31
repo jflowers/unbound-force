@@ -519,9 +519,11 @@ so its failure handling is strict and bounded:
   consolidation carrying the forwarded `correlation_id` for a dispatch
   that executed runs): do not retry. With the ID forwarded, `not_found`
   means no persisted dispatch session exists — a plugin-process or
-  tool-session split can no longer produce it. Stop, report the
-  failure, and fail closed without fabricating run records, verdicts,
-  findings, or proposals.
+  tool-session split can no longer produce it. A `not_found` lacking
+  the forwarded `correlation_id` indicates the capture step was
+  skipped — that is equally permanent: do not retry, do not improvise
+  the missing ID. Stop, report the failure, and fail closed without
+  fabricating run records, verdicts, findings, or proposals.
 - **All-skip dispatch** (the summary reports zero completed and zero
   failed runs — every plan entry skipped — and no dispatch session
   exists): a valid outcome, not a retrieval failure. Record zero
