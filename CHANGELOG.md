@@ -1222,6 +1222,22 @@ Each entry follows the format: `- <change-name>: <summary>`.
   openspec/changes/command-prose-pilot/)
 
 ### Fixed
+- delegation-timeout-budgets: nested delegations no longer get
+  aborted by their parent's 30-minute cap. The shared executor
+  records each child session's deadline in a process-wide budget
+  registry, and nested `uf_delegate_command`, `invoke_agent`, and
+  `dispatch_review_runs` runs clamp their wall clock to the
+  parent's remaining budget (60 s reserve). When less than 30 s
+  remains, the run fails fast with `budget_exhausted`.
+  `uf_delegate_command` gains `idle_timeout` (default 10 min): it
+  probes the child's session subtree and aborts only when nothing
+  has changed for that window. Command-path delegations accept
+  `timeout` up to 4 h. Limit-ended `DELEGATE_FAILED` envelopes
+  carry `timeout` (`kind`, `child_active`, `pending_question`)
+  and, for command-path calls, `resume` (last checkpoint step).
+  `/uf.run-pipeline-plan` now delegates `/uf.unleash` at
+  `timeout: 14400000` and resumes instead of restarting. (Spec:
+  openspec/changes/delegation-timeout-budgets/, Fixes: #930)
 - fix-uf-finale-ci-poll-gh-schema: `uf_finale_ci_poll` now works
   against gh 2.91.0. The poll requests the verified
   `name,state,bucket,link` field list through an argument-array
