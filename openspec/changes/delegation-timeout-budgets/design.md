@@ -45,7 +45,11 @@ was busy or stalled.
 
 The executor records `childSessionID -> absolute deadline` in a
 registry when it creates a child, and removes the entry when the
-run ends. Before creating a child, it resolves the inherited
+run ends and the child's termination is confirmed (its prompt
+returned, or its abort was accepted). A run ending with
+unconfirmed termination keeps the entry as a fail-closed
+tombstone, so nested calls still clamp to the passed deadline.
+Before creating a child, it resolves the inherited
 deadline for its own parent session (`deps.sessionID`):
 
 1. Registry hit on `deps.sessionID` (the common case: a tool
@@ -145,8 +149,12 @@ input bounds stay at each tool boundary.
 
 Command files such as `/uf.unleash` record durable checkpoints and
 resume from them, so a long-running command-path child loses
-nothing if it is eventually stopped. With D2 detecting stalls, the
-wall clock only needs to be a generous backstop.
+nothing if it is eventually stopped. Prompt-only delegations carry
+no durable resume state by design (DT-FR-002 mandates the idle
+default): an idle-timeout failure recovers as a fresh restart that
+re-carries the full prompt, so no partial work is stranded. With
+D2 detecting stalls, the wall clock only needs to be a generous
+backstop.
 
 Rejected: having the orchestrator drive `/uf.unleash` one step at a
 time. It would duplicate the command's own step machine in
@@ -170,6 +178,13 @@ ends by a limit:
 | `child_active` | Progress seen in the last 2 minutes; null when never probed |
 | `pending_question` | A question tool call was pending at last probe |
 
+Every result that reached the executor — limit-ended or not — also
+carries an `applied` record (`effective_ms`, `requested_ms`,
+`budget_clamped`, `idle_timeout_ms`): clamp resolution happens
+before the child is created and is independent of how the run
+ends, so run-file audit must not depend on a limit having ended
+the run.
+
 The executor error codes are `timeout` (wall clock, retryable),
 `idle_timeout` (retryable), and `budget_exhausted`
 (non-retryable). `uf_delegate_command` threads `timeout` into its
@@ -185,8 +200,10 @@ command-path delegations adds `resume`:
 
 `resume` is read through the same `readState` path `get_progress`
 uses, after the child stops, so it reflects the child's last
-durable write. A read failure yields `resume: null` rather than
-masking the timeout.
+durable write. A read failure yields `resume: null` beside a
+`resume_error` carrying the sanitized reason, so recovery routes
+fail-closed through the blocked-item protocol instead of silently
+degrading to a fresh run.
 
 ### D5: Recovery protocol in `/uf.run-pipeline-plan`
 
@@ -204,6 +221,9 @@ On `DELEGATE_FAILED` with a `timeout` object:
 - `kind: "wall_clock"` -> blocked-item protocol, relaying
   `child_session_id`, `child_active`, and
   `resume.last_checkpoint_step`.
+- `resume_error` present -> blocked-item protocol relaying the
+  error; the orchestrator MUST NOT restart the item fresh, because
+  durable progress may exist but be unreadable.
 
 When `resume.last_checkpoint_step` is non-null, the orchestrator
 MUST NOT restart the item fresh on `main`. Delegation 2
@@ -230,6 +250,11 @@ prompt re-carries the description and issue reference(s).
   `children`), so up to 64 requests per child every 30 seconds.
   Bounded by the 32-session cap and only for
   `uf_delegate_command` children.
+- **Budget-resolution cost**: every spawn from an unregistered
+  (top-level) session pays one sequential `session.get` before
+  child creation (registry-hit nested calls pay none), concurrent
+  across a fan-out; any lookup failure disables the clamp for
+  that call (fail-open by design, D1).
 - **Clamped review-run provenance** (resolved): the run file now
   records the executor outcome alongside the derived provenance —
   `executor_effective_ms` and `executor_budget_clamped` are copied
@@ -243,9 +268,17 @@ prompt re-carries the description and issue reference(s).
   the most recent messages (OpenCode 1.19 behavior). If a host
   returned the oldest instead, the fingerprint would only change
   through new descendant sessions and could idle-abort a busy
-  child; the per-call `idle_timeout` override is the escape hatch.
+  child; the fingerprint now folds an ordering-independent
+  subtree-shape signal (child count plus creation-time composite)
+  alongside the per-session latest-message signal, so subtree
+  growth and turnover still register as progress, and
+  message-level progress inside a shape-static subtree would be
+  missed — the per-call `idle_timeout` override is the escape
+  hatch.
 - **Clamped review runs** inside a nearly exhausted parent fail
   fast instead of running; that is intended — the parent's result
   then carries resume state for a clean resume.
-- **Registry leaks** are bounded: entries are removed in
-  `finally`, and a host crash discards the process anyway.
+- **Registry leaks** are bounded: entries are removed in `finally`
+  once termination is confirmed; a run whose child termination
+  stays unconfirmed keeps exactly one fail-closed tombstone entry
+  (D1); and a host crash discards the process anyway.

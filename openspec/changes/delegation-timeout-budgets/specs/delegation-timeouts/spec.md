@@ -23,7 +23,11 @@ MUST stay inside the allocated range.
 
 The shared agent executor MUST record each child session's
 absolute deadline in a process-wide budget registry for the
-duration of the run and MUST remove it when the run ends.
+duration of the run and MUST remove it when the run ends and the
+child's termination is confirmed (its prompt returned, or its
+abort was accepted). A run that ends with unconfirmed child
+termination MUST retain the entry as a fail-closed tombstone so
+nested calls still clamp to the passed deadline.
 
 Before creating a child session, the executor MUST resolve the
 inherited deadline of its parent session: a registry entry for the
@@ -56,6 +60,14 @@ session, with error code `budget_exhausted`, non-retryable.
 - **GIVEN** a session with no registered ancestor
 - **WHEN** a run is requested with a 10-minute timeout
 - **THEN** the effective timeout is 10 minutes
+
+#### Scenario: Unconfirmed termination retains the deadline
+
+- **GIVEN** a child whose cleanup abort fails or hangs after the
+  wall-clock timeout fires
+- **WHEN** the run's result is returned
+- **THEN** the child's deadline entry stays registered so any
+  nested run under it still clamps to the passed deadline
 
 ### Requirement: Idle Timeout
 
@@ -100,6 +112,15 @@ run's result.
 - **WHEN** 15 minutes pass
 - **THEN** the delegation is not aborted
 
+#### Scenario: Stale message ordering still detects subtree growth
+
+- **GIVEN** a host that returns the oldest message first from the
+  probe's latest-message request
+- **AND** the subtree gains a new descendant session between
+  probes
+- **THEN** the fingerprint still changes and the child counts as
+  active
+
 #### Scenario: Probe unavailable
 
 - **GIVEN** a host whose activity probe always fails
@@ -128,14 +149,18 @@ When a run ends by a limit, the executor result MUST carry a
 `timeout` object with `kind` (`wall_clock`, `idle`, `budget`),
 `effective_ms`, `requested_ms`, `budget_clamped`,
 `idle_timeout_ms`, `elapsed_ms`, `last_progress_ms_ago`,
-`child_active`, and `pending_question`.
+`child_active`, and `pending_question`. Every result that reached
+the executor, limit-ended or not, MUST also carry an `applied`
+record with `effective_ms`, `requested_ms`, `budget_clamped`, and
+`idle_timeout_ms` recording the limits actually applied.
 
 `uf_delegate_command` MUST thread that object into its
 `DELEGATE_FAILED` envelope and, for command-path delegations, MUST
 add `resume` with the state `command`, `key`,
 `last_checkpoint_step`, and `completed_steps` read from the
 progress state store after the child stops; an unreadable state
-MUST yield `resume: null`.
+MUST yield `resume: null` beside a `resume_error` field carrying
+the sanitized failure reason.
 
 #### Scenario: Idle timeout of a checkpointed command
 
@@ -152,6 +177,21 @@ MUST yield `resume: null`.
   `question` tool call
 - **WHEN** the idle timeout fires
 - **THEN** the envelope carries `timeout.pending_question: true`
+
+#### Scenario: Unreadable resume state carries the reason
+
+- **GIVEN** a command-path delegation whose progress state read
+  throws
+- **WHEN** the envelope is built
+- **THEN** it carries `resume: null` beside a `resume_error`
+  string
+
+#### Scenario: Successful run records its applied limits
+
+- **GIVEN** a nested run clamped from 30 minutes to 19 minutes
+- **WHEN** the run completes successfully
+- **THEN** the result carries `applied.budget_clamped: true` and
+  `applied.effective_ms: 1140000`
 
 ## MODIFIED Requirements
 
