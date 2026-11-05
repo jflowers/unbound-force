@@ -285,6 +285,12 @@ delegations add `resume` (`last_checkpoint_step`,
 - `timeout.kind: "budget"` — not expected at the
   orchestrator (it has no budgeted parent); treat it
   as `wall_clock`.
+- `resume_error` present — the command's resume
+  state could not be read (corrupt or unavailable):
+  durable progress may exist but is unreadable, so
+  route through the blocked-item protocol and
+  relay `resume_error`; NEVER restart the item
+  fresh on the chance that nothing was written.
 
 When `resume.last_checkpoint_step` is non-null, NEVER
 restart the item fresh on `main`: durable progress

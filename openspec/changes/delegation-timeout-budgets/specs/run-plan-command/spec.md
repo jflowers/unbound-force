@@ -49,6 +49,10 @@ orchestrator MUST branch on its fields:
   `resume.last_checkpoint_step`.
 - `kind: "budget"`: treated as `wall_clock` (not expected at the
   orchestrator, which has no budgeted parent).
+- `resume_error` present: the resume state could not be read, so
+  durable progress may exist but be unreadable; the orchestrator
+  MUST route through the blocked-item protocol relaying
+  `resume_error` and MUST NOT restart the item fresh.
 
 When `resume.last_checkpoint_step` is non-null, the orchestrator
 MUST NOT restart the item fresh on `main`.
@@ -77,6 +81,14 @@ MUST NOT restart the item fresh on `main`.
 - **WHEN** the orchestrator recovers
 - **THEN** it applies gate-timeout recovery and does not
   re-delegate before the gate is cleared
+
+#### Scenario: Unreadable resume state blocks the item
+
+- **GIVEN** a command-path delegation that fails with a `timeout`
+  object whose `resume` read failed
+- **WHEN** the orchestrator recovers
+- **THEN** it routes through the blocked-item protocol relaying
+  `resume_error` and does not restart the item fresh
 
 ## MODIFIED Requirements
 

@@ -3067,7 +3067,7 @@ describe("uf_delegate_command timeout budgets", () => {
     )
   })
 
-  it("reports null resume state when no checkpoint exists or the key cannot be derived", async () => {
+  it("reports null resume state when no checkpoint exists and resume_error when the read fails", async () => {
     const commandAbs = resolve(FAKE_CWD, "cmd.md")
     const fake = fakeClient({ hangPrompt: true })
     const deps = baseDeps(fake.client, { [commandAbs]: "Run." })
@@ -3077,12 +3077,17 @@ describe("uf_delegate_command timeout budgets", () => {
       timeout: 5,
     })) as unknown as Record<string, unknown>
     expect(fresh.resume).toMatchObject({ command: "cmd", last_checkpoint_step: null, completed_steps: [] })
+    expect("resume_error" in fresh).toBe(false)
 
     const detached = (await invokeDelegate(recordingExec("HEAD").exec, deps, {
       command_path: "cmd.md",
       timeout: 5,
     })) as unknown as Record<string, unknown>
+    // An unreadable resume state fails closed: resume is null beside a
+    // resume_error carrying the sanitized reason, never a silent fresh run.
     expect(detached.resume).toBeNull()
+    expect(typeof detached.resume_error).toBe("string")
+    expect((detached.resume_error as string).length).toBeGreaterThan(0)
   })
 
   it("omits resume state for prompt-only timeouts", async () => {
