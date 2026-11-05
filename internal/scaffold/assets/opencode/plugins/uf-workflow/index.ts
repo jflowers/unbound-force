@@ -13,6 +13,7 @@ import {
   directModelIdentity,
   executeAgentSession,
   resolveHostModel,
+  sanitizeInvocationError,
   StructuralHostModelError,
   type InvocationProvenance,
   type InvocationUsage,
@@ -1648,6 +1649,17 @@ export interface DelegateResumeState {
   completed_steps: string[]
 }
 
+/**
+ * Read outcome for the resume state of a timed-out command-path
+ * delegation (design D4): the durable state on success, or a fail-closed
+ * read failure carrying the sanitized reason — the caller surfaces
+ * `resume_error` so recovery routes through the blocked-item protocol
+ * instead of silently degrading to a fresh normal run.
+ */
+export type DelegateResumeRead =
+  | { readonly state: DelegateResumeState; readonly error?: undefined }
+  | { readonly state: null; readonly error: string }
+
 /** Structured output from uf_delegate_command. */
 export interface DelegateCommandData {
   /** Agent the command or task was delegated to. */
@@ -2158,22 +2170,25 @@ function expectedArtifactStopMessage(expectedArtifact: string): string {
  * Read the durable progress a timed-out command-path delegation left
  * behind (delegation-timeout-budgets D4): the state command is the
  * command file's basename without `.md`, keyed by the current branch
- * exactly as get_progress derives it. Any read failure yields null so
- * the timeout itself is never masked.
+ * exactly as get_progress derives it. Any read failure yields a
+ * fail-closed result carrying the sanitized reason so the caller can
+ * relay `resume_error` instead of silently degrading to a fresh run.
  */
-function readDelegateResumeState(exec: GitExec, cwd: string, commandPath: string): DelegateResumeState | null {
+function readDelegateResumeState(exec: GitExec, cwd: string, commandPath: string): DelegateResumeRead {
   try {
     const command = basename(commandPath).replace(/\.md$/, "")
     const key = resolveKey(exec, cwd)
     const state = readState(cwd, key, sanitizeSlug(command))
     return {
-      command,
-      key,
-      last_checkpoint_step: state?.current_step ?? null,
-      completed_steps: state?.completed_steps ?? [],
+      state: {
+        command,
+        key,
+        last_checkpoint_step: state?.current_step ?? null,
+        completed_steps: state?.completed_steps ?? [],
+      },
     }
-  } catch {
-    return null
+  } catch (error) {
+    return { state: null, error: sanitizeInvocationError(error instanceof Error ? error.message : String(error)) }
   }
 }
 
@@ -2736,7 +2751,20 @@ export function createDelegateCommandTool(
           // (the field is omitted when no child session ever existed).
           // Limit-ended runs also carry the timeout classification and,
           // for command-path delegations, the durable resume state
-          // (delegation-timeout-budgets D4).
+          // (delegation-timeout-budgets D4). An unreadable state yields
+          // `resume: null` beside a sanitized `resume_error` so recovery
+          // routes fail-closed through the blocked-item protocol instead
+          // of silently degrading to a fresh normal run.
+          const resumeRead =
+            result.timeout !== undefined && input.command_path !== undefined
+              ? readDelegateResumeState(exec, cwd, input.command_path)
+              : undefined
+          const resumeField =
+            resumeRead === undefined
+              ? {}
+              : resumeRead.state !== null
+                ? { resume: resumeRead.state }
+                : { resume: null, resume_error: resumeRead.error }
           return {
             output: JSON.stringify({
               ...envelope,
@@ -2744,9 +2772,7 @@ export function createDelegateCommandTool(
               ...(result.timeout !== undefined
                 ? {
                     timeout: result.timeout satisfies TimeoutDetails,
-                    ...(input.command_path !== undefined
-                      ? { resume: readDelegateResumeState(exec, cwd, input.command_path) }
-                      : {}),
+                    ...resumeField,
                   }
                 : {}),
             }),
