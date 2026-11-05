@@ -605,7 +605,9 @@ state `command`, `key`, `last_checkpoint_step`, and
 `completed_steps` read from the progress state store after the
 child stops -- so an orchestrator can re-delegate the same
 command from its last checkpoint. An unreadable state yields
-`resume: null`.
+`resume: null` beside a `resume_error` string carrying the
+sanitized failure reason; that case routes through blocked-item
+handling rather than a fresh restart (RPC-FR-001).
 
 The recovery protocol that `/uf.run-pipeline-plan` applies to
 this envelope (gate-timeout recovery on `pending_question`, a
