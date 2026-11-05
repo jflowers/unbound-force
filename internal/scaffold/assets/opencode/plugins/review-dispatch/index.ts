@@ -21,6 +21,7 @@ import {
   sanitizeInvocationError,
   StructuralHostModelError,
   validateTimeout,
+  type AppliedLimitDetails,
   type ExecutorDependencies,
   type InvocationProvenance,
   type InvokeAgentResult,
@@ -787,6 +788,13 @@ interface PersistedRunData {
    * field remain valid.
    */
   readonly timeout?: TimeoutProvenanceRecord
+  /**
+   * Optional run-file-only applied-limit record (delegation-timeout-budgets
+   * D4): present on every run that reached the executor, limit-ended or
+   * not, carrying the limits the executor actually applied after its
+   * budget clamp. Older run files that predate the field remain valid.
+   */
+  readonly applied?: AppliedLimitDetails
   /**
    * Optional run-file-only delivery-mode work signal (RD-FR-036): true
    * when this run's prompt was assembled in manifest delivery mode.
@@ -3474,7 +3482,11 @@ export async function executeDispatchRun(
     // budget clamp, so executor_effective_ms / executor_budget_clamped are
     // the authoritative applied values (run-file audit only — the
     // consolidate_dispatch dispatchRuns mapping deliberately omits them;
-    // readers such as dispatch_status prefer them).
+    // readers such as dispatch_status prefer them). The `applied` record
+    // below carries the executor-side limit resolution for every run that
+    // reached the executor, limit-ended or not, so successful clamped runs
+    // are auditable too (key absent when the run never reached the
+    // executor, e.g. on input validation failures).
     timeout:
       options.timeoutProvenance !== undefined && result.timeout !== undefined
         ? {
@@ -3483,6 +3495,7 @@ export async function executeDispatchRun(
             executor_budget_clamped: result.timeout.budget_clamped,
           }
         : options.timeoutProvenance,
+    applied: result.applied,
     // Delivery-mode work signal (RD-FR-036): false for inline-mode runs
     // dispatched through the aggregate tools (the signal is a resolved
     // boolean from build_review_prompts), absent for direct

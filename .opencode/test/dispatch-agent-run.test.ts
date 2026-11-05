@@ -1767,6 +1767,11 @@ describe("dispatch_agent_run", () => {
         executor_effective_ms: 50,
         executor_budget_clamped: false,
       })
+      expect(outcome.runData?.applied).toMatchObject({
+        effective_ms: 50,
+        requested_ms: 50,
+        budget_clamped: false,
+      })
 
       const run = await readRunFile(outcome.correlation_id, "divisor-guard")
       expect(run.timeout).toMatchObject({
@@ -1774,6 +1779,41 @@ describe("dispatch_agent_run", () => {
         executor_effective_ms: 50,
         executor_budget_clamped: false,
       })
+      expect(run.applied).toMatchObject({ effective_ms: 50, budget_clamped: false })
+    })
+
+    it("records the applied limit record on a successful run", async () => {
+      // The applied record covers every run that reached the executor,
+      // limit-ended or not (DT-FR-004): a successful run's file carries
+      // the limits actually applied, not just timeout-classified runs.
+      const outcome = await executeDispatchRun(
+        {
+          agent: "divisor-guard",
+          promptText: "Review this change.",
+          correlationId: "5f4a8b6c-1d8e-7b65-9e11-7a3d5b6c8f9a",
+          sequence: 1,
+          readOnly: true,
+          timeoutMilliseconds: 600_000,
+          source: "explicit",
+          model: "provider/standard",
+          tier: "standard",
+          variant: null,
+        },
+        toolContext(),
+        makeDeps(),
+      )
+      trackForCleanup(outcome.correlation_id)
+
+      expect(outcome.result.status).toBe("success")
+      expect(outcome.result.applied).toMatchObject({
+        effective_ms: 600_000,
+        requested_ms: 600_000,
+        budget_clamped: false,
+      })
+      expect(outcome.runData?.applied).toMatchObject({ effective_ms: 600_000, budget_clamped: false })
+
+      const run = await readRunFile(outcome.correlation_id, "divisor-guard")
+      expect(run.applied).toMatchObject({ effective_ms: 600_000, budget_clamped: false })
     })
   })
 })

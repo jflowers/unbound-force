@@ -120,9 +120,11 @@ export interface TimeoutProvenanceRecord {
    * timeout the agent executor actually applied after its
    * delegation-budget clamp, copied from the executor result's
    * `timeout` details. Present only when the run reached the
-   * executor and produced timeout details; readers preferring
-   * the applied value over the derived one should read these
-   * first.
+   * executor and produced timeout details (limit-ended runs); the
+   * sibling `applied` record carried on run files covers every run
+   * that reached the executor, limit-ended or not. Readers
+   * preferring the applied value over the derived one should read
+   * these first.
    */
   readonly executor_effective_ms?: number
   readonly executor_budget_clamped?: boolean
