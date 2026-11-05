@@ -120,6 +120,23 @@ export interface TimeoutDetails {
   readonly pending_question: boolean
 }
 
+/**
+ * The limits actually applied to a run, attached to every result that
+ * reached the executor (design D4): clamp resolution happens before the
+ * child is created and is independent of how the run ends, so audit
+ * surfaces must not depend on a limit having ended the run.
+ */
+export interface AppliedLimitDetails {
+  /** Wall clock actually applied, after any budget clamp. */
+  readonly effective_ms: number
+  /** Wall clock the caller requested. */
+  readonly requested_ms: number
+  /** True when the inherited parent budget reduced the wall clock. */
+  readonly budget_clamped: boolean
+  /** Idle window, or null when the idle watchdog was disabled. */
+  readonly idle_timeout_ms: number | null
+}
+
 /** Observable result from exactly one policy-free agent invocation. */
 export interface InvokeAgentResult {
   readonly status: "success" | "failed" | "cancelled"
@@ -131,6 +148,8 @@ export interface InvokeAgentResult {
   readonly childSessionID?: string
   /** Limit details, present only when a timeout or exhausted budget ended the run. */
   readonly timeout?: TimeoutDetails
+  /** Applied limits, present on every run that reached the executor (D4). */
+  readonly applied?: AppliedLimitDetails
 }
 
 /** Injected dependencies for the shared executor's child session lifecycle. */
@@ -275,7 +294,7 @@ export function responseText(parts: readonly PromptPart[]): string {
 
 export function validateTimeout(timeoutMilliseconds: number): void {
   if (!Number.isSafeInteger(timeoutMilliseconds) || timeoutMilliseconds <= 0 || timeoutMilliseconds > MAX_TIMEOUT_MILLISECONDS) {
-    throw new Error("invoke_agent timeout must be a positive integer no greater than 1800000 milliseconds")
+    throw new Error(`invoke_agent timeout must be a positive integer no greater than ${MAX_TIMEOUT_MILLISECONDS} milliseconds`)
   }
 }
 
@@ -365,7 +384,8 @@ export async function resolveHostModel(
  * clock is clamped to any inherited parent budget (D1), the child's
  * deadline is registered for nested runs, the optional idle watchdog
  * aborts a child whose session subtree stops changing (D2), and
- * limit-ended results carry `timeout` details (D4). Does NOT own: input validation, manifest checking,
+ * limit-ended results carry `timeout` details (D4) and every run that
+ * reached the executor carries `applied` limit details (D4). Does NOT own: input validation, manifest checking,
  * model resolution, host introspection, or prompt file reading.
  *
  * @param deps Injected client, session context, and timeout boundary.
@@ -401,6 +421,16 @@ export async function executeAgentSession(
   const budget = clampToBudget(deps.timeoutMilliseconds, inheritedDeadline, startedAt)
   const effectiveMilliseconds = budget.effectiveMs
 
+  // Applied-limit record (D4): clamp resolution is independent of how the
+  // run ends, so every result this executor returns carries it.
+  const appliedDetails: AppliedLimitDetails = {
+    effective_ms: effectiveMilliseconds,
+    requested_ms: deps.timeoutMilliseconds,
+    budget_clamped: budget.clamped,
+    idle_timeout_ms: idleMilliseconds ?? null,
+  }
+  const withApplied = (result: InvokeAgentResult): InvokeAgentResult => ({ ...result, applied: appliedDetails })
+
   let lastProgressAt = startedAt
   let lastFingerprint: string | null = null
   let probed = false
@@ -421,7 +451,7 @@ export async function executeAgentSession(
   }
 
   if (budget.exhausted) {
-    return {
+    return withApplied({
       ...failedResult(
         provenance,
         "budget_exhausted",
@@ -430,13 +460,19 @@ export async function executeAgentSession(
         false,
       ),
       timeout: timeoutDetails("budget"),
-    }
+    })
   }
 
   const linkedAbort = new AbortController()
   let abortCause: "cancelled" | "timeout" | "idle" | null = null
   let childID: string | null = null
   let cleanupAbort = Promise.resolve()
+  // Termination evidence (DT-FR-001): the deadline entry is unregistered
+  // only once the child is known to have stopped — its prompt returned
+  // (any response) or its abort was accepted. Anything else keeps the
+  // entry as a fail-closed tombstone in `finally`.
+  let promptReturned = false
+  let abortConfirmed = false
 
   const abortChild = (): void => {
     if (childID === null) {
@@ -452,6 +488,7 @@ export async function executeAgentSession(
           query: { directory: deps.directory },
           signal: cleanupController.signal,
         })
+        abortConfirmed = true
       } catch {
         // Cleanup is best-effort because the primary cancellation result remains authoritative.
       } finally {
@@ -538,7 +575,7 @@ export async function executeAgentSession(
     })
     childID = created.data?.id ?? null
     if (childID === null) {
-      return failedResult(provenance, "child_create_failed", responseFailure("create child session", created), true)
+      return withApplied(failedResult(provenance, "child_create_failed", responseFailure("create child session", created), true))
     }
     // Nested runs inside this child inherit its absolute deadline (D1).
     registerDeadline(childID, startedAt + effectiveMilliseconds)
@@ -560,12 +597,13 @@ export async function executeAgentSession(
       signal: linkedAbort.signal,
     })
     settled = true
+    promptReturned = true
     // Reclassify abort-driven empty responses as cancellation, not prompt failure.
     if (linkedAbort.signal.aborted) {
       throw linkedAbort.signal.reason
     }
     if (prompted.data === undefined) {
-      return withChild(failedResult(provenance, "child_prompt_failed", responseFailure("prompt child session", prompted), true))
+      return withApplied(withChild(failedResult(provenance, "child_prompt_failed", responseFailure("prompt child session", prompted), true)))
     }
 
     const childModel = reportedModel(prompted.data.info.providerID, prompted.data.info.modelID)
@@ -575,67 +613,86 @@ export async function executeAgentSession(
     const usage = invocationUsage(prompted.data.parts)
 
     if (prompted.data.info.error !== undefined) {
-      return withChild(
-        failedResult(
-          provenance,
-          "child_message_error",
-          errorText(prompted.data.info.error),
-          "isRetryable" in prompted.data.info.error.data
-            ? prompted.data.info.error.data.isRetryable
-            : prompted.data.info.error.name !== "MessageAbortedError",
-          "failed",
-          text,
-          usage,
+      return withApplied(
+        withChild(
+          failedResult(
+            provenance,
+            "child_message_error",
+            errorText(prompted.data.info.error),
+            "isRetryable" in prompted.data.info.error.data
+              ? prompted.data.info.error.data.isRetryable
+              : prompted.data.info.error.name !== "MessageAbortedError",
+            "failed",
+            text,
+            usage,
+          ),
         ),
       )
     }
     if (mismatch) {
-      return withChild(
-        failedResult(
-          provenance,
-          "model_mismatch",
-          `child reported ${childModel ?? "an unavailable model"}; expected ${model.combined}`,
-          false,
-          "failed",
-          text,
-          usage,
+      return withApplied(
+        withChild(
+          failedResult(
+            provenance,
+            "model_mismatch",
+            `child reported ${childModel ?? "an unavailable model"}; expected ${model.combined}`,
+            false,
+            "failed",
+            text,
+            usage,
+          ),
         ),
       )
     }
 
-    return withChild({ status: "success", text, usage, error: null, provenance })
+    return withApplied(withChild({ status: "success", text, usage, error: null, provenance }))
   } catch (error: unknown) {
     if (abortCause === "timeout") {
-      return withChild({
-        ...failedResult(provenance, "timeout", "invoke_agent run timed out", true),
-        timeout: timeoutDetails("wall_clock"),
-      })
+      return withApplied(
+        withChild({
+          ...failedResult(provenance, "timeout", "invoke_agent run timed out", true),
+          timeout: timeoutDetails("wall_clock"),
+        }),
+      )
     }
     if (abortCause === "idle") {
-      return withChild({
-        ...failedResult(
-          provenance,
-          "idle_timeout",
-          `invoke_agent run made no progress for ${idleMilliseconds} ms`,
-          true,
-        ),
-        timeout: timeoutDetails("idle"),
-      })
+      return withApplied(
+        withChild({
+          ...failedResult(
+            provenance,
+            "idle_timeout",
+            `invoke_agent run made no progress for ${idleMilliseconds} ms`,
+            true,
+          ),
+          timeout: timeoutDetails("idle"),
+        }),
+      )
     }
     if (abortCause === "cancelled") {
-      return withChild(failedResult(provenance, "cancelled", "invoke_agent run was cancelled", false, "cancelled"))
+      return withApplied(withChild(failedResult(provenance, "cancelled", "invoke_agent run was cancelled", false, "cancelled")))
     }
-    return withChild(failedResult(provenance, "invocation_failed", errorText(error), true))
+    return withApplied(withChild(failedResult(provenance, "invocation_failed", errorText(error), true)))
   } finally {
     settled = true
     clearTimeout(timeout)
     if (idlePoll !== undefined) {
       clearInterval(idlePoll)
     }
-    if (childID !== null) {
-      unregisterDeadline(childID)
-    }
     deps.parentAbort.removeEventListener("abort", cancelFromParent)
+    // Wait for the queued abort attempt first: a successful abort sets
+    // abortConfirmed, which the tombstone check below depends on.
     await cleanupAbort
+    if (childID !== null) {
+      if (promptReturned || abortConfirmed) {
+        unregisterDeadline(childID)
+      }
+      // Fail-closed tombstone (DT-FR-001): when neither the child's prompt
+      // return nor an accepted abort confirmed the child stopped, the
+      // deadline entry stays registered so any nested run under the
+      // still-live child clamps to the passed deadline (budget_exhausted)
+      // instead of escaping the parent's budget. The leak is bounded: one
+      // entry per unconfirmed termination, held for process lifetime,
+      // holding only a session id and epoch ms.
+    }
   }
 }

@@ -233,8 +233,28 @@ describe("probeSubtreeActivity", () => {
     const sample = await probeSubtreeActivity(fake.client, "root", DIRECTORY, signal)
     expect(sample?.pendingQuestion).toBe(true)
     expect(sample?.fingerprint).toContain("root#2")
+    // The creation-time composite rides alongside the child count.
+    expect(sample?.fingerprint).toContain("root#2@3")
     // Newest children are probed first.
     expect(fake.probed).toEqual(["root", "new", "old"])
+  })
+
+  it("detects subtree growth when the per-session message signal is static", async () => {
+    // A host that returns the oldest message first (flipped `limit`
+    // ordering) leaves the latest-message fingerprints stale; the
+    // ordering-independent subtree-shape composite must still register
+    // a newly spawned descendant as progress.
+    const staticMessage = () => message("m", [{ id: "p", type: "text", text: "same" }])
+    const sessions: Record<string, FakeSession> = {
+      root: { children: [], latest: staticMessage() },
+    }
+    const fake = treeClient({ sessions })
+    const before = await probeSubtreeActivity(fake.client, "root", DIRECTORY, signal)
+    sessions.root = { children: ["busy"], latest: staticMessage() }
+    sessions.busy = { created: 42, latest: staticMessage() }
+    const after = await probeSubtreeActivity(fake.client, "root", DIRECTORY, signal)
+    expect(after?.fingerprint).not.toBe(before?.fingerprint)
+    expect(after?.fingerprint).toContain("root#1@42")
   })
 
   it("does not flag a finished question call", async () => {
@@ -304,6 +324,8 @@ interface ExecutorFakeOptions {
   readonly resolveAfterMs?: number
   /** Child prompt rejects this many ms after the abort signal fires (default immediate). */
   readonly rejectAfterAbortMs?: number
+  /** The cleanup abort rejects, leaving the child's termination unconfirmed. */
+  readonly failAbort?: boolean
 }
 
 /** Executor-facing fake: child creation, a hanging prompt, abort, and probe endpoints. */
@@ -349,6 +371,9 @@ function executorClient(options: ExecutorFakeOptions = {}) {
     },
     abort: async () => {
       calls.aborts++
+      if (options.failAbort === true) {
+        throw new Error("abort failed")
+      }
       return { data: true }
     },
     children: async () => ({ data: [] }),
@@ -410,6 +435,12 @@ describe("executeAgentSession budgets and idle watchdog", () => {
     expect(result.timeout?.kind).toBe("budget")
     expect(result.timeout?.budget_clamped).toBe(true)
     expect(result.timeout?.child_active).toBeNull()
+    expect(result.applied).toEqual({
+      effective_ms: 1_000,
+      requested_ms: 60_000,
+      budget_clamped: true,
+      idle_timeout_ms: null,
+    })
     expect(fake.calls.creates).toBe(0)
   })
 
@@ -445,6 +476,33 @@ describe("executeAgentSession budgets and idle watchdog", () => {
       child_active: null,
       pending_question: false,
     })
+    expect(result.applied).toEqual({
+      effective_ms: 5_000,
+      requested_ms: 5_000,
+      budget_clamped: false,
+      idle_timeout_ms: null,
+    })
+  })
+
+  it("retains the deadline tombstone when the child abort is unconfirmed", async () => {
+    // DT-FR-001 fail-closed tombstone: when neither the prompt's return
+    // nor an accepted abort confirmed the child stopped, the registry
+    // entry survives the run so nested calls still clamp to the passed
+    // deadline instead of escaping the parent budget.
+    const start = Date.now()
+    register("parent", start + BUDGET_RESERVE_MS + MIN_NESTED_BUDGET_MS)
+    const fake = executorClient({ failAbort: true })
+    const pending = run(fake.client, { timeoutMilliseconds: 1_800_000 })
+    await vi.advanceTimersByTimeAsync(MIN_NESTED_BUDGET_MS)
+    const result = await pending
+    expect(result.error?.code).toBe("timeout")
+    expect(result.timeout).toMatchObject({ kind: "wall_clock", budget_clamped: true })
+    expect(fake.calls.aborts).toBe(1)
+    try {
+      expect(registeredDeadline("exec-child")).toBe(start + MIN_NESTED_BUDGET_MS)
+    } finally {
+      unregisterDeadline("exec-child")
+    }
   })
 
   it("aborts a stalled child with idle_timeout after an unchanged probe", async () => {
@@ -518,6 +576,27 @@ describe("executeAgentSession budgets and idle watchdog", () => {
     const result = await pending
     expect(result.status).toBe("success")
     expect(result.timeout).toBeUndefined()
+  })
+
+  it("carries the applied limit record on a successful clamped run", async () => {
+    // D4: clamp resolution is independent of how the run ends, so a run
+    // that succeeds inside the clamp still records the limits applied.
+    const start = Date.now()
+    register("parent", start + BUDGET_RESERVE_MS + MIN_NESTED_BUDGET_MS)
+    const fake = executorClient({
+      resolveAfterMs: 5_000,
+      latest: () => message("m", [{ id: "p", type: "text", text: "same" }]),
+    })
+    const pending = run(fake.client, { timeoutMilliseconds: 1_800_000, idleTimeoutMilliseconds: 60_000 })
+    await vi.advanceTimersByTimeAsync(5_000)
+    const result = await pending
+    expect(result.status).toBe("success")
+    expect(result.applied).toEqual({
+      effective_ms: MIN_NESTED_BUDGET_MS,
+      requested_ms: 1_800_000,
+      budget_clamped: true,
+      idle_timeout_ms: 60_000,
+    })
   })
 
   it("ignores a probe that answers after the child finished", async () => {
