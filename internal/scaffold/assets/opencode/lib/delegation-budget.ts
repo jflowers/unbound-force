@@ -252,10 +252,15 @@ export async function probeSubtreeActivity(
       if (children.data === undefined) {
         return null
       }
-      // The child count rides in the fingerprint so a newly spawned
-      // session registers as progress even past the session cap. Children
-      // are pushed oldest first so the newest (the active one) pops next.
-      prints.push(`${id}#${children.data.length}`)
+      // The child count and the sum of the children's creation times ride
+      // in the fingerprint so subtree growth registers as progress even
+      // past the session cap. Unlike the per-session latest-message
+      // signal, this shape signal is independent of the host's message
+      // ordering, so a host whose `limit` returns the oldest message
+      // first still shows subtree turnover as progress. Children are
+      // pushed oldest first so the newest (the active one) pops next.
+      const createdSum = children.data.reduce((total, child) => total + (child.time?.created ?? 0), 0)
+      prints.push(`${id}#${children.data.length}@${createdSum}`)
       const oldestFirst = [...children.data].sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
       for (const child of oldestFirst) {
         stack.push(child.id)
