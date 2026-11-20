@@ -908,6 +908,306 @@ const PayloadLessonProposalSchema = z
   })
   .strict()
 
+// ── intent-satisfaction state (intent-satisfaction-check D2) ──
+
+/** Resolution sources for the originating issue, in RC-FR-010 priority
+ * order: PR-body references, branch-scoped tier-routing checkpoint
+ * state, then the change's `.openspec.yaml`. */
+const INTENT_RESOLUTION_SOURCE_VALUES = ["pr-body", "tier-routing-checkpoint", "openspec-yaml"] as const
+
+/** Grounding tiers (RC-FR-011): `strict` requires an intake-kit
+ * provenance signal on the fetched issue; `best-effort` covers every
+ * other grounding, including general intent. */
+const INTENT_GROUNDING_TIER_VALUES = ["strict", "best-effort"] as const
+
+/** Per-criterion bound: the existing Protocol 2 body-truncation limit
+ * (RC-FR-011) applied to each extracted criterion. */
+const INTENT_CRITERION_MAX_CHARS = 2000
+
+/** Total bound on the criteria context (RC-FR-011), recorded with the
+ * rendered block so the bound is visible at evaluation time. */
+const INTENT_CRITERIA_TOTAL_MAX_CHARS = 8192
+
+/** Title bound for the general-intent fallback (design D2). */
+const INTENT_TITLE_MAX_CHARS = 512
+
+/** One extracted acceptance criterion (design D2): bounded untrusted
+ * issue text plus the structural origin it was extracted from. */
+const IntentCriterionSchema = z
+  .object({
+    text: z.string().min(1).max(INTENT_CRITERION_MAX_CHARS),
+    origin: z.string().min(1).max(256),
+  })
+  .strict()
+
+/** General-intent context (design D2): the fallback when the fetched
+ * issue carries no structured acceptance criteria. */
+const IntentGeneralIntentSchema = z
+  .object({
+    title: z.string().min(1).max(INTENT_TITLE_MAX_CHARS),
+    body_summary: z.string().min(1).max(INTENT_CRITERIA_TOTAL_MAX_CHARS),
+  })
+  .strict()
+
+/** Informational degradation (design D6): `skipped` when no source
+ * resolves an originating issue, `unavailable` when a resolved
+ * reference cannot be fetched — never an error. */
+const IntentSkipUnavailableSchema = z
+  .object({
+    state: z.enum(["skipped", "unavailable"]),
+    reason: z.string().min(1).max(2048),
+  })
+  .strict()
+
+/** Per-criterion outcome (design D2, RC-FR-012). */
+const IntentCriterionOutcomeSchema = z
+  .object({
+    criterion_ref: z.string().min(1).max(256),
+    result: z.enum(["satisfied", "unsatisfied", "deviation"]),
+    note: z.string().max(4096).optional(),
+  })
+  .strict()
+
+/** Single general-intent outcome (design D2): `unevaluable` carries a
+ * reason. */
+const IntentGeneralIntentOutcomeSchema = z
+  .object({
+    result: z.enum(["satisfied", "unsatisfied", "unevaluable"]),
+    reason: z.string().min(1).max(4096).optional(),
+  })
+  .strict()
+  .superRefine((outcome, ctx) => {
+    if (outcome.result === "unevaluable" && outcome.reason === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "reason is required when result is unevaluable",
+        path: ["reason"],
+      })
+    }
+  })
+
+/**
+ * Machine-readable intent-satisfaction state (design D2 of
+ * intent-satisfaction-check, RC-FR-010/011): the resolved
+ * originating-issue reference, its resolution source, the extracted
+ * acceptance criteria or general intent, and the grounding tier — or an
+ * informational skip/unavailable degradation carrying the reason. The
+ * state rides the dispatch session metadata; its rendered form rides
+ * the review_context channel into every reviewer prompt. Exactly one of
+ * `criteria` or `general_intent` is present when an issue resolved;
+ * `skip_unavailable` is present otherwise. `outcomes` is absent at
+ * dispatch time and is carried only by later iterations that thread
+ * recorded outcomes back.
+ */
+export const IntentSatisfactionStateSchema = z
+  .object({
+    issue_number: z.number().int().positive().optional(),
+    resolution_source: z.enum(INTENT_RESOLUTION_SOURCE_VALUES).optional(),
+    reference_count: z.number().int().positive().optional(),
+    grounding_tier: z.enum(INTENT_GROUNDING_TIER_VALUES).optional(),
+    criteria: z.array(IntentCriterionSchema).optional(),
+    general_intent: IntentGeneralIntentSchema.optional(),
+    outcomes: z.union([z.array(IntentCriterionOutcomeSchema), IntentGeneralIntentOutcomeSchema]).optional(),
+    skip_unavailable: IntentSkipUnavailableSchema.optional(),
+  })
+  .strict()
+  .superRefine((state, ctx) => {
+    if (state.skip_unavailable !== undefined) {
+      const carriesResolvedFields = [
+        state.issue_number,
+        state.resolution_source,
+        state.reference_count,
+        state.grounding_tier,
+        state.criteria,
+        state.general_intent,
+        state.outcomes,
+      ].some((value) => value !== undefined)
+      if (carriesResolvedFields) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "skip_unavailable cannot combine with resolved-issue fields",
+          path: ["skip_unavailable"],
+        })
+      }
+      return
+    }
+    if (state.issue_number === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "issue_number is required unless skip_unavailable is present",
+        path: ["issue_number"],
+      })
+    }
+    if (state.resolution_source === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "resolution_source is required unless skip_unavailable is present",
+        path: ["resolution_source"],
+      })
+    }
+    if (state.grounding_tier === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "grounding_tier is required unless skip_unavailable is present",
+        path: ["grounding_tier"],
+      })
+    }
+    if (state.criteria === undefined && state.general_intent === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "one of criteria or general_intent is required unless skip_unavailable is present",
+        path: ["criteria"],
+      })
+    }
+    if (state.criteria !== undefined && state.general_intent !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "criteria and general_intent are mutually exclusive",
+        path: ["general_intent"],
+      })
+    }
+    if (state.criteria !== undefined) {
+      const totalChars = state.criteria.reduce((sum, criterion) => sum + criterion.text.length, 0)
+      if (totalChars > INTENT_CRITERIA_TOTAL_MAX_CHARS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `criteria total ${totalChars} characters exceeds the ${INTENT_CRITERIA_TOTAL_MAX_CHARS}-character bound`,
+          path: ["criteria"],
+        })
+      }
+      if (state.outcomes !== undefined && !Array.isArray(state.outcomes)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "outcomes must be per-criterion when criteria are present",
+          path: ["outcomes"],
+        })
+      }
+    }
+    if (state.general_intent !== undefined && state.outcomes !== undefined && Array.isArray(state.outcomes)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "outcomes must be the single general-intent outcome when general_intent is present",
+        path: ["outcomes"],
+      })
+    }
+  })
+
+/** Validated intent-satisfaction state (see {@link IntentSatisfactionStateSchema}). */
+export type IntentSatisfactionState = z.infer<typeof IntentSatisfactionStateSchema>
+
+/**
+ * Render the resolved intent-satisfaction state as the bounded block that
+ * rides the review_context channel into every reviewer prompt
+ * (intent-satisfaction-check task 1.2, design D2). Skip and unavailable
+ * states render nothing — they carry no criteria to evaluate and surface
+ * only through the session-metadata provenance in the persisted artifact
+ * and final report. The rendered text is untrusted issue content: the
+ * prompt builder wraps the whole review_context channel in
+ * untrusted-evidence delimiters, and the per-criterion and total bounds
+ * are recorded in the block itself.
+ *
+ * @param state Validated intent-satisfaction state from the dispatch session metadata.
+ * @returns The rendered block, or an empty string when nothing resolves.
+ */
+export function renderIntentSatisfactionContext(state: IntentSatisfactionState | undefined): string {
+  if (
+    state === undefined ||
+    state.skip_unavailable !== undefined ||
+    state.issue_number === undefined ||
+    state.resolution_source === undefined ||
+    state.grounding_tier === undefined
+  ) {
+    return ""
+  }
+  const referenceCountNote =
+    state.reference_count !== undefined ? `, ${state.reference_count} in-scope references` : ""
+  const lines: string[] = [
+    `### Intent Satisfaction Context — Originating Issue #${state.issue_number}`,
+    "",
+    `- Originating issue: #${state.issue_number} (resolution source: ${state.resolution_source}${referenceCountNote})`,
+    `- Grounding tier: ${state.grounding_tier}`,
+  ]
+  if (state.criteria !== undefined) {
+    lines.push(
+      `- Acceptance criteria: ${state.criteria.length} extracted — each bounded to ${INTENT_CRITERION_MAX_CHARS} characters, total bounded to ${INTENT_CRITERIA_TOTAL_MAX_CHARS} characters`,
+      "",
+      "Evaluate the change against each acceptance criterion of the originating issue above.",
+    )
+    state.criteria.forEach((criterion, index) => {
+      lines.push(`${index + 1}. [origin: ${criterion.origin}] ${criterion.text}`)
+    })
+  } else if (state.general_intent !== undefined) {
+    lines.push(
+      "- Structured acceptance criteria: none — evaluation runs against the issue's general intent, not gated criteria",
+      "",
+      `**Issue title**: ${state.general_intent.title}`,
+      "",
+      `**Issue body summary** (bounded to ${INTENT_CRITERIA_TOTAL_MAX_CHARS} characters):`,
+      state.general_intent.body_summary,
+    )
+  }
+  return lines.join("\n")
+}
+
+/**
+ * Truncate raw intent-satisfaction state to the RC-FR-011 bounds before
+ * schema validation (intent-satisfaction-check task 1.2, design D2):
+ * each criterion's text is cut at INTENT_CRITERION_MAX_CHARS and the
+ * cumulative criteria text is capped at INTENT_CRITERIA_TOTAL_MAX_CHARS
+ * — the criterion crossing the total budget is trimmed to it and the
+ * rest are dropped — so valid over-bound untrusted issue content is
+ * carried bounded into the review_context channel and session metadata
+ * instead of being rejected. The general-intent fallback's title and
+ * body summary are cut to their schema bounds the same way.
+ * Structurally invalid input (non-object criteria entries, non-string
+ * text) passes through untouched for IntentSatisfactionStateSchema to
+ * fail closed on, and the rendered prompt block records both criteria
+ * bounds.
+ *
+ * @param raw Unvalidated intent-satisfaction state from tool input.
+ * @returns The bounds-truncated state, or the input unchanged when no
+ *   truncation applies.
+ */
+export function truncateIntentSatisfactionState(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw
+  const state = raw as Record<string, unknown>
+  if (state.skip_unavailable !== undefined) return raw
+  const next: Record<string, unknown> = { ...state }
+  if (
+    Array.isArray(state.criteria) &&
+    state.criteria.every(
+      (entry) =>
+        typeof entry === "object" && entry !== null && typeof (entry as Record<string, unknown>).text === "string",
+    )
+  ) {
+    const kept: Array<Record<string, unknown>> = []
+    let totalChars = 0
+    for (const entry of state.criteria) {
+      const remaining = INTENT_CRITERIA_TOTAL_MAX_CHARS - totalChars
+      if (remaining <= 0) break
+      const record = entry as Record<string, unknown>
+      const bounded = String(record.text)
+        .slice(0, INTENT_CRITERION_MAX_CHARS)
+        .slice(0, remaining)
+      kept.push({ ...record, text: bounded })
+      totalChars += bounded.length
+    }
+    next.criteria = kept
+  }
+  const generalIntent = state.general_intent
+  if (typeof generalIntent === "object" && generalIntent !== null) {
+    const record = generalIntent as Record<string, unknown>
+    if (typeof record.title === "string" && typeof record.body_summary === "string") {
+      next.general_intent = {
+        ...record,
+        title: record.title.slice(0, INTENT_TITLE_MAX_CHARS),
+        body_summary: record.body_summary.slice(0, INTENT_CRITERIA_TOTAL_MAX_CHARS),
+      }
+    }
+  }
+  return next
+}
+
 const ReviewDispatchPayloadSchema = z
   .object({
     command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
@@ -919,6 +1219,7 @@ const ReviewDispatchPayloadSchema = z
     plan: z.array(DispatchPlanEntrySchema).max(512),
     runs: z.array(FinalizationRunSchema).max(64),
     coverage: CoverageSchema,
+    intent_satisfaction: IntentSatisfactionStateSchema.optional(),
     findings: z.array(ConsolidatedFindingSchema).max(512),
     advisories: z.array(AdvisorySchema).max(512),
     proposals: z.array(PayloadLessonProposalSchema).max(MAX_PAYLOAD_PROPOSALS).optional(),
@@ -2947,6 +3248,7 @@ function artifactPayloadOrder(payload: ReviewDispatchPayload): ReviewDispatchPay
     verdict_reason: payload.verdict_reason,
     run_counts: payload.run_counts,
     coverage: payload.coverage,
+    ...(payload.intent_satisfaction === undefined ? {} : { intent_satisfaction: payload.intent_satisfaction }),
     workflow_result: payload.workflow_result,
     findings: payload.findings,
     advisories: payload.advisories,
@@ -3402,7 +3704,7 @@ export function createFinalizeReviewDispatchTool(
       // carries the outcome (RD-FR-051); it never echoes the artifact body.
       const result = await finalizeReviewDispatch(args, dependencies)
       return `${JSON.stringify(
-        buildCompactFinalization(result, args.payload.run_counts, [], []),
+        buildCompactFinalization(result, args.payload.run_counts, [], [], args.payload.intent_satisfaction),
       )}\n`
     },
   })
@@ -3414,7 +3716,10 @@ export function createFinalizeReviewDispatchTool(
  * (latest supplied metadata replaces any earlier file — design D5 of
  * fix-review-dispatch-recovery) so consolidate_dispatch can reconstruct the
  * full finalization payload without requiring the agent to re-supply plan,
- * context, and coverage. */
+ * context, and coverage. The optional `intent_satisfaction` field records
+ * the originating-issue provenance (intent-satisfaction-check design D2);
+ * `input_context` stays frozen immutable-ref identity and never carries
+ * issue content. */
 const SessionMetadataSchema = z
   .object({
     command: z.enum(["review-council", "triage-issue", "address-feedback", "speckit-testreview"]),
@@ -3424,6 +3729,7 @@ const SessionMetadataSchema = z
     change_profile: ChangeProfileSchema,
     plan: z.array(DispatchPlanEntrySchema).max(512),
     coverage: CoverageSchema,
+    intent_satisfaction: z.preprocess(truncateIntentSatisfactionState, IntentSatisfactionStateSchema).optional(),
   })
   .strict()
 
@@ -4996,6 +5302,7 @@ interface SummaryRetrievalInput {
   readonly verdict_reason: string
   readonly run_counts: unknown
   readonly coverage: unknown
+  readonly intent_satisfaction?: IntentSatisfactionState
   readonly findings: readonly unknown[]
   readonly advisories: readonly unknown[]
 }
@@ -5041,6 +5348,7 @@ export function buildSummaryRetrieval(
     ).text
     result.run_counts = input.run_counts
     result.coverage = input.coverage
+    if (input.intent_satisfaction !== undefined) result.intent_satisfaction = input.intent_satisfaction
     result.findings = findings
     result.advisories = advisories
     if (findingsTruncated) result.findings_truncated = true
@@ -5097,6 +5405,7 @@ export function buildFullRetrieval(
   result.verdict_reason = payload.verdict_reason
   result.run_counts = payload.run_counts
   result.coverage = payload.coverage
+  if (payload.intent_satisfaction !== undefined) result.intent_satisfaction = payload.intent_satisfaction
   result.runs = payload.runs
   result.plan = payload.plan
   result.findings = payload.findings
@@ -5126,6 +5435,7 @@ export function buildCompactFinalization(
   runCounts: unknown,
   proposals: readonly unknown[],
   warnings: readonly unknown[],
+  intentSatisfaction?: IntentSatisfactionState,
 ): Record<string, unknown> {
   const projectedProposals = proposals
     .slice(0, SUMMARY_LIMITS.proposals)
@@ -5159,6 +5469,12 @@ export function buildCompactFinalization(
       result.calculated_assessment?.review_verdict.council_decision ??
       null,
     run_counts: runCounts,
+    // Intent-satisfaction provenance (intent-satisfaction-check design
+    // D2): bounded by the state schema, carried whole so the final
+    // report keeps the issue reference, resolution source, grounding
+    // tier, and criteria outcomes; never dropped by the byte-budget
+    // loop below.
+    ...(intentSatisfaction === undefined ? {} : { intent_satisfaction: intentSatisfaction }),
   }
   let proposalsTruncated = proposals.length > SUMMARY_LIMITS.proposals
   const warningsTruncated = warnings.length > SUMMARY_LIMITS.warnings
@@ -6094,6 +6410,9 @@ export function createConsolidateDispatchTool(
         plan: sessionMetadata.plan,
         runs: dispatchRuns,
         coverage: sessionMetadata.coverage,
+        ...(sessionMetadata?.intent_satisfaction === undefined
+          ? {}
+          : { intent_satisfaction: sessionMetadata.intent_satisfaction }),
         findings: consolidatedFindings,
         advisories,
         // Full-length proposals persist in the artifact (RD-FR-054); the
@@ -6152,6 +6471,7 @@ export function createConsolidateDispatchTool(
               runCounts,
               collectedProposals,
               warnings,
+              sessionMetadata?.intent_satisfaction,
             ),
           ),
         }
@@ -6171,7 +6491,8 @@ export function createConsolidateDispatchTool(
                   verdict: projectedVerdict,
                   verdict_reason: verdictReason,
                   run_counts: runCounts,
-                  coverage: sessionMetadata.coverage,
+                  coverage: sessionMetadata?.coverage,
+                  intent_satisfaction: sessionMetadata?.intent_satisfaction,
                   findings: consolidatedFindings,
                   advisories,
                 }),
@@ -7469,6 +7790,7 @@ export async function readDispatchArtifact(rawInput: unknown, projectRoot: strin
       verdict_reason: data.verdict_reason,
       run_counts: data.run_counts,
       coverage: data.coverage,
+      ...(data.intent_satisfaction === undefined ? {} : { intent_satisfaction: data.intent_satisfaction }),
       workflow_result: data.workflow_result,
       counts: {
         findings: data.findings.length,
@@ -7733,6 +8055,20 @@ async function dispatchReviewRuns(
     }
   }
 
+  // Intent-satisfaction-check task 1.2 (design D2): render the resolved
+  // originating-issue state from the session metadata into the shared
+  // review_context channel so every reviewer prompt carries the issue
+  // reference, resolution source, extracted criteria, and grounding tier
+  // inside the same untrusted-evidence delimiters. Skip and unavailable
+  // states add nothing here — their provenance rides the session metadata
+  // into the persisted artifact and final report instead. `input_context`
+  // stays frozen immutable-ref identity and never carries issue content.
+  const intentContext = renderIntentSatisfactionContext(input.session_metadata?.intent_satisfaction)
+  const reviewContextParts = [input.review_context, intentContext].filter(
+    (part): part is string => typeof part === "string" && part.length > 0,
+  )
+  const combinedReviewContext = reviewContextParts.length > 0 ? reviewContextParts.join("\n\n") : undefined
+
   // Step 2 (FR-004): Build review prompts for included agents. The prompts
   // land under this invocation's dispatch session (correlation minted above
   // per design D1), not the prompts-<uuid> temp fallback.
@@ -7749,7 +8085,7 @@ async function dispatchReviewRuns(
       sibling_evidence: siblingEvidence || undefined,
       existing_reviews: input.existing_reviews,
       walkthrough: input.walkthrough,
-      review_context: input.review_context,
+      review_context: combinedReviewContext,
     },
     projectRoot,
     correlationId,

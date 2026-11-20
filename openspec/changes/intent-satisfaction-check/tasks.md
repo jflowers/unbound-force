@@ -23,7 +23,7 @@
       `.opencode/skills/review-context/SKILL.md` Protocol 2
       to invoke this tool for the pipeline-state input path.
       The PR-body path's existing behavior stays unchanged.
-- [ ] 1.2 In `.opencode/plugins/review-dispatch/index.ts`, carry
+- [x] 1.2 In `.opencode/plugins/review-dispatch/index.ts`, carry
       the resolved issue reference, resolution source, extracted
       criteria, and grounding tier through the `review_context`
       channel into every reviewer prompt, and record them as
