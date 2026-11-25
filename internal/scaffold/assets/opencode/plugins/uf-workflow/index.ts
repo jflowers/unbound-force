@@ -7535,6 +7535,13 @@ const UnleashExitInputSchema = z.discriminatedUnion("variant", [
       circular_dependencies: ExitStringListSchema.optional(),
     })
     .strict(),
+  z
+    .object({
+      variant: z.literal("intent-deviation"),
+      findings: ExitStringListSchema,
+      recommendation: z.string().min(1).max(16384),
+    })
+    .strict(),
 ])
 
 /**
@@ -7574,12 +7581,12 @@ const UnleashDemoInputSchema = z
 export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool> {
   return tool({
     description:
-      "Render a /uf.unleash paused-at exit message for one of the eleven exit " +
+      "Render a /uf.unleash paused-at exit message for one of the twelve exit " +
       "variants (tier-routing-dirty-tree, tier-routing-missing-tooling, " +
       "planner-failure, clarify, spec-review, implement-worker-failed, " +
       "implement-merge-conflict, " +
       "implement-phase-checkpoint, code-review-preflight, code-review-no-success, " +
-      "code-review-iterations-exhausted). Returns {text} — the exact template markdown " +
+      "code-review-iterations-exhausted, intent-deviation). Returns {text} — the exact template markdown " +
       "(heading, reason, body, What to do next, Then resume) to emit verbatim.",
     args: {
       variant: z.enum(UNLEASH_EXIT_VARIANTS).describe(
@@ -7592,7 +7599,8 @@ export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool
           "implement-merge-conflict → phase, conflicting_files; implement-phase-checkpoint → " +
           "phase, failed_command, output; code-review-preflight → findings; " +
           "code-review-no-success → reasons; code-review-iterations-exhausted → " +
-          "persistent_findings (circular_dependencies optional).",
+          "persistent_findings (circular_dependencies optional); intent-deviation → " +
+          "findings, recommendation.",
       ),
       message: z
         .string()
@@ -7609,8 +7617,9 @@ export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool
         "spec-review: workflow tier selecting the recovery guidance (speckit or openspec).",
       ).optional(),
       findings: ExitStringListSchema.describe(
-        "spec-review (unresolved findings with context) or code-review-preflight " +
-          "(branch-caused failures as CRITICAL findings with full output).",
+        "spec-review (unresolved findings with context), code-review-preflight " +
+          "(branch-caused failures as CRITICAL findings with full output), or intent-deviation " +
+          "(invalidation evidence citing the issue number and criterion text).",
       ).optional(),
       change_name: ExitChangeNameSchema.describe(
         "spec-review (optional): change name interpolated into the openspec recovery guidance " +
@@ -7658,6 +7667,15 @@ export function createFormatUnleashExitTool(cwd: string): ReturnType<typeof tool
         "code-review-iterations-exhausted (optional): reviewer-check cycles where fixing one " +
           "reviewer's finding causes another's check to fail; the section renders only when present.",
       ).optional(),
+      recommendation: z
+        .string()
+        .min(1)
+        .max(16384)
+        .describe(
+          "intent-deviation: the governance recommendation carried by the finding — amend the " +
+            "issue's acceptance criteria, or record a human override naming the finding.",
+        )
+        .optional(),
     },
     async execute(args) {
       try {

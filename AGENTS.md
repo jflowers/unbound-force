@@ -294,11 +294,24 @@ These rules are non-negotiable. Violations are CRITICAL severity.
 
 | Command | When | Scope |
 |---------|------|-------|
-| `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 6, Code Review) | 5+ Divisor agents |
+| `/uf.review-council` | Pre-PR (local; runs in `/uf.unleash` Step 6, Code Review) | 5+ Divisor agents, intent-satisfaction check |
 | `/uf.review-pr [N]` | Post-PR (GitHub) | Single agent, CI analysis |
 | `/uf.fix-ci [N]` | Post-PR (GitHub) | Diagnose + fix failing checks |
 | `/uf.address-feedback [N]` | Post-PR (GitHub) | Triage + address reviewer feedback |
 | `/uf.rebase-pr [N]` | Post-PR (GitHub) | Rebase a conflicted PR's head branch onto its base |
+
+`/uf.review-council` (CODE mode) runs a mandatory
+intent-satisfaction check against the originating issue
+(PR-body `Fixes`/`Closes`/`Resolves` refs, tier-routing
+checkpoint, or `.openspec.yaml` `originating_issue`):
+divisor-guard evaluates each extracted acceptance
+criterion -- satisfied criteria as traceability,
+unsatisfied criteria as blocking findings, and
+legitimately invalidated criteria as typed
+`intent-deviation` findings that pause `/uf.unleash`
+for a governance decision. The check degrades to
+informational `skipped`/`unavailable` when no issue
+resolves or `gh` is unavailable.
 
 ### Issue Triage Commands
 

@@ -1712,18 +1712,31 @@ text.
       variant `planner-failure`, passing the plan's
       `errors` array as `reasons`, and emit the returned
       `{text}` verbatim.
-   f. Call `dispatch_review_runs` exactly once with mode
-      `code`, command `review-council`, `diff_path` (the
-      saved diff file), `changed_files`, `input_context`,
-      `plan_entries`, `session_metadata` (command, mode,
-      full, input context, change profile, plan,
-      coverage), and the plan limits (`max_parallel_runs`,
-      `budget_usd`; omit `per_run_timeout_ms` so each run
-      derives its window from the matrix limit and the
-      dispatched work, with explicit values still winning).
-      Pass the
-      soft-gate results as `pre_flight_results` (verdict,
-      causality classifications, baseline method). The
+   f. Originating-issue context: `dispatch_review_runs`
+      acquires `intent_satisfaction` internally (see that
+      tool's description); do not call
+      `acquire_intent_context` separately. Dispositions
+      ride `recorded_dispositions` from the
+      human-decision record (see tool contract); each MUST
+      be sourced via `question` tool/orchestrator and
+      recorded via `record_human_decision` naming
+      `intent-deviation` and issue number; rendered in
+      trusted `## Recorded Human Decisions`, never via
+      `review_context`. On resume after an
+      `intent-deviation` exit, ask the human via
+      `question` tool/orchestrator for the disposition,
+      then record it; never self-compose.
+   g. Call `dispatch_review_runs` once in `code` mode
+      with `diff_path`, `changed_files`, `input_context`,
+      `plan_entries`, `pr_body`/`repo`,
+      `session_metadata` (omit `intent_satisfaction` --
+      the dispatch acquires it internally), and the plan
+      limits (`max_parallel_runs`, `budget_usd`; omit
+      `per_run_timeout_ms` so each run derives its window
+      from the matrix limit and the dispatched work, with
+      explicit values still winning). Do not forward
+      dispositions via `review_context`. Pass soft-gate
+      results as `pre_flight_results`. The
       tool returns a one-line counts summary —
       `dispatch_review_runs: <status> (correlation_id <id>)
       — <completed> completed, <failed> failed, <skipped>
@@ -1787,8 +1800,17 @@ not read the saved file.
   for the final report and proceed to Step 7
   (Retrospective).
 
-- If `operation_verdict` is REQUEST CHANGES: enter the fix loop.
-  For each iteration (up to 3 total):
+- If REQUEST CHANGES and `intent_deviation: true`
+  (RC-FR-013, legitimately invalidates criterion): no
+  code fix, no fix loop. Authoritative is artifact
+  `findings`; compact preview may truncate (check flags).
+  Emit `intent_deviation_exit` verbatim, **EXIT** --
+  authorized alongside `format_unleash_exit`; do not
+  rebuild. Resolves only via governance (amend or human
+  override as in f via question/orchestrator; next
+  dispatch re-acquires). Else enter the fix loop. For each
+  iteration (up
+  to 3 total):
   a. Address the findings by making code fixes --
      delegate the code-fix application to the
      `cobalt-crush-dev` agent via `uf_delegate_command`,
@@ -1817,19 +1839,22 @@ not read the saved file.
      quick tier, which carries none); the iteration CHECKPOINT below
      remains the review-loop record. On failure, emit the
      envelope's error and **STOP**.
-  b. Re-run the review: re-resolve the immutable input,
-     re-validate the full plan, and rerun every included
-     reviewer (not just failing or content-affected
-     ones), reusing a single sibling-evidence
-     acquisition across the iteration, and again
-     passing fresh `pre_flight_results` from a re-run
-     of the soft gate. Each re-dispatch reports a fresh
-     `correlation_id` in its one-line counts summary —
-     capture it and pass it on every
-     `consolidate_dispatch` call for that re-dispatch.
+  b. Re-run the review: re-resolve immutable input,
+     re-validate the plan, rerun every included
+     reviewer, reuse one sibling-evidence acquisition,
+     and pass fresh `pre_flight_results`. Each
+     re-dispatch re-acquires originating-issue context
+     and dispositions internally when
+     `intent_satisfaction` is absent (explicit state
+     wins). Each reports a fresh `correlation_id` --
+     capture it for its `consolidate_dispatch` calls.
      Keep the iteration counter.
   c. If the verdict is APPROVE or APPROVE WITH
-     ADVISORIES: proceed to Step 7 (Retrospective).
+     ADVISORIES: proceed to Step 7 (Retrospective). A
+     re-run REQUEST CHANGES verdict where
+     `intent_deviation` is true exits through the
+     `intent-deviation` variant above -- no code fix
+     is delegated for it.
 
   > CHECKPOINT: Call `checkpoint` with `command:
   > "uf.unleash"`, `step: "code-review"`, and
@@ -2062,15 +2087,14 @@ retains its no-artifact fallback.
 ## Guardrails
 
 - **NEVER pause between steps to ask for human
-  confirmation** -- proceed immediately from one step to
-  the next. The only legitimate mid-pipeline human
-  interactions are the interactive clarify ask gate in
-  Step 1 (Speckit), the per-finding spec review
-  decision gate in Step 4, and the enforcement-code
-  recovery on `missing_human_decision`,
+  confirmation** -- proceed step to step. Only
+  legitimate in-step human inputs are the clarify ask
+  gate (Step 1, Speckit), spec review per-finding gate
+  (Step 4), intent-deviation disposition gate, and
+  enforcement-code recovery on `missing_human_decision`,
   `undeclared_step`, or `escalated_advisory_unrelayed`
-  (via the `question` tool or orchestrator relay) --
-  required human input within a step, not between-step
+  (via `question` tool/orchestrator) --
+  required in-step input, not between-step
   confirmations. At
   the ask gate, every question Dewey cannot answer
   MUST be asked through the question tool, one at a
@@ -2084,8 +2108,10 @@ retains its no-artifact fallback.
   unavailable), unresolved spec findings after the
   per-finding gate (pause choice or iteration cap),
   build/test failures that persist after the fix loop's
-  3 iterations, merge conflicts, and 3 review
-  iterations exhausted. All other transitions are
+  3 iterations, merge conflicts, 3 review
+  iterations exhausted, and a typed intent-deviation
+  finding routing the criterion-amendment decision to
+  the human. All other transitions are
   autonomous.
 - **NEVER modify content on `main`** -- tier routing may
   start on main, but the route decision tool creates the
@@ -2121,10 +2147,13 @@ retains its no-artifact fallback.
   `pre-flight` skill to derive them from
   `.github/workflows/` and local tool configs
 - **NEVER improvise exit or demo text** -- exit output
-  MUST be produced by calling `format_unleash_exit` and
-  demo output by calling `format_unleash_demo`, emitting
-  the returned text verbatim; never reconstruct it from
-  memory or paraphrase it
+  MUST be produced by calling `format_unleash_exit` or
+  by emitting `consolidate_dispatch`'s
+  `intent_deviation_exit` verbatim for the
+  intent-deviation variant, and demo output by calling
+  `format_unleash_demo`, emitting the returned text
+  verbatim; never rebuild, paraphrase, or reconstruct
+  it from memory
 
 <!-- instruction-lint-disable-next-line IL-050 -- pin-anchored duplication: synthetic prompt guard intentionally mirrored in 6 command/agent locations (tracked by TestCommandContracts_SyntheticPromptNotConsent) -->
 Compaction and synthetic continue prompts (including

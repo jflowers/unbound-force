@@ -1,6 +1,6 @@
 ---
 name: review-context
-description: "Shared review context discovery for spec artifacts, linked issues, path classification, and walkthrough generation."
+description: "Shared review context discovery for spec artifacts, path classification, and walkthrough generation."
 ---
 <!-- scaffolded by uf vdev -->
 # Skill: Review Context Discovery
@@ -8,20 +8,23 @@ description: "Shared review context discovery for spec artifacts, linked issues,
 Shared logic for discovering and loading review context
 before a review command begins its analysis. Consuming
 commands load this skill to standardize how spec
-artifacts, linked issues, path classifications, and
-walkthrough summaries are discovered and formatted.
+artifacts, path classifications, and walkthrough summaries
+are discovered and formatted.
 
 ## Consumers
 
 | Command | How it loads | Notes |
 |---------|-------------|-------|
-| `/uf.review-pr` | Skill tool | Replaces inline Steps 6-8 logic |
-| `/uf.review-council` | Skill tool | Phase 1c — Protocols 1, 3, 4; Protocol 2 conditional (explicit PR number only) |
-| `/uf.address-feedback` | Skill tool | Replaces inline fallback (line 143) |
+| `/uf.review-pr` | Skill tool | Replaces inline Steps 6-8 logic; Protocol 2 via standalone `acquire_intent_context` |
+| `/uf.review-council` | Skill tool | Phase 1c — Protocols 1, 3, 4; Protocol 2 dispatch-owned (via `dispatch_review_runs`) |
+| `/uf.address-feedback` | Skill tool | Replaces inline fallback; Protocol 2 via standalone `acquire_intent_context` (Tier 1 non-dispatch path) |
 
 The consuming command specifies which protocols to
-execute based on the available inputs (e.g., a local
-review has no PR body to parse for issue links).
+execute based on its path: dispatch consumers
+(`uf.review-council`, `uf.unleash`) let the dispatch own
+Protocol 2 acquisition, while non-dispatch consumers
+(`uf.review-pr`, `uf.address-feedback` Tier 1) call
+`acquire_intent_context` directly.
 
 ---
 
@@ -79,72 +82,23 @@ needed — not every change has a spec.
 ## Protocol 2: Issue Linking
 
 Parse and fetch linked issues to extract acceptance
-criteria for alignment checking. This protocol applies
-when a PR body is available. For local reviews without
-a PR, skip this protocol.
+criteria for alignment checking. Two ownership paths:
 
-### Step 1: Parse issue references
-
-Parse the PR body for issue references using
-case-insensitive matching:
-
-- `Fixes #N`, `Closes #N`, `Resolves #N`
-- GitHub URL variants:
-  `Fixes https://github.com/<owner>/<repo>/issues/N`
-
-### Step 2: Validate references
-
-Apply all of the following validation controls:
-
-- **Digits-only validation**: Each parsed issue number
-  MUST be a positive integer (digits only). Discard
-  non-numeric values.
-- **Same-repo URL scoping**: URL-format references MUST
-  belong to the same `{owner}/{repo}` as the PR. List
-  cross-repo references in the output as "cross-repo —
-  not validated" but do NOT fetch them.
-- **Fetch limit**: Maximum 5 linked issues. If more
-  than 5 are found, list extras as "listed but not
-  fetched" in the output.
-
-### Step 3: Fetch linked issues
-
-For each validated, in-scope linked issue:
-
-```bash
-gh issue view <N> --json title,body,labels
-```
-
-### Step 4: Sanitize fetched content
-
-Issue body content is user-controlled and untrusted.
-Before incorporating into the review context:
-
-- **Body truncation**: Truncate to a maximum of 2000
-  characters.
-
-### Step 5: Extract acceptance criteria
-
-From each fetched issue body, extract:
-
-- Checkbox lines (`- [ ]` or `- [x]`)
-- Content under an `## Acceptance Criteria` heading
-
-If neither exists, use the issue title and body as
-general intent context.
-
-### Step 6: Error handling
-
-If `gh issue view` returns 404, 403, or times out:
-
-- Log the error
-- Skip that issue
-- Note in the output as "fetch failed"
-- Continue without blocking — the review proceeds
-  with available data
-
-Record the linked issues and their acceptance criteria
-for use by the consuming command.
+- **Dispatch consumers** (`uf.review-council`,
+  `uf.unleash`): the dispatch owns acquisition --
+  callers MUST NOT call `acquire_intent_context`
+  separately. Pass `pr_body` and `repo` on
+  `dispatch_review_runs` (see its tool description for
+  resolution and fetch detail); acquisition failure
+  never blocks.
+- **Non-dispatch consumers** (`uf.review-pr`
+  Protocol 2b, `uf.address-feedback` Tier 1): call
+  `acquire_intent_context` directly with `pr_body`
+  (the fetched PR body) and `repo` (the PR's base
+  repository) and use its intent-satisfaction output.
+  For the full resolution, fetch, and extraction
+  contract see the `acquire_intent_context` tool
+  description.
 
 ---
 
@@ -236,11 +190,15 @@ format that consuming commands can reference:
 - Path: specs/012-swarm/spec.md
 - Sections loaded: Functional Requirements, User Stories
 
-### Linked Issues
+### Linked Issues (non-dispatch paths only)
 | Issue | Title | Criteria |
 |-------|-------|----------|
 | #42 | Add auth endpoint | 3 checkboxes extracted |
 | #43 | Fix token refresh | Acceptance Criteria section |
+
+Omit this section on dispatch paths — the dispatch
+owns acquisition and the intent check surfaces in the
+council's final report instead.
 
 ### File Classification
 | File | Focus |

@@ -141,6 +141,10 @@ const REPRESENTATIVE_EXIT_DATA: { readonly [V in UnleashExitVariant]: UnleashExi
     persistent_findings: ["HIGH: finding persists"],
     circular_dependencies: ["guard fix breaks sre check"],
   },
+  "intent-deviation": {
+    findings: ["Issue #563 criterion 3 assumed an API that does not exist"],
+    recommendation: "Amend issue #563's acceptance criteria",
+  },
 }
 
 beforeEach(() => {
@@ -158,7 +162,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("UNLEASH_EXIT_VARIANTS", () => {
-  it("enumerates the eleven exit variants in command order", () => {
+  it("enumerates the twelve exit variants in command order", () => {
     // The tool's zod enum and the lib's renderer dispatch both derive from
     // this list, so pinning it pins the whole exit surface.
     expect(UNLEASH_EXIT_VARIANTS).toEqual([
@@ -173,6 +177,7 @@ describe("UNLEASH_EXIT_VARIANTS", () => {
       "code-review-preflight",
       "code-review-no-success",
       "code-review-iterations-exhausted",
+      "intent-deviation",
     ])
   })
 })
@@ -528,6 +533,37 @@ describe("formatUnleashExit golden templates", () => {
       ].join("\n"),
     )
   })
+
+  it("renders the intent-deviation exit handing the amendment decision to the human", () => {
+    const rendered = formatUnleashExit("intent-deviation", {
+      findings: [
+        "Issue #563 criterion 3 assumed an API that does not exist",
+        "Issue #563 criterion 5 contradicts the shipped design",
+      ],
+      recommendation: "Amend issue #563's acceptance criteria",
+    })
+
+    expect(rendered).toBe(
+      [
+        "## /uf.unleash paused at: code review",
+        "",
+        "**Reason**: Typed intent-deviation finding is not closable by code fixes",
+        "",
+        "### Findings",
+        "",
+        "- Issue #563 criterion 3 assumed an API that does not exist",
+        "- Issue #563 criterion 5 contradicts the shipped design",
+        "",
+        "**Governance recommendation**: Amend issue #563's acceptance criteria",
+        "",
+        "### What to do next",
+        "Amend the issue's acceptance criteria, or — you are the decision-maker and cannot call the agent's tools yourself — direct the agent to record a human override naming the finding through `record_human_decision`, with a question naming the marker `intent-deviation` and the finding identity (issue number and criterion), then re-run `/uf.unleash`.",
+        "",
+        "### Then resume",
+        "Run `/uf.unleash` to continue from code review.",
+      ].join("\n"),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -761,6 +797,34 @@ describe("format_unleash_exit tool", () => {
     expect(writeFileSync).not.toHaveBeenCalled()
   })
 
+  it("returns the rendered intent-deviation exit in a {text} success envelope without checkpointing", async () => {
+    const result = await invokeExitTool({
+      variant: "intent-deviation",
+      findings: ["Issue #563 criterion 3 assumed an API that does not exist"],
+      recommendation: "Amend issue #563's acceptance criteria",
+    })
+
+    expect(result.status).toBe("ok")
+    if (result.status === "ok") {
+      // Tool==lib equivalence: the flat args surface revalidates through
+      // the discriminated union and renders through the same pure lib
+      // function the renderer goldens pin.
+      expect(result.data).toStrictEqual({
+        text: formatUnleashExit("intent-deviation", {
+          findings: ["Issue #563 criterion 3 assumed an API that does not exist"],
+          recommendation: "Amend issue #563's acceptance criteria",
+        }),
+      })
+      // The governance recommendation renders inline under the findings.
+      expect(result.data?.text).toContain("**Governance recommendation**: Amend issue #563's acceptance criteria")
+    }
+
+    // An exit pauses the pipeline rather than completing a step: no state
+    // I/O of any kind.
+    expect(lstatSync).not.toHaveBeenCalled()
+    expect(writeFileSync).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["an unknown variant", { variant: "spec-rejected", findings: ["HIGH: x"] }, "variant"],
     ["clarify without its questions", { variant: "clarify" }, "questions"],
@@ -769,6 +833,16 @@ describe("format_unleash_exit tool", () => {
       "a union violation carrying another variant's field",
       { variant: "clarify", questions: [{ question: "Q?", context: "C" }], phase: 2 },
       "phase",
+    ],
+    [
+      "intent-deviation without its findings",
+      { variant: "intent-deviation", recommendation: "Amend the issue" },
+      "findings",
+    ],
+    [
+      "intent-deviation without its recommendation",
+      { variant: "intent-deviation", findings: ["Issue #563 criterion 3 is wrong"] },
+      "recommendation",
     ],
   ])("rejects %s with INVALID_INPUT", async (_description, args, messagePart) => {
     const result = await invokeExitTool(args)

@@ -77,7 +77,11 @@ import { createMockSpawn, patchBunSpawn } from "./helpers/gh-spawn-mock.js"
 //   uf.triage-issue.md:1091, uf.address-feedback.md:561),
 //   finalize_review_dispatch x1 (speckit.testreview.md:278),
 //   acquire_sibling_evidence (speckit.testreview.md:134),
-//   prepare_lesson_learning (speckit.testreview.md:268)
+//   prepare_lesson_learning (speckit.testreview.md:268),
+//   acquire_intent_context x3 resolved/skipped/unavailable
+//   (uf.review-council.md:711; intent-satisfaction-check), and the
+//   consolidate_dispatch intent-deviation projection x1
+//   (uf.review-council.md:424; RC-FR-013)
 //
 // Envelope contract under test: uf-workflow and uf-finale tools return
 // `{ output: JSON.stringify(ToolResult) }` where ToolResult is the
@@ -689,6 +693,7 @@ describe("golden output shapes -- uf-workflow registry (24 documented sites)", (
     ["code-review-preflight", { variant: "code-review-preflight", findings: ["lint failed on the feature branch"] }],
     ["code-review-no-success", { variant: "code-review-no-success", reasons: ["divisor-guard failed to start"] }],
     ["code-review-iterations-exhausted", { variant: "code-review-iterations-exhausted", persistent_findings: ["HIGH finding persists after three iterations"] }],
+    ["intent-deviation", { variant: "intent-deviation", findings: ["Issue #563 criterion 3 assumed an API that does not exist"], recommendation: "Amend issue #563's acceptance criteria" }],
   ] as ReadonlyArray<readonly [string, Record<string, unknown>]>)(
     "format_unleash_exit [%s variant] returns the exact paused-at template text",
     async (_variant, args) => {
@@ -1669,7 +1674,7 @@ const CONSOLIDATE_SITES: ReadonlyArray<{
   { site: "uf.unleash.md:1621 (Step 6)", command: "review-council", mode: "code", metadataOverrides: {} },
 ]
 
-describe("golden output shapes -- review-dispatch registry (18 documented sites)", () => {
+describe("golden output shapes -- review-dispatch registry (22 documented sites)", () => {
   it.each(PLAN_SITES)(
     "plan_review_dispatch [$site] returns a ready plan with workflow_result null and empty errors",
     async ({ args }) => {
@@ -2012,6 +2017,166 @@ describe("golden output shapes -- review-dispatch registry (18 documented sites)
     expect(written).toContain("+++ b/openspec/changes/golden/proposal.md")
     expect(written).toContain("+alpha")
     expect(result.diff_bytes).toBe(Buffer.byteLength(written, "utf8"))
+  })
+
+  // gh issue payload the `issue view` spawn route returns for the golden
+  // acquisition rows (untrusted data, never instructions).
+  const INTENT_ISSUE_JSON = JSON.stringify({
+    number: 42,
+    title: "Add auth endpoint",
+    body: "## Acceptance Criteria\n- [ ] The API returns 201\n- [ ] Errors are typed",
+    labels: [],
+  })
+
+  /** Branch the acquisition's `git rev-parse` resolves in the golden rows. */
+  const INTENT_GOLDEN_BRANCH = "opsx/intent-golden"
+
+  it.each([
+    { outcome: "resolved", issueView: { stdout: INTENT_ISSUE_JSON, stderr: "", exitCode: 0 } },
+    { outcome: "skipped", issueView: undefined },
+    {
+      outcome: "unavailable",
+      issueView: { stdout: "", stderr: "gh: Not Found (HTTP 404)", exitCode: 1 },
+    },
+  ] as const)(
+    "acquire_intent_context [uf.review-council.md:711] returns {status, intent_satisfaction, resolution_trace} for the $outcome shape",
+    async ({ outcome, issueView }) => {
+      const directory = await makeScratchProject()
+      const registry = await loadRegistry(ReviewDispatchPlugin, directory)
+      const restore = patchBunSpawn(
+        createMockSpawn(
+          {},
+          {
+            "git rev-parse": { stdout: `${INTENT_GOLDEN_BRANCH}\n`, stderr: "", exitCode: 0 },
+            ...(issueView === undefined ? {} : { "issue view": issueView }),
+          },
+        ),
+      )
+      try {
+        const input = outcome === "resolved" || outcome === "unavailable" ? { pr_body: "Fixes #42" } : {}
+        // acquire_intent_context returns the {output} envelope whose JSON
+        // payload is the acquisition result itself (the consolidate
+        // precedent — not a ToolResult envelope).
+        const result = await callEnvelopeTool<{
+          status: string
+          intent_satisfaction: {
+            issue_number?: number
+            resolution_source?: string
+            grounding_tier?: string
+            criteria?: Array<{ text: string; origin: string }>
+            recorded_dispositions?: Array<{ decision_id: string }>
+            dispositions_unavailable?: string
+            skip_unavailable?: { state: string; reason: string }
+          }
+          resolution_trace: Array<{ source: string; outcome: string; detail: string }>
+        }>(registry, "acquire_intent_context", input)
+
+        expect(Object.keys(result)).toEqual(["status", "intent_satisfaction", "resolution_trace"])
+        expect(result.status).toBe(outcome)
+        // Every trace entry carries the RC-FR-010 record shape.
+        for (const entry of result.resolution_trace) {
+          expect(["pr-body", "tier-routing-checkpoint", "openspec-yaml"]).toContain(entry.source)
+          expect(["resolved", "not-provided", "no-reference", "rejected"]).toContain(entry.outcome)
+          expect(entry.detail.length).toBeGreaterThan(0)
+        }
+        if (outcome === "resolved") {
+          expect(result.intent_satisfaction.issue_number).toBe(42)
+          expect(result.intent_satisfaction.resolution_source).toBe("pr-body")
+          expect(result.intent_satisfaction.grounding_tier).toBe("best-effort")
+          expect(result.intent_satisfaction.criteria).toEqual([
+            { text: "The API returns 201", origin: "checkbox" },
+            { text: "Errors are typed", origin: "checkbox" },
+          ])
+          // The branch-scoped human-decision record is absent in the
+          // scratch project: the read-back ran and selected nothing.
+          expect(result.intent_satisfaction.recorded_dispositions).toEqual([])
+          expect(result.intent_satisfaction.dispositions_unavailable).toBeUndefined()
+        } else {
+          expect(result.intent_satisfaction.skip_unavailable?.state).toBe(outcome)
+          expect(result.intent_satisfaction.skip_unavailable?.reason.length).toBeGreaterThan(0)
+        }
+      } finally {
+        restore()
+      }
+    },
+  )
+
+  it("consolidate_dispatch [uf.review-council.md:424 intent-deviation] surfaces typed findings and the rendered /uf.unleash exit in the compact result", async () => {
+    const directory = await makeScratchProject()
+    const registry = await loadRegistry(ReviewDispatchPlugin, directory)
+    const correlationId = await setupGoldenDispatchSession("review-council", "code", {})
+    // Rewrite the session's single run with the typed intent-deviation
+    // finding divisor-guard submits when a criterion is legitimately
+    // invalidated (RC-FR-013).
+    const sessionDir = join(tmpdir(), "opencode", `dispatch-${correlationId}`)
+    const run = {
+      ...goldenDispatchRun("divisor-guard"),
+      findings: [
+        {
+          severity: "HIGH",
+          category: "intent-deviation",
+          description: 'Issue #42 criterion "The API returns 201" assumed an API that does not exist',
+          root_cause: "Amend the issue's acceptance criteria, or record a human override naming the finding",
+          file: null,
+          line: null,
+        },
+      ],
+    }
+    await writeFile(join(sessionDir, "run-divisor-guard.json"), JSON.stringify(run, null, 2), "utf8")
+
+    const result = await callEnvelopeTool<{
+      status: string
+      operation_verdict: string
+      review_verdict: string | null
+      intent_deviation: boolean
+      intent_deviation_count: number
+      intent_deviation_findings: Array<{
+        severity: string
+        description: string
+        root_cause: string
+        file: string | null
+        line: number | null
+      }>
+      intent_deviation_exit: string
+    }>(
+      registry,
+      "consolidate_dispatch",
+      {
+        provenance: {
+          branch: "opsx/golden",
+          commit: SESSION_HEAD_SHA,
+          workflow_id: "uf.review-council",
+        },
+      },
+      toolContext("golden-session"),
+    )
+    expect(result.status).toBe("success")
+    expect(result.operation_verdict).toBe("REQUEST CHANGES")
+    expect(result.review_verdict).toBe("CHANGES_REQUESTED")
+    // DE-006 routing scalars: always-present, never-budget-dropped keys
+    // that carry the exit-versus-fix-loop signal even when the preview
+    // arrays drop entries.
+    expect(result.intent_deviation).toBe(true)
+    expect(result.intent_deviation_count).toBe(1)
+    expect(result.intent_deviation_findings).toEqual([
+      {
+        severity: "HIGH",
+        description: 'Issue #42 criterion "The API returns 201" assumed an API that does not exist',
+        root_cause: "Amend the issue's acceptance criteria, or record a human override naming the finding",
+        file: null,
+        line: null,
+      },
+    ])
+    expect(result.intent_deviation_exit).toContain("## /uf.unleash paused at: code review")
+    expect(result.intent_deviation_exit).toContain(
+      '- Issue #42 criterion "The API returns 201" assumed an API that does not exist',
+    )
+    expect(result.intent_deviation_exit).toContain(
+      "record a human override naming the finding through `record_human_decision`",
+    )
+    // The exit guidance names the literal marker the disposition
+    // read-back selects on (the join key INTENT_DEVIATION_MARKER pins).
+    expect(result.intent_deviation_exit).toContain("naming the marker `intent-deviation`")
   })
 })
 

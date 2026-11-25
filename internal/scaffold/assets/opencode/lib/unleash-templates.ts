@@ -1,7 +1,7 @@
 /**
  * Pure renderers for the /uf.unleash exit and demo output templates.
  *
- * Extracts the prescribed terminal output of /uf.unleash — the eleven
+ * Extracts the prescribed terminal output of /uf.unleash — the twelve
  * "## /uf.unleash paused at:" blocks embedded in tier routing and
  * Steps 1, 4, 5, and 6 and the Step 8 (Demo) format block — from
  * command prose into code
@@ -33,14 +33,17 @@ export const WORKFLOW_TIERS = ["speckit", "openspec", "quick"] as const
 export type UnleashTier = (typeof WORKFLOW_TIERS)[number]
 
 /**
- * The eleven exit scenarios /uf.unleash pauses at, matching the paused-at
+ * The twelve exit scenarios /uf.unleash pauses at, matching the paused-at
  * template blocks in the command. The variant type derives from this list
  * so the two cannot drift apart. Tier routing precedes every numbered
  * step, so its two variants lead the list in command order; the
  * planner-failure variant follows because review planning precedes the
  * review steps it guards (unleash-pipeline-hardening, audit findings
  * F4/F5/F8: DIRTY_TREE, ROUTE_TIER_TOOLING, and planner INCONCLUSIVE
- * exits were hand-composed because no variant existed).
+ * exits were hand-composed because no variant existed). The
+ * intent-deviation variant closes the code-review family: a criterion the
+ * change legitimately invalidates is a governance decision, not a code
+ * fix (intent-satisfaction-check RC-FR-013).
  */
 export const UNLEASH_EXIT_VARIANTS = [
   "tier-routing-dirty-tree",
@@ -54,6 +57,7 @@ export const UNLEASH_EXIT_VARIANTS = [
   "code-review-preflight",
   "code-review-no-success",
   "code-review-iterations-exhausted",
+  "intent-deviation",
 ] as const
 
 /** Exit variant identifier — which paused-at scenario to render. */
@@ -178,6 +182,23 @@ export interface CodeReviewIterationsExhaustedExitData {
   readonly circular_dependencies?: readonly string[]
 }
 
+/**
+ * Data for the "intent-deviation" exit variant. divisor-guard typed a
+ * finding whose acceptance criterion the change legitimately invalidates
+ * rather than fails to meet (intent-satisfaction-check RC-FR-013): the
+ * finding is not closable by code fixes, so the fix loop short-circuits
+ * and the exit hands the amendment decision to the human.
+ */
+export interface IntentDeviationExitData {
+  /**
+   * The typed intent-deviation finding(s), each carrying its invalidation
+   * evidence — the originating issue number and the criterion text.
+   */
+  readonly findings: readonly string[]
+  /** The governance recommendation the finding carries. */
+  readonly recommendation: string
+}
+
 /** Per-variant exit data, keyed by exit variant. */
 export type UnleashExitDataMap = {
   readonly "tier-routing-dirty-tree": TierRoutingDirtyTreeExitData
@@ -191,6 +212,7 @@ export type UnleashExitDataMap = {
   readonly "code-review-preflight": CodeReviewPreflightExitData
   readonly "code-review-no-success": CodeReviewNoSuccessExitData
   readonly "code-review-iterations-exhausted": CodeReviewIterationsExhaustedExitData
+  readonly "intent-deviation": IntentDeviationExitData
 }
 
 /** Union of every per-variant exit data shape. */
@@ -443,6 +465,29 @@ function renderCodeReviewIterationsExhaustedExit(
 }
 
 /**
+ * Render the intent-deviation exit (RC-FR-013). The typed finding is a
+ * governance decision, not a code fix: the exit hands the amendment to
+ * the human — amend the issue's acceptance criteria, or direct the agent
+ * to record a human override through record_human_decision with a
+ * question naming the marker `intent-deviation` and the finding identity
+ * — and the Step 6 resolution step reads the branch-scoped
+ * human-decision record back before the next dispatch, where a
+ * disposition carrying that marker resolves it for that run. The human
+ * is the decision-maker who directs the agent; they cannot call the
+ * agent's tools themselves.
+ */
+function renderIntentDeviationExit(data: IntentDeviationExitData): string {
+  return assemblePausedExit({
+    step: "code review",
+    reason: "Typed intent-deviation finding is not closable by code fixes",
+    body: `### Findings\n\n${bulletList(data.findings)}\n\n**Governance recommendation**: ${data.recommendation}`,
+    whatToDoNext:
+      "Amend the issue's acceptance criteria, or — you are the decision-maker and cannot call the agent's tools yourself — direct the agent to record a human override naming the finding through `record_human_decision`, with a question naming the marker `intent-deviation` and the finding identity (issue number and criterion), then re-run `/uf.unleash`.",
+    resume: "Run `/uf.unleash` to continue from code review.",
+  })
+}
+
+/**
  * Per-variant renderers. The mapped type keeps each renderer paired with
  * its variant's data shape, so formatUnleashExit dispatches without casts.
  */
@@ -460,10 +505,11 @@ const EXIT_RENDERERS: {
   "code-review-preflight": renderCodeReviewPreflightExit,
   "code-review-no-success": renderCodeReviewNoSuccessExit,
   "code-review-iterations-exhausted": renderCodeReviewIterationsExhaustedExit,
+  "intent-deviation": renderIntentDeviationExit,
 }
 
 /**
- * Render a /uf.unleash paused-at exit message for one of the eleven exit
+ * Render a /uf.unleash paused-at exit message for one of the twelve exit
  * variants, reproducing the command template's structure exactly: the
  * "## /uf.unleash paused at: <step>" heading, the **Reason** line, the
  * step-specific body, "### What to do next" guidance (tier-specific for

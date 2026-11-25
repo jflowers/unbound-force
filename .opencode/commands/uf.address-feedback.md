@@ -325,8 +325,8 @@ Load context for evidence-based classification (D10, FR-010):
    - Speckit: `specs/NNN-*/` matching branch pattern
      (branch may be `speckit/NNN-*` or `NNN-*` legacy)
    - OpenSpec: `openspec/changes/*/` matching branch
-5. Linked issues from PR description (`Fixes #N`, `Closes #N`, `Resolves #N`) — load acceptance criteria
-6. Invoke the `skill` tool with name `review-context` to load standardized context discovery (spec artifacts, linked issues, path classification).
+5. Linked issues — call `acquire_intent_context` with `pr_body`/`repo` for `intent_satisfaction` (the skill's non-dispatch Protocol 2 path)
+6. Invoke the `skill` tool with name `review-context` to load standardized context discovery (spec artifacts, path classification).
 
 ### 2.2 Tiered Assessment
 

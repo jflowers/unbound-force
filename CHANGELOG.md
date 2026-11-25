@@ -6,6 +6,44 @@ Each entry follows the format: `- <change-name>: <summary>`.
 ## Unreleased
 
 ### Added
+- intent-satisfaction-check: the review council now runs a
+  mandatory intent-satisfaction check in CODE review mode,
+  validating the reviewed change against its originating
+  issue's acceptance criteria. `/uf.review-council`
+  Phase 1c invokes the new `acquire_intent_context` tool
+  (review-dispatch plugin) unconditionally (RC-FR-010); the
+  invocation itself discovers whether an originating issue
+  resolves -- PR-body `Fixes`/`Closes`/`Resolves`
+  references, the branch-scoped tier-routing checkpoint
+  `issue_number`, or `.openspec.yaml` `originating_issue`,
+  every candidate reference validated (digits-only,
+  positive, same-repo) before any fetch and the first
+  valid reference in document order winning. Extracted
+  criteria are bounded (2000 characters per criterion,
+  8192 total) with an honest grounding tier (RC-FR-011):
+  `strict` only on an intake-kit provenance signal (a
+  label or marked criteria section), `best-effort`
+  otherwise. The `intent_satisfaction` result is forwarded
+  verbatim as `session_metadata.intent_satisfaction` on
+  `dispatch_review_runs`, which renders it into every
+  reviewer prompt and records it in the persisted artifact.
+  divisor-guard evaluates each criterion against the diff
+  (RC-FR-012): satisfied criteria appear as traceability,
+  unsatisfied criteria are blocking findings citing the
+  issue number and criterion text, and criteria the change
+  legitimately invalidates surface as typed
+  `intent-deviation` findings routed to governance instead
+  of code fixes (RC-FR-013). `/uf.unleash` Step 6 forwards
+  the same context and exits through the new
+  `intent-deviation` `format_unleash_exit` variant (twelve
+  exit variants now) when the consolidated verdict carries
+  such a finding. When no issue resolves or `gh` is
+  unavailable, the check degrades to
+  `skipped`/`unavailable` -- informational, never blocking.
+  New eval fixture `.eval/fixtures/intent-satisfaction-check/`
+  exercises the issue-threaded council dispatch end to end.
+  (Spec: openspec/changes/intent-satisfaction-check/)
+  (Fixes: #563, Docs: #1207, unbound-force/website#449)
 - toolkit-gaze-2.4.0-reconciliation: `.opencode/agents/divisor-gaze-testing.md`
   is registered as a repo-local, non-embedded agent in
   `knownNonEmbeddedFiles` (the embedded canonical testing persona

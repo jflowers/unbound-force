@@ -123,10 +123,11 @@ None.
   grounding-tier selection, and context delivery; a command
   eval fixture for the threaded path.
 - AGENTS.md review-command documentation, plus the
-   documentation issue required by the documentation gate.
+  documentation issue required by the documentation gate
+  (filed: #1207, unbound-force/website#449).
 - Blog/tutorial: none warranted — the intent-deviation
-   human gate is internal governance; task 6.3's
-   documentation issue records that consideration.
+  human gate is internal governance; #1207 records the
+  tutorial/blog consideration.
 - Instruction-file deltas (DE-004): expected net growth is
    about +10 lines in `uf.unleash.md` (Step 6 issue
    forwarding), +25 in `uf.review-council.md` (Phase 1c

@@ -639,6 +639,9 @@ describe("compact finalization", () => {
       "artifact_path",
       "review_verdict",
       "run_counts",
+      // DE-006 routing scalars: never dropped by the byte budget.
+      "intent_deviation",
+      "intent_deviation_count",
       "proposals",
       "warnings",
       "calculated_assessment",
@@ -886,5 +889,166 @@ describe("compact finalization", () => {
     expect(compact.errors).toEqual(["persistence failed"])
     expect(compact).not.toHaveProperty("proposals")
     expect(compact).not.toHaveProperty("warnings")
+  })
+
+  it("surfaces typed intent-deviation findings complete with the rendered exit, omitted without them", () => {
+    // RC-FR-013 (review finding F5): findings whose category is exactly
+    // "intent-deviation" project complete — severity, description,
+    // root_cause, file, line — as intent_deviation_findings alongside the
+    // tool-rendered /uf.unleash exit text in intent_deviation_exit.
+    const deviation = (index: number): Record<string, unknown> => ({
+      severity: "HIGH",
+      category: "intent-deviation",
+      description: `Issue #42 criterion ${index} assumed an API that does not exist`,
+      root_cause: `Amend issue #42's acceptance criteria for criterion ${index}.`,
+      file: null,
+      line: null,
+      run_ids: ["11111111-1111-4111-8111-111111111111"],
+    })
+    const compact = buildCompactFinalization(result, RUN_COUNTS, [], [], undefined, [
+      deviation(1),
+      // Near-miss categories never project.
+      { ...deviation(2), category: "Intent-Deviation" },
+      { ...deviation(3), category: "intent-deviations" },
+      // Non-deviation findings never project.
+      makeFinding(4),
+    ])
+    expect(compact.intent_deviation_findings).toEqual([
+      {
+        severity: "HIGH",
+        description: "Issue #42 criterion 1 assumed an API that does not exist",
+        root_cause: "Amend issue #42's acceptance criteria for criterion 1.",
+        file: null,
+        line: null,
+      },
+    ])
+    const exitText = compact.intent_deviation_exit as string
+    expect(exitText).toContain("## /uf.unleash paused at: code review")
+    expect(exitText).toContain("- Issue #42 criterion 1 assumed an API that does not exist")
+    expect(exitText).toContain(
+      "**Governance recommendation**: Amend issue #42's acceptance criteria for criterion 1.",
+    )
+    // The keys sit between run_counts and the observability arrays, and
+    // both vanish when no typed finding survives.
+    const keys = Object.keys(compact)
+    expect(keys.indexOf("intent_deviation_findings")).toBeGreaterThan(keys.indexOf("run_counts"))
+    expect(keys.indexOf("intent_deviation_findings")).toBeLessThan(
+      keys.indexOf("calculated_assessment"),
+    )
+    const without = buildCompactFinalization(result, RUN_COUNTS, [], [], undefined, [makeFinding(4)])
+    expect(without).not.toHaveProperty("intent_deviation_findings")
+    expect(without).not.toHaveProperty("intent_deviation_exit")
+  })
+
+  it("drops proposals, then errors, then trailing intent-deviation findings whole, recomputing the exit", () => {
+    // Review finding 19 (iteration 2): the drop priority chain is
+    // proposals → errors → deviations (F5/DE-006), exercised here with
+    // all three arrays competing for the budget — not deviations alone.
+    // Each kept deviation is mirrored into the exit text (description
+    // and root_cause), so a deviation's bytes count roughly twice.
+    const deviation = (index: number, size: number): Record<string, unknown> => ({
+      severity: "HIGH",
+      category: "intent-deviation",
+      description: `deviation-${index}-${"d".repeat(size)}`,
+      root_cause: `amend-${index}`,
+      file: null,
+      line: null,
+    })
+
+    // Priority: while proposals remain, only proposals shed — errors
+    // and deviations stay complete and unflagged.
+    const proposalHeavy = buildCompactFinalization(
+      result,
+      RUN_COUNTS,
+      Array.from({ length: 8 }, (_, index) => makeProposal(index, { information: `p${index}`.padEnd(4_000, "y") })),
+      [],
+      undefined,
+      [deviation(1, 5_500), deviation(2, 5_500), deviation(3, 5_500)],
+    )
+    expect(byteSize(proposalHeavy)).toBeLessThan(BYTE_BUDGET)
+    expect(proposalHeavy.proposals_truncated).toBe(true)
+    expect((proposalHeavy.proposals as unknown[]).length).toBeGreaterThan(0)
+    expect((proposalHeavy.proposals as unknown[]).length).toBeLessThan(8)
+    expect(proposalHeavy.errors_truncated).toBeUndefined()
+    expect((proposalHeavy.intent_deviation_findings as unknown[])).toHaveLength(3)
+    expect(proposalHeavy.intent_deviation_findings_truncated).toBeUndefined()
+
+    // Full chain: proposals exhaust first, then errors, then trailing
+    // deviations — and every drop is flagged, never silent.
+    const allCompeting = buildCompactFinalization(
+      {
+        ...result,
+        errors: Array.from({ length: 4 }, (_, index) => `error ${index}: `.padEnd(1_000, "e")),
+      } as unknown as Parameters<typeof buildCompactFinalization>[0],
+      RUN_COUNTS,
+      Array.from({ length: 8 }, (_, index) => makeProposal(index, { information: `p${index}`.padEnd(4_000, "y") })),
+      [],
+      undefined,
+      [deviation(1, 5_500), deviation(2, 5_500), deviation(3, 5_500), deviation(4, 5_500)],
+    )
+    expect(byteSize(allCompeting)).toBeLessThan(BYTE_BUDGET)
+    expect(allCompeting.proposals_truncated).toBe(true)
+    expect(allCompeting).not.toHaveProperty("proposals")
+    expect(allCompeting.errors_truncated).toBe(true)
+    expect(allCompeting.errors).toEqual([])
+    const kept = allCompeting.intent_deviation_findings as Array<Record<string, unknown>>
+    expect(kept.length).toBeGreaterThan(0)
+    expect(kept.length).toBeLessThan(4)
+    kept.forEach((entry) => {
+      expect(String(entry.description)).toBe(`deviation-${kept.indexOf(entry) + 1}-${"d".repeat(5_500)}`)
+    })
+    const keptExit = allCompeting.intent_deviation_exit as string
+    expect(keptExit).toContain(`- deviation-1-`)
+    expect(keptExit).not.toContain(`- deviation-4-`)
+
+    // DE-006 signalling: the routing scalars never drop and stay
+    // truthful to the FULL findings argument even after the preview
+    // sheds entries, and both truncation flags fire on the drop — no
+    // silent loss.
+    expect(allCompeting.intent_deviation).toBe(true)
+    expect(allCompeting.intent_deviation_count).toBe(4)
+    expect(allCompeting.intent_deviation_findings_truncated).toBe(true)
+    expect(allCompeting.intent_deviation_exit_truncated).toBe(true)
+
+    // A single deviation too large for the budget drops entirely — both
+    // preview keys vanish rather than surfacing a partial pair — but the
+    // routing scalars and flags survive the drop.
+    const oversized = buildCompactFinalization(
+      { ...result, errors: [] } as unknown as Parameters<typeof buildCompactFinalization>[0],
+      RUN_COUNTS,
+      [],
+      [],
+      undefined,
+      [deviation(1, 60_000)],
+    )
+    expect(oversized).not.toHaveProperty("intent_deviation_findings")
+    expect(oversized).not.toHaveProperty("intent_deviation_exit")
+    expect(oversized.intent_deviation).toBe(true)
+    expect(oversized.intent_deviation_count).toBe(1)
+    expect(oversized.intent_deviation_findings_truncated).toBe(true)
+    expect(oversized.intent_deviation_exit_truncated).toBe(true)
+  })
+
+  it("flags entry-capped deviation previews while the routing scalars stay truthful to the full set", () => {
+    // DE-006: the findings-preview entry cap (15, same as findings) is a
+    // drop too — the truncation flags fire without any byte-budget
+    // pressure, and intent_deviation_count reports the full set.
+    const small = (index: number): Record<string, unknown> => ({
+      severity: "HIGH",
+      category: "intent-deviation",
+      description: `deviation-${index}`,
+      root_cause: `amend-${index}`,
+      file: null,
+      line: null,
+    })
+    const capped = buildCompactFinalization(result, RUN_COUNTS, [], [], undefined, Array.from({ length: 16 }, (_, index) => small(index + 1)))
+    expect((capped.intent_deviation_findings as unknown[]).length).toBe(15)
+    expect(capped.intent_deviation_findings_truncated).toBe(true)
+    expect(capped.intent_deviation_exit_truncated).toBe(true)
+    expect(capped.intent_deviation).toBe(true)
+    expect(capped.intent_deviation_count).toBe(16)
+    const exitText = capped.intent_deviation_exit as string
+    expect(exitText).toContain("- deviation-15")
+    expect(exitText).not.toContain("- deviation-16")
   })
 })

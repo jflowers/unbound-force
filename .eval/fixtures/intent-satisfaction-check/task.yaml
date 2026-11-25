@@ -1,0 +1,14 @@
+task_id: intent-satisfaction-check
+task_version: "1"
+description: >
+  /uf.review-council code on the clean mini-repo change whose
+  .openspec.yaml records an originating issue: the dispatch's
+  internal acquisition (never a separate acquire_intent_context
+  call) resolves the reference through the openspec-yaml source,
+  the stubbed gh fetch is refused by design, and the unavailable
+  degradation threads through the dispatch into the finalized
+  artifact without blocking the review.
+exec_mode: interactive
+command: uf.review-council
+timeout_seconds: 5400
+setup: setup.sh

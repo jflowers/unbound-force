@@ -1,0 +1,59 @@
+# Intent-satisfaction-check threaded path (RC-FR-010/011, design D6):
+# the same clean mini-repo change review-council-clean-change reviews,
+# plus the .openspec.yaml originating_issue commit a change routed from
+# an issue carries. The dispatch's internal acquisition (review finding
+# F3) resolves issue #128 through the openspec-yaml source — a compliant
+# CODE-mode council run never calls acquire_intent_context as a separate
+# step, because dispatch_review_runs acquires an absent
+# session_metadata.intent_satisfaction itself; the eval gh stub refuses
+# the fetch by design (EV-FR-002), so the run exercises the documented
+# unavailable degradation end to end: the failure reason is recorded,
+# the state rides the dispatch session metadata into the finalized
+# artifact and final report, and the clean change still approves — the
+# check never blocks review infrastructure. Verdict and degradation
+# state are read from the policy tools' own outputs, not from the
+# assistant's prose.
+assertions:
+  # The shared protocol ran end to end
+  - tool_called: capture_review_diff
+  - tool_called: plan_review_dispatch
+  - tool_called: dispatch_review_runs
+  - tool_called: consolidate_dispatch
+  # The acquisition collapsed into the dispatch (review finding F3): a
+  # compliant CODE-mode council run never invokes the acquisition tool
+  # separately — dispatch_review_runs acquires the absent
+  # intent_satisfaction internally
+  - tool_not_called: [acquire_intent_context]
+  # The internal acquisition resolved the reference from the change's
+  # .openspec.yaml and constructed the gh fetch from the validated
+  # numeric reference with the exact field list; the stub refused it
+  - stub_called: { name: gh, args_matches: '^issue view 128 --json number,title,body,labels$' }
+  # The refusal produced the unavailable degradation inside the
+  # dispatch, never an error: consolidate_dispatch reads back the
+  # session metadata dispatch_review_runs persisted, so its output
+  # carrying the state proves the dispatch acquired it — the
+  # skip_unavailable shape, the unavailable state value, and the issue
+  # number inside the recorded failure reason
+  - tool_output_matches: { tool: consolidate_dispatch, pattern: 'intent_satisfaction' }
+  - tool_output_matches: { tool: consolidate_dispatch, pattern: 'skip_unavailable' }
+  - tool_output_matches: { tool: consolidate_dispatch, pattern: '"state":\s*"unavailable"' }
+  - tool_output_matches: { tool: consolidate_dispatch, pattern: 'issue #128' }
+  # Finalization succeeded and the clean change still approves — the
+  # unavailable status never blocks the review
+  - tool_output_matches: { tool: consolidate_dispatch, pattern: '"status":\s*"success"' }
+  - tool_output_matches: { tool: consolidate_dispatch, pattern: 'APPROVE' }
+  - tool_output_not_matches: { tool: consolidate_dispatch, pattern: 'REQUEST[ _]CHANGES' }
+  # The final report carries the mandated intent-satisfaction note:
+  # the originating issue number and the unavailable status
+  - text_matches: '#128'
+  - text_matches: { pattern: 'unavailable', flags: i }
+  # No fix loop: a single council round
+  - tool_called: { name: dispatch_review_runs, max: 1 }
+  # Never posts to GitHub (the issue-view fetch is the only gh call)
+  - stub_not_called: { name: gh, args_matches: 'reviews|--method|comment|POST' }
+  # Configuration and the brief must decide everything: nothing may wait
+  - no_permission_asks: true
+  - no_unanswered_questions: true
+  # A reviewer cut off by its output limit, or that ends silently, is
+  # still counted as a successful approval upstream (unbound-force#1052).
+  - sessions_completed: { agent: '^divisor-' }

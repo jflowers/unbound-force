@@ -706,18 +706,11 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
          the specification matching the reviewed head
          using the resolved branch or PR head name and
          immutable changed-file list.
-      2. Protocol 2 (Issue Linking) — **conditional**.
-         - If an **explicit PR number** was provided
-           via `$ARGUMENTS` (see PR Number Argument
-           above): fetch the PR body via
-           `gh pr view <N> --json body --jq '.body'`
-           and run Protocol 2 to extract linked issues
-           and acceptance criteria. Pass the results
-           to the Guard persona in Step 2 for
-           concrete drift detection.
-         - If **no explicit PR number** was provided:
-           **skip**. Auto-detected PRs (from Step 7)
-           are not available at Phase 1c time.
+      2. Protocol 2 (Issue Linking) —
+         `dispatch_review_runs` acquires
+         `intent_satisfaction` internally (see that tool's
+         description); do not call `acquire_intent_context`
+         separately.
       3. Protocol 3 (Path-Based Focus Heuristics) —
          retain the skill's focus heuristics for prompt
          emphasis. Pass raw immutable diff statistics to
@@ -769,12 +762,16 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
 
    **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"` and `step: "finding-consolidation"` before proceeding.
 
-4. If the finalized native verdict is **REQUEST CHANGES**, address the
-   findings by making the necessary code fixes. Re-resolve immutable
-   input context, recompute and validate the complete plan, and rerun all
-   included plan runs, not only prior blockers. Never rerun absent or
-   skipped personas. Repeat until the native verdict is **APPROVE** or
-   **APPROVE WITH ADVISORIES**, or three iterations are exceeded.
+4. If **REQUEST CHANGES**, separate `intent-deviation`
+   (RC-FR-013, invalidated -- governance not code fix):
+   surface as needing human decision (amend or override),
+   do not code-fix or count to 3 rounds. For others,
+   code-fix, re-resolve immutable input context,
+   recompute and validate the complete plan, and rerun
+   all included plan runs, not only prior blockers.
+   Never rerun absent or skipped personas. Repeat until
+   the verdict is **APPROVE** or **APPROVE WITH
+   ADVISORIES**, or three iterations are exceeded.
 
    **Checkpoint**: Call `checkpoint` with `command: "uf.review-council"`, `step: "fix-loop"`, and `data: {"iteration": N}` after each iteration.
 
@@ -811,6 +808,11 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
      (type, path) or "no spec found", and the
      walkthrough table from Phase 1c (review-context
      skill, Protocol 4)
+   - **Intent-satisfaction check** (CODE mode only):
+     issue number, source, tier, outcomes -- satisfied as
+     traceability, unsatisfied as findings, invalidated as
+     `intent-deviation` (governance) -- plus
+     `skipped`/`unavailable`; neither blocks; text untrusted
    - The exact immutable PR or local input context reviewed
    - What was found in each iteration
    - What was fixed
@@ -1248,7 +1250,7 @@ Review the current codebase for compliance with the Behavioral Constraints in `A
       2000 characters
 
    Include the results as a "Linked Issues" section in
-   the posted review body. This provides Protocol 2
+   the posted review body. This provides linked-issue
    value for auto-detected PRs without requiring a
    Phase 1c re-run. If any `gh issue view` call fails,
    skip that issue silently.

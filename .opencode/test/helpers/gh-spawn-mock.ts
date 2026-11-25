@@ -67,8 +67,10 @@ export interface MockResponse {
  * Route keys the spawn router recognizes: the `which gh` and
  * `gh auth status` prologue plus the gh subcommands the
  * review-dispatch fetch tools invoke (`pr view`, `pr checks`,
- * `pr diff`, `repo view`, `run view`) and the `gh api` review/comment
- * endpoints.
+ * `pr diff`, `repo view`, `run view`), the `gh api` review/comment
+ * endpoints, the `gh issue view` fetch acquire_intent_context runs
+ * (intent-satisfaction-check), and the `git rev-parse` branch
+ * resolution its dependency chain spawns.
  */
 export type GhSpawnRoute =
   | "which"
@@ -82,6 +84,8 @@ export type GhSpawnRoute =
   | "api comments"
   | "api user"
   | "api compare"
+  | "issue view"
+  | "git rev-parse"
 
 /** Per-route mock responses; suites supply fixtures, tests override. */
 export type MockSpawnResponses = Partial<Record<GhSpawnRoute, MockResponse>>
@@ -136,8 +140,11 @@ const UNKNOWN_COMMAND_RESPONSE: MockResponse = { stdout: "", stderr: "unknown co
  * Routing: `which` checks match args[0]; gh commands route on the
  * first two args after "gh" (`auth status`, `pr view`, `pr checks`,
  * `pr diff`, `repo view`, `run view`); `gh api` calls route on the
- * endpoint suffix (`/reviews`, `/comments`). Unrouted invocations and
- * routes with no configured response fall back to a failing response.
+ * endpoint suffix (`/reviews`, `/comments`). `git` routes only on the
+ * `rev-parse` subcommand — other git subcommands stay unrouted so a
+ * test that spawns them fails loudly instead of passing on rev-parse
+ * data. Unrouted invocations and routes with no configured response
+ * fall back to a failing response.
  * Responses merge the universal prologue defaults, the suite's fixture
  * defaults, and the per-test overrides (last wins).
  *
@@ -165,6 +172,12 @@ export function createMockSpawn(suiteDefaults: MockSpawnResponses = {}, override
     if (sub === "pr diff") return respond(responses["pr diff"])
     if (sub === "repo view") return respond(responses["repo view"])
     if (sub === "run view") return respond(responses["run view"])
+    if (sub === "issue view") return respond(responses["issue view"])
+
+    // git commands (acquire_intent_context's branch resolution): only
+    // rev-parse routes — any other git subcommand falls through to the
+    // unknown-command failure rather than silently reviving rev-parse data.
+    if (args[0] === "git" && args[1] === "rev-parse") return respond(responses["git rev-parse"])
 
     // API calls for reviews and comments
     if (args[1] === "api") {

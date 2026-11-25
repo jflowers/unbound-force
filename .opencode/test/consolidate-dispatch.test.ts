@@ -2965,6 +2965,12 @@ describe("consolidate_dispatch detail modes and compact finalization (RD-FR-049,
     "failure_record",
     "review_verdict",
     "run_counts",
+    // DE-006 routing scalars: unconditional early keys ahead of every
+    // droppable array. The four deviation preview/flag keys render only
+    // when typed findings survive, so expectKeyOrder filters them out
+    // for sessions without intent-deviation findings.
+    "intent_deviation",
+    "intent_deviation_count",
     "proposals",
     "warnings",
     "proposals_truncated",

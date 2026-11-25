@@ -91,6 +91,7 @@ import {
   createDispatchReviewRunsTool,
   createFinalizationDependencies,
   specReviewDispatchGuard,
+  type AcquireIntentContextDependencies,
   type DispatchAgentRunDependencies,
 } from "../plugins/review-dispatch/index.js"
 import {
@@ -1499,9 +1500,11 @@ describe("dispatch re-dispatch guard (HARDEN-003, tasks 4.1-4.2)", () => {
     const root = await guardRoot()
     const dispatchTool = createDispatchReviewRunsTool(
       // Never reached: the guard returns before sibling evidence
-      // acquisition or any run dispatch touches these dependencies.
+      // acquisition, internal intent acquisition, or any run dispatch
+      // touches these dependencies.
       undefined as unknown as DispatchAgentRunDependencies,
       undefined as unknown as SiblingAcquisitionDependencies,
+      undefined as unknown as AcquireIntentContextDependencies,
       root,
     )
     const metadata = await dispatchMetadata(dispatchTool, {

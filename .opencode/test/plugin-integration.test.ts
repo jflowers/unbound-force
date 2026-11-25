@@ -144,6 +144,7 @@ describe("plugin integration with a fake OpenCode client", () => {
 
       expect(Object.keys(invokeHooks.tool)).toEqual(["invoke_agent"])
       expect(Object.keys(dispatchHooks.tool).sort()).toEqual([
+        "acquire_intent_context",
         "acquire_sibling_evidence",
         "assess_prior_review_staleness",
         "build_review_prompts",

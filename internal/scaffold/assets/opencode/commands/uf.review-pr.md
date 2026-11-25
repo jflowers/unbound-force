@@ -283,9 +283,10 @@ walkthrough generation:
    a. Protocol 1 (Spec Artifact Discovery) — locate
       the specification matching this PR using the branch
       name, PR description, and changed file list.
-   b. Protocol 2 (Issue Linking) — parse the PR body
-      for linked issues, validate, fetch, sanitize, and
-      extract acceptance criteria.
+   b. Protocol 2 (Issue Linking) — call
+      `acquire_intent_context` with `pr_body` (the fetched
+      PR body) and `repo` (the PR's base repository) and
+      use its intent-satisfaction output.
    c. Protocol 3 (Path-Based Focus Heuristics) —
       retain the skill's focus heuristics for prompt
       emphasis. Pass raw diff statistics to the planner;

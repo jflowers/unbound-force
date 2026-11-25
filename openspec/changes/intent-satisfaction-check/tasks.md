@@ -12,7 +12,7 @@
 
 ## 1. Context supply and dispatch plumbing (RC-FR-010..011, D1-D3)
 
-- [ ] 1.1 [P] Implement the intent-context acquisition tool in
+- [x] 1.1 [P] Implement the intent-context acquisition tool in
       `.opencode/plugins/review-dispatch/` (sibling to the
       gh-resolution precedents `uf_unleash_resolve_issue` and
       `uf_finale_pr_context`) that resolves, fetches,
@@ -35,7 +35,7 @@
 
 ## 2. Phase 1 checkpoint — plugin suite stays green
 
-- [ ] 2.1 Run `make plugin-test` and verify all three DE-007 seam
+- [x] 2.1 Run `make plugin-test` and verify all three DE-007 seam
       layers for the extended dispatch contract: registration
       surface and input-schema parity for the new
       `dispatch_review_runs` session-metadata fields written at
@@ -51,7 +51,7 @@
 
 ## 3. Test coverage (RC-FR-010..011, D2, D6)
 
-- [ ] 3.1 In `.opencode/test/intent-satisfaction.test.ts`, pin the
+- [x] 3.1 In `.opencode/test/intent-satisfaction.test.ts`, pin the
       machine-readable field shapes per design D2 — issue number,
       resolution source (`pr-body`, `tier-routing-checkpoint`,
       `openspec-yaml`), grounding tier (`strict`, `best-effort`),
@@ -81,12 +81,37 @@
       unavailable degradation with failure reason when the
       fetch fails, leaving the rest of the review unaffected.
       All tests run without network access (Principle IV).
-- [ ] 3.2 Checkpoint: run `make plugin-test` — the full vitest suite
+- [x] 3.2 Checkpoint: run `make plugin-test` — the full vitest suite
       with the 94 percent floor MUST pass.
+  - Record (task 3.2): PASS — `make plugin-test` (expands to
+    `cd .opencode && npx -y npm@11.6.2 install --ignore-scripts
+    --no-package-lock --no-audit --no-fund && npx vitest run
+    --coverage`) exited 0: 76 test files passed (76), 2706 tests
+    passed (2706), 0 failed, 0 skipped. The two Phase 3 files ran
+    green with per-file counts confirmed by a targeted
+    `npx vitest run`: acquire-intent-context.test.ts 33/33 and
+    intent-satisfaction.test.ts 26/26. Coverage vs the vitest
+    thresholds (governance-controlled, issue #780; a below-floor
+    run exits non-zero, so exit 0 proves the floors hold):
+    statements 96.12 percent (8807/9162) vs the 94 percent floor
+    — holds, +2.12 points; branches 89.81 percent (5774/6429) vs
+    the 85 percent floor — holds, +4.81 points (functions 98.49
+    percent and lines 96.57 percent, unthresholded). The
+    documented local lock race hit both sides of the run: a
+    concurrent opencode host had left a gitignored
+    `.opencode/package-lock.json` before the run — removed per
+    AGENTS.md, node_modules untouched — and the target's final
+    no-lock-shipped assertion passed (exit 0); the lock
+    re-appeared a minute after the run completed, post-checkpoint,
+    again from a concurrent host. Environmental, pre-existing,
+    unrelated to this change (the diff touches no dependency
+    files): npm printed EBADENGINE warnings on local Node v24.11.1
+    (below ^24.15.0; CI's node-version 22 pin resolves in range —
+    the documented warnings-not-failures profile).
 
 ## 4. Command and persona contracts (RC-FR-010, 012..013, D1, D4-D5)
 
-- [ ] 4.1 [P] In `.opencode/commands/uf.review-council.md`, make the
+- [x] 4.1 [P] In `.opencode/commands/uf.review-council.md`, make the
       Phase 1c Protocol 2 invocation unconditional in CODE
       review mode — the invocation itself discovers whether
       an originating issue resolves, including through the
@@ -96,7 +121,7 @@
       as traceability, unsatisfied criteria as findings citing
       the issue number and criterion text), the grounding tier,
       and the skip/unavailable notes.
-- [ ] 4.2 [P] In `.opencode/commands/uf.unleash.md`, update Step 6
+- [x] 4.2 [P] In `.opencode/commands/uf.unleash.md`, update Step 6
       including its re-run branches to resolve the originating
       issue by invoking the Phase 1 acquisition tool (which
       reads branch-scoped checkpoint state or `.openspec.yaml`)
@@ -111,7 +136,7 @@
       branch-scoped human-decision record and forwards any
       disposition naming the finding into the dispatch as
       review context, where guard treats it as resolved.
-- [ ] 4.3 [P] In `.opencode/agents/divisor-guard.md`, extend the
+- [x] 4.3 [P] In `.opencode/agents/divisor-guard.md`, extend the
       Code Review Mode Intent Drift Detection item to evaluate
       each issue acceptance criterion against the diff —
       satisfied criteria recorded as traceability, unsatisfied
@@ -137,7 +162,7 @@
 
 ## 5. Phase 4 checkpoint — instruction contracts verified
 
-- [ ] 5.1 Run `make lint-instructions`, then verify presence with
+- [x] 5.1 Run `make lint-instructions`, then verify presence with
       `rg`: the mandatory Phase 1c invocation in
       `uf.review-council.md`, the Step 6 issue forwarding in
       `uf.unleash.md`, and the intent-deviation category in
@@ -145,20 +170,20 @@
 
 ## 6. Scaffold mirror, evaluation, documentation
 
-- [ ] 6.1 Copy the edited canonical assets byte-identical into
+- [x] 6.1 Copy the edited canonical assets byte-identical into
       their scaffold mirrors under
       `internal/scaffold/assets/opencode/` (skill, both commands,
       agent, plugin), then run `go test -race -count=1
       ./internal/scaffold/...` — the embedded-asset drift tests
       MUST pass.
-- [ ] 6.2 [P] Add the command eval fixture for the threaded path
+- [x] 6.2 [P] Add the command eval fixture for the threaded path
       under `.eval/fixtures/intent-satisfaction-check/`
       (`task.yaml`, `setup.sh`, `assertions.yaml`, `guidance.md`)
       exercising an issue-threaded council dispatch end to end
       with deterministic assertions; the mini-repo from
       `.eval/lib/mini-repo/` it builds MUST keep satisfying this
       repo's own rules.
-- [ ] 6.3 [P] Documentation: add the CHANGELOG.md entry (issue
+- [x] 6.3 [P] Documentation: add the CHANGELOG.md entry (issue
       #563) and update the AGENTS.md review-command documentation
       for the mandatory intent-satisfaction check. File the
       documentation issue the documentation gate requires —
@@ -172,7 +197,7 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Constitution-alignment verification (the proposal
+- [x] 7.1 Constitution-alignment verification (the proposal
       assesses all six principles): confirm artifact-carried
       coordination only (I); degradation instead of dependency —
       the council stays functional with no resolved issue, no
@@ -188,7 +213,7 @@
       `uf.unleash` Step 6 region is also touched by the active
       per-task-delegation-budgets change (UO-FR-010) — merge
       order may require a routine rebase.
-- [ ] 7.2 Final CI parity (MP-023): run `make plugin-test`, `go
+- [x] 7.2 Final CI parity (MP-023): run `make plugin-test`, `go
       test -race -count=1 ./internal/scaffold/...`, `make
       lint-instructions`, and `make check` — all MUST pass before
       the change is marked complete.

@@ -225,6 +225,7 @@ func stageReviewPluginSources(opts *Options, stageRoot string) error {
 		"opencode/lib/delegation-budget.ts",
 		"opencode/lib/feedback-replies.ts",
 		"opencode/lib/gh-error.ts",
+		"opencode/lib/intent-context.ts",
 		"opencode/lib/model-matrix.ts",
 		"opencode/lib/preflight-declared.ts",
 		"opencode/lib/progress-state.ts",
